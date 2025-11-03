@@ -1,0 +1,42 @@
+{
+  "name": "keyching-server",
+  "version": "1.0.0",
+  "description": "KeyChing App MySQL Backend Server",
+  "main": "server.cjs",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.cjs",
+    "dev": "nodemon server.cjs",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "keyching",
+    "api",
+    "mysql",
+    "backend"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@google-cloud/storage": "^7.17.1",
+    "axios": "^1.12.2",
+    "bcrypt": "^6.0.0",
+    "busboy": "^1.6.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.6.1",
+    "express": "^5.1.0",
+    "googleapis": "^161.0.0",
+    "moment": "^2.30.1",
+    "mysql2": "^3.15.1",
+    "node-cron": "^4.2.1",
+    "nodemailer": "^7.0.6",
+    "upload": "^1.3.2",
+    "uuidv4": "^6.2.13"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.10"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
