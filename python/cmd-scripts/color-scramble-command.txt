@@ -1,0 +1,16 @@
+# Color scramble with moderate intensity
+python scramble_video.py \
+  --input input.mp4 \
+  --output color_test.mp4 \
+  --algorithm color \
+  --max-hue-shift 64 \
+  --seed 123456
+
+# Then restore it
+python scramble_video.py \
+  --input color_test.mp4 \
+  --output color_restored.mp4 \
+  --algorithm color \
+  --mode unscramble \
+  --max-hue-shift 64 \
+  --seed 123456

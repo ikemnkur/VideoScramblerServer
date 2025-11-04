@@ -1,0 +1,7 @@
+python scramble_video.py \
+  --input scrambled.mp4 \
+  --output restored.mp4 \
+  --seed 123456789 \
+  --rows 4 \
+  --cols 6 \
+  --mode unscramble

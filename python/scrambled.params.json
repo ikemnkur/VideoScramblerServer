@@ -1,0 +1,33 @@
+{
+  "version": 2,
+  "seed": 123456789,
+  "n": 4,
+  "m": 6,
+  "perm1based": [
+    8,
+    21,
+    3,
+    5,
+    17,
+    2,
+    7,
+    19,
+    20,
+    13,
+    14,
+    23,
+    1,
+    6,
+    9,
+    4,
+    11,
+    22,
+    10,
+    12,
+    24,
+    18,
+    16,
+    15
+  ],
+  "semantics": "Index = destination cell (1-based), value = source cell index (1-based)"
+}

@@ -1,0 +1,9 @@
+python embed_code_frames.py \
+  --input input.mp4 \
+  --output watermarked.mp4 \
+  --message "HELLO_ORIGIN_SERVER_ABC123" \
+  --interval 30 \
+  --rows 10 \
+  --cols 8 \
+  --cell-size 3 \
+  --cell-gap 2
