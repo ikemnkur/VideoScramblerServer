@@ -242,32 +242,29 @@ def unscramble_frame(frame: np.ndarray,
     # Reusing the scramble_frame function with inv_perm achieves that.
     return scramble_frame(frame, n, m, inv_perm, src_rects, dest_rects)
 
-
-def process_video(input_path: str,
+def process_photo(input_path: str,
                   output_path: str,
                   seed: Optional[int] = None,
                   rows: Optional[int] = None,
                   cols: Optional[int] = None,
                   mode: str = "scramble") -> str:
     """
-    Process a video: scramble or unscramble according to mode.
+    Process a photo: scramble or unscramble according to mode.
     Returns path to params JSON (for scramble mode).
     """
 
     if not os.path.isfile(input_path):
-        raise FileNotFoundError(f"Input video not found: {input_path}")
+        raise FileNotFoundError(f"Input photo not found: {input_path}")
 
-    cap = cv2.VideoCapture(input_path)
-    if not cap.isOpened():
-        raise RuntimeError(f"Could not open video: {input_path}")
+    # Read the image
+    frame = cv2.imread(input_path)
+    if frame is None:
+        raise RuntimeError(f"Could not read image: {input_path}")
 
-    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    height, width, channels = frame.shape
 
     if width <= 0 or height <= 0:
-        cap.release()
-        raise RuntimeError("Invalid video dimensions")
+        raise RuntimeError("Invalid photo dimensions")
 
     # If rows/cols missing, choose them based on aspect ratio
     if rows is None or cols is None:
@@ -293,129 +290,18 @@ def process_video(input_path: str,
     else:
         raise ValueError("mode must be 'scramble' or 'unscramble'")
 
-    # Precompute rectangles for the video frame itself (src and dest shapes are same)
+    # Precompute rectangles for the photo (src and dest shapes are same)
     src_rects = cell_rects(width, height, n, m)
     dest_rects = cell_rects(width, height, n, m)
 
-    # Prepare writer
-    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-    out = cv2.VideoWriter(output_path, fourcc, float(fps), (width, height))
-    if not out.isOpened():
-        cap.release()
-        raise RuntimeError(f"Could not open output video for writing: {output_path}")
-
-    frame_idx = 0
-    while True:
-        ok, frame = cap.read()
-        if not ok:
-            break
-
-        if frame is None:
-            break
-
-        if mode == "scramble":
-            processed = scramble_frame(frame, n, m, perm_dest_to_src_0, src_rects, dest_rects)
-        else:
-            processed = unscramble_frame(frame, n, m, perm_dest_to_src_0, src_rects, dest_rects)
-
-        out.write(processed)
-        frame_idx += 1
-
-    cap.release()
-    out.release()
-
-    # Save params JSON (only for scramble mode)
-    params_path = ""
+    # Process the single frame
     if mode == "scramble":
-        params = params_to_json(seed, n, m, perm_dest_to_src_0)
-        base, ext = os.path.splitext(output_path)
-        params_path = base + ".params.json"
-        with open(params_path, "w", encoding="utf-8") as f:
-            json.dump(params, f, indent=2)
-
-    return params_path
-
-
-def process_video(input_path: str,
-                  output_path: str,
-                  seed: Optional[int] = None,
-                  rows: Optional[int] = None,
-                  cols: Optional[int] = None,
-                  mode: str = "scramble") -> str:
-    """
-    Process a video: scramble or unscramble according to mode.
-    Returns path to params JSON (for scramble mode).
-    """
-
-    if not os.path.isfile(input_path):
-        raise FileNotFoundError(f"Input video not found: {input_path}")
-
-    cap = cv2.VideoCapture(input_path)
-    if not cap.isOpened():
-        raise RuntimeError(f"Could not open video: {input_path}")
-
-    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-
-    if width <= 0 or height <= 0:
-        cap.release()
-        raise RuntimeError("Invalid video dimensions")
-
-    # If rows/cols missing, choose them based on aspect ratio
-    if rows is None or cols is None:
-        dims = auto_grid_for_aspect(width, height)
-        if rows is None:
-            rows = dims.n
-        if cols is None:
-            cols = dims.m
-
-    n, m = rows, cols
-    N = n * m
-
-    # seed management
-    if seed is None:
-        seed = gen_random_seed()
-
-    if mode == "scramble":
-        perm_dest_to_src_0 = seeded_permutation(N, seed)
-    elif mode == "unscramble":
-        # For Unscramble you'd normally load perm from JSON, not generate it.
-        # But we support deterministic unscramble if we know seed/n/m.
-        perm_dest_to_src_0 = seeded_permutation(N, seed)
+        processed = scramble_frame(frame, n, m, perm_dest_to_src_0, src_rects, dest_rects)
     else:
-        raise ValueError("mode must be 'scramble' or 'unscramble'")
+        processed = unscramble_frame(frame, n, m, perm_dest_to_src_0, src_rects, dest_rects)
 
-    # Precompute rectangles for the video frame itself (src and dest shapes are same)
-    src_rects = cell_rects(width, height, n, m)
-    dest_rects = cell_rects(width, height, n, m)
-
-    # Prepare writer
-    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-    out = cv2.VideoWriter(output_path, fourcc, float(fps), (width, height))
-    if not out.isOpened():
-        cap.release()
-        raise RuntimeError(f"Could not open output video for writing: {output_path}")
-
-    frame_idx = 0
-    while True:
-        ok, frame = cap.read()
-        if not ok:
-            break
-
-        if frame is None:
-            break
-
-        if mode == "scramble":
-            processed = scramble_frame(frame, n, m, perm_dest_to_src_0, src_rects, dest_rects)
-        else:
-            processed = unscramble_frame(frame, n, m, perm_dest_to_src_0, src_rects, dest_rects)
-
-        out.write(processed)
-        frame_idx += 1
-
-    cap.release()
-    out.release()
+    # Write the output image
+    cv2.imwrite(output_path, processed)
 
     # Save params JSON (only for scramble mode)
     params_path = ""
@@ -427,11 +313,12 @@ def process_video(input_path: str,
             json.dump(params, f, indent=2)
 
     return params_path
+
 
 def main():
-    parser = argparse.ArgumentParser(description="Scramble/unscramble a video using grid permutation.")
-    parser.add_argument("--input", "-i", required=True, help="Input video path")
-    parser.add_argument("--output", "-o", required=True, help="Output video path")
+    parser = argparse.ArgumentParser(description="Scramble/unscramble a photo using grid permutation.")
+    parser.add_argument("--input", "-i", required=True, help="Input photo path")
+    parser.add_argument("--output", "-o", required=True, help="Output photo path")
     parser.add_argument("--seed", type=int, help="Random seed (32-bit). If omitted, one is generated.")
     parser.add_argument("--rows", type=int, help="Grid rows (n). If omitted, auto-chosen from aspect ratio.")
     parser.add_argument("--cols", type=int, help="Grid cols (m). If omitted, auto-chosen from aspect ratio.")
@@ -441,7 +328,8 @@ def main():
     args = parser.parse_args()
 
     try:
-        params_path = process_video(
+        # Use the photo processing function instead of video
+        params_path = process_photo(
             input_path=args.input,
             output_path=args.output,
             seed=args.seed,
@@ -449,13 +337,12 @@ def main():
             cols=args.cols,
             mode=args.mode,
         )
-        print(f"Done. Output video: {args.output}")
+        print(f"Done. Output photo: {args.output}")
         if args.mode == "scramble" and params_path:
             print(f"Scramble params saved to: {params_path}")
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
-
 
 if __name__ == "__main__":
     main()

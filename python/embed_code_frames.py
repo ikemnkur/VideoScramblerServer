@@ -86,7 +86,7 @@ def embed_code_frames(
     grid_rows: int = 10,
     grid_cols: int = 8,
     cell_size: int = 10,
-    cell_gap: int = 2,
+    cell_gap: int = 20,
     frame_interval: int = 30,
 ):
     """
@@ -163,7 +163,7 @@ def embed_code_frames(
             code_frame = frame.copy()  # you can also use np.zeros_like(frame) for pure black
 
             # zero out frame from (20, 20) with size (grid_cols * cell_size, grid_rows * cell_size)
-            code_frame[15:20 + grid_rows * cell_size * 2, 15:20 + grid_cols * cell_size * 2] = 0
+            # code_frame[15:20 + grid_rows * cell_size * 2, 15:20 + grid_cols * cell_size * 2] = 0
 
             code_frame = draw_bit_grid_on_frame(
                 code_frame,
