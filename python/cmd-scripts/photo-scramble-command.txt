@@ -1,0 +1,7 @@
+python scramble_photo.py \
+  --input Lamborghini_Veneno.jpg \
+  --output scrambled_Lamborghini_Veneno.jpg \
+  --seed 123456789 \
+  --rows 4 \
+  --cols 6 \
+  --mode scramble

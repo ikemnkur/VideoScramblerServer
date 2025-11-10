@@ -4,7 +4,14 @@ const mysql = require('mysql2/promise');
 const cors = require('cors');
 const bcrypt = require('bcrypt');
 const { v4: uuidv4 } = require('uuid');
+// const axios = require('axios');
+const multer = require('multer');
+
+// const multer = require('multer');
 const axios = require('axios');
+const fs = require('fs');
+// const path = require('path');
+
 
 const server = express();
 
@@ -14,7 +21,7 @@ const dbConfig = {
   port: process.env.DB_PORT || 3306,
   user: process.env.DB_USER || 'root',
   password: process.env.DB_PASSWORD || '',
-  database: process.env.DB_NAME || 'KeyChingDB',
+  database: process.env.DB_NAME || 'video-scrambler',
   waitForConnections: true,
   connectionLimit: parseInt(process.env.DB_CONNECTION_LIMIT) || 10,
   queueLimit: 0
@@ -576,6 +583,8 @@ server.get('/api/earnings/:username', async (req, res) => {
     res.status(500).json({ error: 'Database error - earnings retrieval failed' });
   }
 });
+
+// Todo: Implement spend credits functionality, replace old and borrow function unlock with spend
 
 // Custom unlock key route
 server.post('/api/unlock/:keyId', async (req, res) => {
@@ -1766,17 +1775,17 @@ server.post('/api/lookup-transaction', async (req, res) => {
   try {
     const { sendAddress, blockchain, transactionHash } = req.body;
     console.log('Lookup transaction body -request:', { sendAddress, blockchain, transactionHash });
-    
+
     let tx = [];
     let result = null;
-    
+
     if (blockchain === "bitcoin" || blockchain === "BTC") {
       [tx] = await pool.execute(
         `SELECT * FROM CryptoTransactions_BTC WHERE direction = 'IN' AND hash = ?`,
         [transactionHash]
       );
       console.log('Lookup transaction result for bitcoin:', tx.length > 0 ? tx[0] : 'No transaction found');
-      
+
       if (tx.length === 0) {
         return res.status(404).json({ error: 'Transaction not found' });
       }
@@ -1785,10 +1794,10 @@ server.post('/api/lookup-transaction', async (req, res) => {
     else if (blockchain === "ethereum" || blockchain === "ETH") {
       [tx] = await pool.execute(
         `SELECT * FROM CryptoTransactions_ETH WHERE direction = 'IN' AND hash = ?`,
-        [ transactionHash]
+        [transactionHash]
       );
       console.log('Lookup transaction result for ethereum:', tx.length > 0 ? tx[0] : 'No transaction found');
-      
+
       if (tx.length === 0) {
         return res.status(404).json({ error: 'Transaction not found' });
       }
@@ -1800,7 +1809,7 @@ server.post('/api/lookup-transaction', async (req, res) => {
         [transactionHash]
       );
       console.log('Lookup transaction result for litecoin:', tx.length > 0 ? tx[0] : 'No transaction found');
-      
+
       if (tx.length === 0) {
         return res.status(404).json({ error: 'Transaction not found' });
       }
@@ -1812,7 +1821,7 @@ server.post('/api/lookup-transaction', async (req, res) => {
         [transactionHash]
       );
       console.log('Lookup transaction result for solana:', tx.length > 0 ? tx[0] : 'No transaction found');
-      
+
       if (tx.length === 0) {
         return res.status(404).json({ error: 'Transaction not found' });
       }
@@ -2322,7 +2331,7 @@ server.post('/api/redemptions/:username', async (req, res) => {
 server.get('/api/:table', async (req, res) => {
   try {
     const table = req.params.table;
-    const allowedTables = ['userData', 'buyCredits', 'redeemCredits', 'earnings', 'unlocks', 'createdKeys', 'notifications', 'wallet', 'reports', 'supportTickets'];
+    const allowedTables = ['userData', 'buyCredits', 'redeemCredits', 'earnings', 'actions', 'createdKeys', 'notifications', 'wallet', 'reports', 'supportTickets'];
 
     if (!allowedTables.includes(table)) {
       return res.status(400).json({ error: 'Invalid table name' });
@@ -2339,7 +2348,7 @@ server.get('/api/:table', async (req, res) => {
 server.get('/api/:table/:id', async (req, res) => {
   try {
     const { table, id } = req.params;
-    const allowedTables = ['userData', 'buyCredits', 'redeemCredits', 'earnings', 'unlocks', 'notifications', 'wallet', 'reports', 'supportTickets'];
+    const allowedTables = ['userData', 'buyCredits', 'redeemCredits', 'earnings', 'actions', 'notifications', 'wallet', 'reports', 'supportTickets'];
 
     if (!allowedTables.includes(table)) {
       return res.status(400).json({ error: 'Invalid table name' });
@@ -2361,7 +2370,7 @@ server.get('/api/:table/:id', async (req, res) => {
 server.patch('/api/:table/:id', async (req, res) => {
   try {
     const { table, id } = req.params;
-    const allowedTables = ['userData', 'buyCredits', 'redeemCredits', 'earnings', 'unlocks', 'createdKeys', 'notifications', 'wallet', 'reports', 'supportTickets'];
+    const allowedTables = ['userData', 'buyCredits', 'redeemCredits', 'earnings', 'actions', 'createdKeys', 'notifications', 'wallet', 'reports', 'supportTickets'];
 
     if (!allowedTables.includes(table)) {
       return res.status(400).json({ error: 'Invalid table name' });
@@ -2393,66 +2402,6 @@ server.patch('/api/:table/:id', async (req, res) => {
   }
 });
 
-
-
-// Global error handler
-server.use((error, req, res, next) => {
-  console.error('Global error handler:', error);
-  res.status(500).json({
-    error: 'Internal server error',
-    message: process.env.NODE_ENV === 'development' ? error.message : 'Something went wrong'
-  });
-});
-
-// 404 handler for undefined routes
-server.use((req, res) => {
-  res.status(404).json({ error: 'Route not found' });
-});
-
-const PORT = process.env.PORT || 3001;
-server.listen(PORT, async () => {
-  try {
-    // Test database connection
-    await pool.execute('SELECT 1');
-    console.log('🚀 Express Server with MySQL is running on port', PORT);
-    console.log('�️  Database: KeyChingDB (MySQL)');
-    console.log('🌐 API Base URL: http://localhost:' + PORT + '/api');
-    console.log('📋 Available endpoints:');
-    console.log('   - GET /api/userData');
-    console.log('   - GET /api/createdKeys');
-    console.log('   - GET /api/unlocks/:username');
-    console.log('   - GET /api/purchases/:username');
-    console.log('   - GET /api/redemptions/:username');
-    console.log('   - GET /api/notifications/:username');
-    console.log('   - POST /api/auth/login');
-    console.log('   - GET /api/wallet/balance');
-    console.log('   - POST /api/unlock/:keyId');
-    console.log('   - GET /api/listings');
-    console.log('   - POST /api/create-key');
-    console.log('   - GET /api/:table');
-    console.log('   - GET /api/:table/:id');
-    console.log('   - PATCH /api/:table/:id');
-  } catch (error) {
-    console.error('❌ Failed to connect to MySQL database:', error.message);
-    console.log('📝 Please ensure:');
-    console.log('   1. MySQL server is running');
-    console.log('   2. KeyChingDB database exists');
-    console.log('   3. Database credentials are correct in server.cjs');
-    process.exit(1);
-  }
-});
-// Graceful shutdown
-process.on('SIGTERM', async () => {
-  console.log('🛑 Received SIGTERM, shutting down gracefully...');
-  await pool.end();
-  process.exit(0);
-});
-
-process.on('SIGINT', async () => {
-  console.log('🛑 Received SIGINT, shutting down gracefully...');
-  await pool.end();
-  process.exit(0);
-});
 
 
 const walletAddressMap = {
@@ -2554,3 +2503,1864 @@ async function FetchRecentTransactionsCron() {
     console.error('❌ Error fetching recent transactions:', error);
   }
 }
+
+
+
+
+// ========================================
+// Device Fingerprint Endpoints
+// ========================================
+
+// Save or update device fingerprint
+server.post('/api/fingerprint/save', async (req, res) => {
+  try {
+    const {
+      userId,
+      fingerprintHash,
+      shortHash,
+      deviceType,
+      browser,
+      os,
+      screenResolution,
+      timezone,
+      language,
+      ipAddress,
+      fullFingerprint,
+      compactFingerprint,
+      userAgent
+    } = req.body;
+
+    // Validate required fields
+    if (!userId || !fingerprintHash) {
+      return res.status(400).json({
+        success: false,
+        message: 'userId and fingerprintHash are required'
+      });
+    }
+
+    // Call stored procedure to save or update fingerprint
+    const [result] = await pool.execute(
+      'CALL save_device_fingerprint(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [
+        userId,
+        fingerprintHash,
+        shortHash || fingerprintHash.substring(0, 16),
+        deviceType || 'Unknown',
+        browser || 'Unknown',
+        os || 'Unknown',
+        screenResolution || 'Unknown',
+        timezone || 'UTC',
+        language || 'en-US',
+        ipAddress || req.ip || req.connection.remoteAddress,
+        JSON.stringify(fullFingerprint),
+        JSON.stringify(compactFingerprint),
+        userAgent || req.headers['user-agent']
+      ]
+    );
+
+    // The stored procedure returns the saved/updated record
+    const savedFingerprint = result[0][0];
+
+    console.log(`✅ Fingerprint saved for user ${userId}: ${shortHash || fingerprintHash.substring(0, 16)}`);
+
+    res.json({
+      success: true,
+      message: 'Fingerprint saved successfully',
+      fingerprint: savedFingerprint
+    });
+  } catch (error) {
+    console.error('Save fingerprint error:', error);
+
+    // Check for duplicate entry error
+    if (error.code === 'ER_DUP_ENTRY') {
+      // Try to update instead
+      try {
+        const { userId, fingerprintHash, ipAddress, fullFingerprint, compactFingerprint } = req.body;
+
+        await pool.execute(
+          `UPDATE device_fingerprints 
+           SET last_seen = CURRENT_TIMESTAMP, 
+               login_count = login_count + 1,
+               ip_address = ?,
+               full_fingerprint = ?,
+               compact_fingerprint = ?,
+               updated_at = CURRENT_TIMESTAMP
+           WHERE user_id = ? AND fingerprint_hash = ?`,
+          [
+            ipAddress || req.ip,
+            JSON.stringify(fullFingerprint),
+            JSON.stringify(compactFingerprint),
+            userId,
+            fingerprintHash
+          ]
+        );
+
+        res.json({
+          success: true,
+          message: 'Fingerprint updated successfully'
+        });
+      } catch (updateError) {
+        console.error('Update fingerprint error:', updateError);
+        res.status(500).json({
+          success: false,
+          message: 'Failed to save or update fingerprint'
+        });
+      }
+    } else {
+      res.status(500).json({
+        success: false,
+        message: 'Database error while saving fingerprint'
+      });
+    }
+  }
+});
+
+// Get all fingerprints for a user
+server.get('/api/fingerprint/user/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    const [fingerprints] = await pool.execute(
+      `SELECT 
+        id,
+        fingerprint_hash,
+        short_hash,
+        device_type,
+        browser,
+        os,
+        screen_resolution,
+        timezone,
+        language,
+        ip_address,
+        first_seen,
+        last_seen,
+        login_count,
+        unscramble_count,
+        leaked_content_count,
+        is_trusted,
+        is_blocked,
+        block_reason,
+        created_at,
+        CASE 
+          WHEN last_seen > DATE_SUB(NOW(), INTERVAL 1 DAY) THEN 'active'
+          WHEN last_seen > DATE_SUB(NOW(), INTERVAL 7 DAY) THEN 'recent'
+          WHEN last_seen > DATE_SUB(NOW(), INTERVAL 30 DAY) THEN 'inactive'
+          ELSE 'dormant'
+        END as device_status
+       FROM device_fingerprints 
+       WHERE user_id = ? 
+       ORDER BY last_seen DESC`,
+      [userId]
+    );
+
+    res.json({
+      success: true,
+      fingerprints
+    });
+  } catch (error) {
+    console.error('Get user fingerprints error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Database error'
+    });
+  }
+});
+
+// Get full fingerprint details by hash
+server.get('/api/fingerprint/details/:hash', async (req, res) => {
+  try {
+    const { hash } = req.params;
+
+    const [fingerprints] = await pool.execute(
+      'SELECT * FROM device_fingerprints WHERE fingerprint_hash = ? OR short_hash = ?',
+      [hash, hash]
+    );
+
+    if (fingerprints.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Fingerprint not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      fingerprint: fingerprints[0]
+    });
+  } catch (error) {
+    console.error('Get fingerprint details error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Database error'
+    });
+  }
+});
+
+// Increment unscramble count when content is unscrambled
+server.post('/api/fingerprint/unscramble/:hash', async (req, res) => {
+  try {
+    const { hash } = req.params;
+
+    await pool.execute(
+      'CALL increment_unscramble_count(?)',
+      [hash]
+    );
+
+    res.json({
+      success: true,
+      message: 'Unscramble count incremented'
+    });
+  } catch (error) {
+    console.error('Increment unscramble count error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Database error'
+    });
+  }
+});
+
+// Mark device as leaked (when leaked content is detected)
+server.post('/api/fingerprint/leaked/:hash', async (req, res) => {
+  try {
+    const { hash } = req.params;
+    const { reason } = req.body;
+
+    await pool.execute(
+      'CALL mark_device_leaked(?, ?)',
+      [hash, reason || 'Leaked content detected']
+    );
+
+    res.json({
+      success: true,
+      message: 'Device marked as leaked and blocked'
+    });
+  } catch (error) {
+    console.error('Mark device leaked error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Database error'
+    });
+  }
+});
+
+// Block/unblock a device
+server.patch('/api/fingerprint/block/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { isBlocked, blockReason } = req.body;
+
+    await pool.execute(
+      'UPDATE device_fingerprints SET is_blocked = ?, block_reason = ? WHERE id = ?',
+      [isBlocked, blockReason || null, id]
+    );
+
+    res.json({
+      success: true,
+      message: `Device ${isBlocked ? 'blocked' : 'unblocked'} successfully`
+    });
+  } catch (error) {
+    console.error('Block device error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Database error'
+    });
+  }
+});
+
+// Get device statistics for admin
+server.get('/api/fingerprint/stats', async (req, res) => {
+  try {
+    const [stats] = await pool.execute(`
+      SELECT 
+        COUNT(*) as total_devices,
+        COUNT(DISTINCT user_id) as total_users,
+        SUM(CASE WHEN is_blocked = true THEN 1 ELSE 0 END) as blocked_devices,
+        SUM(CASE WHEN leaked_content_count > 0 THEN 1 ELSE 0 END) as devices_with_leaks,
+        SUM(login_count) as total_logins,
+        SUM(unscramble_count) as total_unscrambles,
+        AVG(login_count) as avg_logins_per_device
+      FROM device_fingerprints
+    `);
+
+    res.json({
+      success: true,
+      stats: stats[0]
+    });
+  } catch (error) {
+    console.error('Get fingerprint stats error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Database error'
+    });
+  }
+});
+
+
+
+// ========================================
+// End of Device Fingerprint Endpoints
+// ========================================
+
+
+// Python Flask app Control
+
+// const FLASKAPP_LINK = 'http://localhost:5000';
+const FLASKAPP_LINK = process.env.FLASKAPP_LINK || 'http://localhost:5000';
+
+
+// server.post('/api/flask-python/upload', (req, res) => {
+//   // Proxy the request to the Flask app
+//   const axios = require('axios');
+//   const FormData = require('form-data');
+//   const form = new FormData();
+
+//   form.append('file', req.files.file.data, req.files.file.name);
+
+
+
+//   // if the user has enough credits, proceed to upload
+//   // 
+//   // Use multer to save image locally first
+
+
+//   const upload = multer({ dest: 'python/inputs' });
+
+
+
+//   upload.single('file')(req, res, (err) => {
+//     if (err) {
+//       return res.status(500).json({ error: 'Failed to save file locally' });
+//     }
+
+//     // send the filename to the Flask app
+//     const localFilePath = req.file.path;
+//     const localFileName = req.file.filename;
+
+//     form.append('file', fs.createReadStream(localFilePath), localFileName);
+
+//     axios.post(`${FLASKAPP_LINK}/scramble-photo`, form, {
+//       headers: form.getHeaders()
+//     })
+//       .then(response => {
+//         res.json(response.data);
+//       })
+//       .catch(error => {
+//         console.error('Error uploading to Flask app:', error);
+//         res.status(500).json({ error: 'Failed to upload file to Python service' });
+//       });
+//   });
+
+  //     .then(response => {
+  //       res.json(response.data);
+  //     })
+
+  //     .catch(error => {
+  //       console.error('Error uploading to Flask app:', error);
+  //       res.status(500).json({ error: 'Failed to upload file to Python service' });
+  //     });
+  // });
+
+  // Below is the Python Flask app code (for reference, not part of server.cjs)
+
+  // from flask import Flask, request, send_from_directory, jsonify, current_app
+  // from werkzeug.utils import secure_filename
+  // import os
+  // import subprocess
+
+  // @app.route('/upload', methods=['POST'])
+  // def upload_file():
+  //     if 'file' not in request.files:
+  //         return jsonify({'error': 'No file part'}), 400
+
+  //     file = request.files['file']
+  //     if file.filename == '':
+  //         return jsonify({'error': 'No selected file'}), 400
+
+  //     if file and allowed_file(file.filename):
+  //         filename = secure_filename(file.filename)
+  //         file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+  //         file.save(file_path)
+  //         return jsonify({
+  //             'message': 'File uploaded successfully',
+  //             'filename': filename,
+  //             'download_url': f'/download/{filename}'
+  //         }), 200
+  //     else:
+  //         return jsonify({'error': 'File type not allowed'}), 400
+
+
+  server.get('/api/flask-python/download', (req, res) => {
+    // Proxy the request to the Flask app
+    const axios = require('axios');
+    const FormData = require('form-data');
+    const form = new FormData();
+
+    form.append('file', req.files.file.data, req.files.file.name);
+
+    axios.post(`${FLASKAPP_LINK}/upload`, form, {
+      headers: form.getHeaders()
+    })
+      .then(response => {
+        res.json(response.data);
+      })
+      .catch(error => {
+        console.error('Error uploading to Flask app:', error);
+        res.status(500).json({ error: 'Failed to upload file to Python service' });
+      });
+  });
+
+
+  // @app.route('/download/<path:filename>')
+  // def download_file(filename):
+  //     # Construct the absolute path to the upload folder for security
+  //     # send_from_directory ensures the requested filename is within this directory
+  //     # protecting against directory traversal attacks.
+  //     directory = os.path.join(current_app.root_path, app.config['UPLOAD_FOLDER'])
+  //     return send_from_directory(
+  //         directory, 
+  //         filename, 
+  //         as_attachment=True # Forces the browser to download the file
+  //     )
+
+
+
+
+  // @app.route('/files')
+  // def list_files():
+  //     """List all available files for download"""
+  //     try:
+  //         files = os.listdir(app.config['UPLOAD_FOLDER'])
+  //         files = [f for f in files if os.path.isfile(os.path.join(app.config['UPLOAD_FOLDER'], f))]
+  //         return jsonify({'files': files}), 200
+  //     except Exception as e:
+  //         return jsonify({'error': str(e)}), 500
+
+
+
+  // server.post('/api/scramble-photo', (req, res) => {
+
+
+  //   // Proxy the request to the Flask app
+  //   const axios = require('axios');
+
+
+  //   const FormData = require('form-data');
+  //   const form = new FormData();
+
+  //   // this may not work as req.files may be undefined
+  //   // form.append('file', req.files.file.data, req.files.file.name);
+
+  //   const parameters = req.body.params;
+  //   console.log("Parameters received for scrambling:", parameters);
+
+  //   const formData = req.body.formData;
+
+  //   // There is a image file stored in this formData under 'file' key
+  //   form.append('file', formData.file.data, formData.file.name);
+
+  //   for (const [key, value] of Object.entries(formData)) {
+  //     form.append(key, value);
+  //   }
+
+  //   // if the user has enough credits, proceed to upload
+  //   if (userHasEnoughCredits(req.user, formData)) {
+  //     // no nothing here for now
+  //   }
+    
+  //   // Use multer to save image locally first
+  //   const upload = multer({ dest: 'python/inputs' });
+
+
+  //   // Store image in the 'python/inputs' folder
+  //   let localFilePath = '';
+  //   let localFileName = '';
+
+  //   upload.single('file')(req, res, (err) => {
+  //     if (err) {
+  //       return res.status(500).json({ error: 'Failed to save file locally' });
+  //     }
+
+  //     console.log("File saved locally:", req.file);
+
+  //     localFilePath = req.file.path;
+  //     localFileName = req.file.filename;
+
+  //     // form.append('file', fs.createReadStream(localFilePath), localFileName); 
+
+  //   });
+
+
+  //   // Proceed to scramble
+
+  //   axios.post(`${FLASKAPP_LINK}/scramble-photo`, {
+  //     localFileName: localFileName,
+  //     localFilePath: localFilePath,
+  //     params: parameters,
+  //   })
+
+  //   // it should return a successful response from Flask app with scrambled photos name and path'
+  //     .then(response => {
+  //       res.json(response.data);
+  //       console.log("Scramble photo response:", response.data);
+  //       // the scrambled image/photo link should be in response.data, it is publicly accessible so the front end can use it directly download the modified image
+  //     })
+  //     .catch(error => {
+  //       console.error('Error scrambling photo in Flask app:', error);
+  //       res.status(500).json({ error: 'Failed to scramble photo in Python service' });
+  //     });
+
+
+  // });
+
+
+// Flask/Python service URL
+
+
+// Configure multer for file uploads
+const py_storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    const uploadDir = path.join(__dirname, 'python', 'inputs');
+    // Create directory if it doesn't exist
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename: function (req, file, cb) {
+    // Generate unique filename
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    const ext = path.extname(file.originalname);
+    const basename = path.basename(file.originalname, ext);
+    cb(null, basename + '-' + uniqueSuffix + ext);
+  }
+});
+
+const upload = multer({ 
+  storage: py_storage,
+  dest: 'python/inputs',
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
+  fileFilter: function (req, file, cb) {
+    // Accept images only
+    if (!file.mimetype.startsWith('image/')) {
+      return cb(new Error('Only image files are allowed!'), false);
+    }
+    cb(null, true);
+  }
+});
+  
+// =============================
+// SCRAMBLE PHOTO ENDPOINT
+// =============================
+// server.post('/api/scramble-photo', upload.single('file'), async (req, res) => {
+//   console.log('📸 Scramble photo request received');
+  
+//   try {
+//     // Check if file was uploaded
+//     if (!req.file) {
+//       return res.status(400).json({ error: 'No image file provided' });
+//     }
+
+//     console.log('✅ File uploaded:', req.file.filename);
+//     console.log('📁 File path:', req.file.path);
+
+//     // Parse parameters from request body
+//     let params;
+//     try {
+//       params = typeof req.body.params === 'string' 
+//         ? JSON.parse(req.body.params) 
+//         : req.body.params;
+//     } catch (parseError) {
+//       console.error('❌ Failed to parse parameters:', parseError);
+//       return res.status(400).json({ error: 'Invalid parameters format' });
+//     }
+
+//     console.log('📋 Scrambling parameters:', params);
+
+//     // Optional: Check user credits (if authentication is implemented)
+//     // if (req.user) {
+//     //   const [users] = await pool.execute(
+//     //     'SELECT credits FROM userData WHERE id = ?',
+//     //     [req.user.id]
+//     //   );
+//     //   if (users[0] && users[0].credits < 1) {
+//     //     return res.status(403).json({ error: 'Insufficient credits' });
+//     //   }
+//     // }
+
+//     // Prepare data to send to Flask
+//     const flaskPayload = {
+//       localFileName: req.file.filename,
+//       localFilePath: req.file.path,
+//       params: params
+//     };
+
+//     console.log('🔄 Sending to Flask service:', FLASKAPP_LINK + '/scramble-photo');
+
+//     // Send request to Flask/Python service
+//     const flaskResponse = await axios.post(
+//       `${FLASKAPP_LINK}/scramble-photo`,
+//       flaskPayload,
+//       {
+//         timeout: 30000, // 30 second timeout
+//         headers: {
+//           'Content-Type': 'application/json'
+//         }
+//       }
+//     );
+
+//     console.log('✅ Flask response received:', flaskResponse.data);
+
+//     // Optional: Deduct credits after successful scrambling
+//     // if (req.user) {
+//     //   await pool.execute(
+//     //     'UPDATE userData SET credits = credits - 1 WHERE id = ?',
+//     //     [req.user.id]
+//     //   );
+//     // }
+
+//     // Return Flask response to frontend
+//     res.json({
+//       success: true,
+//       output_file: flaskResponse.data.output_file || flaskResponse.data.scrambledFileName,
+//       scrambledImageUrl: flaskResponse.data.scrambledImageUrl,
+//       message: 'Image scrambled successfully',
+//       ...flaskResponse.data
+//     });
+
+//   } catch (error) {
+//     console.error('❌ Error in scramble-photo endpoint:', error);
+
+//     // Clean up uploaded file if processing failed
+//     if (req.file && fs.existsSync(req.file.path)) {
+//       try {
+//         fs.unlinkSync(req.file.path);
+//         console.log('🗑️  Cleaned up failed upload:', req.file.filename);
+//       } catch (unlinkError) {
+//         console.error('Failed to delete file:', unlinkError);
+//       }
+//     }
+
+//     if (error.code === 'ECONNREFUSED') {
+//       return res.status(503).json({ 
+//         error: 'Python/Flask service is not running. Please start the Flask server on port 5000.' 
+//       });
+//     }
+
+//     if (error.response) {
+//       // Flask returned an error
+//       return res.status(error.response.status || 500).json({ 
+//         error: error.response.data?.error || 'Scrambling failed in Python service',
+//         details: error.response.data
+//       });
+//     }
+
+//     res.status(500).json({ 
+//       error: 'Failed to scramble photo',
+//       message: error.message 
+//     });
+//   }
+// });
+
+// =============================
+// SCRAMBLE PHOTO ENDPOINT
+// =============================
+
+server.post('/api/scramble-photo', upload.single('file'), async (req, res) => {
+  console.log('📸 Scramble photo request received');
+
+  try {
+    // 1) Make sure a file came in
+    if (!req.file) {
+      return res.status(400).json({ error: 'No image file provided' });
+    }
+
+    console.log('✅ File uploaded:', req.file.filename);
+    console.log('📁 File path:', req.file.path);
+
+    // 2) Parse params from multipart/form-data
+    let params;
+    try {
+      params = typeof req.body.params === 'string'
+        ? JSON.parse(req.body.params)
+        : (req.body.params || {});
+    } catch (parseError) {
+      console.error('❌ Failed to parse parameters:', parseError);
+      return res.status(400).json({ error: 'Invalid parameters format' });
+    }
+
+    console.log('📋 Scrambling parameters (from frontend):', params);
+
+    // 3) Normalize for Flask
+    //
+    // IMPORTANT:
+    // - Ignore params.input from the client and instead use the actual stored filename.
+    // - Optionally reuse params.output, but better to tie it to the stored filename.
+    const inputFile = req.file.filename; // file as saved by multer
+    const outputFile = `scrambled_${inputFile}`;
+
+    // Build the payload in the exact shape Flask expects
+    const flaskPayload = {
+      input: inputFile,
+      output: outputFile,
+      seed: params.seed ?? 123456,
+      mode: params.mode || 'scramble',
+      algorithm: params.algorithm || 'position',
+      percentage: params.percentage ?? 100,
+      // Algorithm-specific params
+      rows: params.rows,
+      cols: params.cols,
+      max_hue_shift: params.max_hue_shift,
+      max_intensity_shift: params.max_intensity_shift
+    };
+
+    // Remove undefined keys so Flask doesn’t see them at all
+    Object.keys(flaskPayload).forEach((key) => {
+      if (flaskPayload[key] === undefined) delete flaskPayload[key];
+    });
+
+    console.log('🔄 Sending normalized payload to Flask:', flaskPayload);
+    console.log('📡 Flask URL:', `${FLASKAPP_LINK}/scramble-photo`);
+
+    // 4) Call Flask /scramble-photo as JSON
+    const flaskResponse = await axios.post(
+      `${FLASKAPP_LINK}/scramble-photo`,
+      flaskPayload,
+      {
+        timeout: 60000,
+        headers: { 'Content-Type': 'application/json' }
+      }
+    );
+
+    console.log('✅ Flask response received:', flaskResponse.data);
+
+    // Flask returns: { message, output_file, algorithm, seed, download_url, ... }
+    const data = flaskResponse.data;
+
+    // 5) Send a clean response back to the React frontend
+    res.json({
+      success: true,
+      output_file: data.output_file,
+      algorithm: data.algorithm,
+      seed: data.seed,
+      download_url: data.download_url,
+      message: data.message || 'Image scrambled successfully',
+      // Include everything else from Flask, just in case
+      ...data
+    });
+
+  } catch (error) {
+    console.error('❌ Error in /api/scramble-photo endpoint:', error.message);
+
+    // Cleanup uploaded file if something failed
+    if (req.file && fs.existsSync(req.file.path)) {
+      try {
+        fs.unlinkSync(req.file.path);
+        console.log('🗑️  Cleaned up failed upload:', req.file.filename);
+      } catch (unlinkError) {
+        console.error('Failed to delete file:', unlinkError);
+      }
+    }
+
+    if (error.code === 'ECONNREFUSED') {
+      return res.status(503).json({
+        error: 'Python/Flask service is not running. Please start the Flask server on port 5000.'
+      });
+    }
+
+    if (error.response) {
+      // Flask returned an HTTP error
+      return res.status(error.response.status || 500).json({
+        error: error.response.data?.error || 'Scrambling failed in Python service',
+        details: error.response.data
+      });
+    }
+
+    res.status(500).json({
+      error: 'Failed to scramble photo',
+      message: error.message
+    });
+  }
+});
+
+
+// =============================
+// UNSCRAMBLE PHOTO ENDPOINT
+// =============================
+server.post('/api/unscramble-photo', upload.single('file'), async (req, res) => {
+  console.log('🔓 Unscramble photo request received');
+  
+  try {
+    // Check if file was uploaded
+    if (!req.file) {
+      return res.status(400).json({ error: 'No image file provided' });
+    }
+
+    console.log('✅ File uploaded:', req.file.filename);
+    console.log('📁 File path:', req.file.path);
+
+    // Parse parameters from request body
+    let params;
+    try {
+      params = typeof req.body.params === 'string' 
+        ? JSON.parse(req.body.params) 
+        : req.body.params;
+    } catch (parseError) {
+      console.error('❌ Failed to parse parameters:', parseError);
+      return res.status(400).json({ error: 'Invalid parameters format' });
+    }
+
+    console.log('📋 Unscrambling parameters:', params);
+
+    // Prepare data to send to Flask
+    const flaskPayload = {
+      localFileName: req.file.filename,
+      localFilePath: req.file.path,
+      params: params
+    };
+
+    console.log('🔄 Sending normalized payload to Flask:', flaskPayload);
+    console.log('🔄 Sending to Flask service:', FLASKAPP_LINK + '/unscramble-photo');
+
+    // Send request to Flask/Python service
+    const flaskResponse = await axios.post(
+      `${FLASKAPP_LINK}/unscramble-photo`,
+      flaskPayload,
+      {
+        timeout: 30000, // 30 second timeout
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+
+    console.log('✅ Flask response received:', flaskResponse.data);
+
+    // Return Flask response to frontend
+    res.json({
+      success: true,
+      output_file: flaskResponse.data.output_file || flaskResponse.data.unscrambledFileName,
+      unscrambledImageUrl: flaskResponse.data.unscrambledImageUrl,
+      message: 'Image unscrambled successfully',
+      ...flaskResponse.data
+    });
+
+  } catch (error) {
+    console.error('❌ Error in unscramble-photo endpoint:', error.message);
+
+    // Clean up uploaded file if processing failed
+    if (req.file && fs.existsSync(req.file.path)) {
+      try {
+        fs.unlinkSync(req.file.path);
+        console.log('🗑️  Cleaned up failed upload:', req.file.filename);
+      } catch (unlinkError) {
+        console.error('Failed to delete file:', unlinkError);
+      }
+    }
+
+    if (error.code === 'ECONNREFUSED') {
+      return res.status(503).json({ 
+        error: 'Python/Flask service is not running. Please start the Flask server on port 5000.' 
+      });
+    }
+
+    if (error.response) {
+      // Flask returned an error
+      return res.status(error.response.status || 500).json({ 
+        error: error.response.data?.error || 'Unscrambling failed in Python service',
+        details: error.response.data
+      });
+    }
+
+    res.status(500).json({ 
+      error: 'Failed to unscramble photo',
+      message: error.message 
+    });
+  }
+});
+
+// =============================
+// DOWNLOAD SCRAMBLED IMAGE
+// =============================
+server.get('/api/download/:filename', (req, res) => {
+  const filename = req.params.filename;
+  const outputDir = path.join(__dirname, 'python', 'outputs');
+  const filePath = path.join(outputDir, filename);
+
+  console.log('📥 Download request for:', filename);
+
+  // Check if file exists
+  if (!fs.existsSync(filePath)) {
+    console.error('❌ File not found:', filePath);
+    return res.status(404).json({ error: 'File not found' });
+  }
+
+  // Send file
+  res.sendFile(filePath, (err) => {
+    if (err) {
+      console.error('❌ Error sending file:', err);
+      res.status(500).json({ error: 'Failed to send file' });
+    } else {
+      console.log('✅ File sent successfully:', filename);
+    }
+  });
+});
+
+  // @app.route('/scramble-photo', methods=['POST'])
+  // def scramble_photo():
+  //     """
+  //     Scramble a photo using various algorithms
+  //     Expects JSON with: input, output, seed, mode, algorithm, and algorithm-specific params
+  //     """
+  //     try:
+  //         data = request.json
+  //         if not data:
+  //             return jsonify({'error': 'No JSON data provided'}), 400
+
+  //         # Extract common parameters
+  //         input_file = data.get('input')
+  //         output_file = data.get('output')
+  //         seed = data.get('seed', 123456)
+  //         mode = data.get('mode', 'scramble')
+  //         algorithm = data.get('algorithm', 'position')
+  //         percentage = data.get('percentage', 100)
+
+  //         if not input_file or not output_file:
+  //             return jsonify({'error': 'input and output filenames required'}), 400
+
+  //         # Build file paths
+  //         input_path = os.path.join(app.config['UPLOAD_FOLDER'], input_file)
+  //         output_path = os.path.join(app.config['UPLOAD_FOLDER'], output_file)
+
+  //         if not os.path.exists(input_path):
+  //             return jsonify({'error': f'Input file {input_file} not found'}), 404
+
+  //         # Build command based on algorithm
+  //         cmd = []
+
+  //         if algorithm == 'position':
+  //             # Position scrambling (default tile shuffling)
+  //             rows = data.get('rows', 6)
+  //             cols = data.get('cols', 6)
+  //             cmd = [
+  //                 'python3', 'scramble_photo.py',
+  //                 '--input', input_path,
+  //                 '--output', output_path,
+  //                 '--seed', str(seed),
+  //                 '--rows', str(rows),
+  //                 '--cols', str(cols),
+  //                 '--mode', mode,
+  //                 '--percentage', str(percentage)
+  //             ]
+
+  //         elif algorithm == 'color':
+  //             # Color scrambling (hue shifting)
+  //             max_hue_shift = data.get('max_hue_shift', 64)
+  //             cmd = [
+  //                 'python3', 'scramble_photo.py',
+  //                 '--input', input_path,
+  //                 '--output', output_path,
+  //                 '--algorithm', 'color',
+  //                 '--max-hue-shift', str(max_hue_shift),
+  //                 '--seed', str(seed),
+  //                 '--mode', mode,
+  //                 '--percentage', str(percentage)
+  //             ]
+
+  //         elif algorithm == 'rotation':
+  //             # Rotation scrambling
+  //             rows = data.get('rows', 6)
+  //             cols = data.get('cols', 6)
+  //             cmd = [
+  //                 'python3', 'scramble_photo_rotate.py',
+  //                 '--input', input_path,
+  //                 '--output', output_path,
+  //                 '--seed', str(seed),
+  //                 '--rows', str(rows),
+  //                 '--cols', str(cols),
+  //                 '--mode', mode,
+  //                 '--algorithm', 'rotation',
+  //                 '--percentage', str(percentage)
+  //             ]
+
+  //         elif algorithm == 'mirror':
+  //             # Mirror scrambling
+  //             rows = data.get('rows', 6)
+  //             cols = data.get('cols', 6)
+  //             cmd = [
+  //                 'python3', 'scramble_photo_mirror.py',
+  //                 '--input', input_path,
+  //                 '--output', output_path,
+  //                 '--seed', str(seed),
+  //                 '--rows', str(rows),
+  //                 '--cols', str(cols),
+  //                 '--mode', mode,
+  //                 '--algorithm', 'mirror',
+  //                 '--percentage', str(percentage)
+  //             ]
+
+  //         elif algorithm == 'intensity':
+  //             # Intensity scrambling
+  //             max_intensity_shift = data.get('max_intensity_shift', 128)
+  //             cmd = [
+  //                 'python3', 'scramble_photo_intensity.py',
+  //                 '--input', input_path,
+  //                 '--output', output_path,
+  //                 '--algorithm', 'intensity',
+  //                 '--max-intensity-shift', str(max_intensity_shift),
+  //                 '--seed', str(seed),
+  //                 '--mode', mode,
+  //                 '--percentage', str(percentage)
+  //             ]
+
+  //         else:
+  //             return jsonify({'error': f'Unknown algorithm: {algorithm}'}), 400
+
+  //         # Execute the scrambling command
+  //         result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+
+  //         if result.returncode != 0:
+  //             return jsonify({
+  //                 'error': 'Scrambling failed',
+  //                 'details': result.stderr
+  //             }), 500
+
+  //         # Check if output file was created
+  //         if not os.path.exists(output_path):
+  //             return jsonify({'error': 'Output file was not created'}), 500
+
+  //         return jsonify({
+  //             'message': 'Photo scrambled successfully',
+  //             'output_file': output_file,
+  //             'algorithm': algorithm,
+  //             'seed': seed,
+  //             'download_url': f'/download/{output_file}'
+  //         }), 200
+
+  //     except subprocess.TimeoutExpired:
+  //         return jsonify({'error': 'Scrambling operation timed out'}), 500
+  //     except Exception as e:
+  //         return jsonify({'error': str(e)}), 500
+
+
+
+  server.post('/api/unscramble-photo', (req, res) => {
+    // Proxy the request to the Flask app
+    const axios = require('axios');
+    const FormData = require('form-data');
+    const form = new FormData();
+    axios.post(`${FLASKAPP_LINK}/unscramble-photo`, req.body)
+      .then(response => {
+        res.json(response.data);
+      })
+      .catch(error => {
+        console.error('Error unscrambling photo in Flask app:', error);
+        res.status(500).json({ error: 'Failed to unscramble photo in Python service' });
+      });
+  });
+
+  // @app.route('/unscramble-photo', methods=['POST'])
+  // def unscramble_photo():
+  //     """
+  //     Unscramble a photo using the same algorithms
+  //     Expects JSON with: input, output, seed, algorithm, and algorithm-specific params
+  //     """
+  //     try:
+  //         data = request.json
+  //         if not data:
+  //             return jsonify({'error': 'No JSON data provided'}), 400
+
+  //         # Set mode to unscramble
+  //         data['mode'] = 'unscramble'
+
+  //         # Reuse the scramble_photo logic
+  //         return scramble_photo()
+
+  //     except Exception as e:
+  //         return jsonify({'error': str(e)}), 500
+
+  // if __name__ == '__main__':
+  //     # Use the development server only for testing, not production on a VPS
+  //     app.run(host='0.0.0.0', port=5000)
+
+
+  // Photo leak detection endpoint
+server.post('/api/check-photo-leak', async (req, res) => {
+  console.log('\\n' + '='.repeat(60));
+  console.log('🔍 NODE: Photo leak check request received');
+  console.log('='.repeat(60));
+  
+  // Setup multer for this endpoint if not already configured
+  const upload = multer({
+    dest: 'uploads/',
+    limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
+    fileFilter: (req, file, cb) => {
+      if (file.mimetype.startsWith('image/')) {
+        cb(null, true);
+      } else {
+        cb(new Error('Only image files are allowed'));
+      }
+    }
+  });
+  
+  upload.single('file')(req, res, async (err) => {
+    if (err) {
+      console.error('❌ NODE ERROR: Multer error:', err);
+      return res.status(400).json({ error: err.message });
+    }
+    
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: 'No file uploaded' });
+      }
+      
+      const filename = req.file.filename;
+      console.log(`📤 NODE: File saved as: ${filename}`);
+      
+      // Step 1: Send to Flask to extract steganographic code
+      console.log('📡 NODE: Sending to Flask for code extraction...');
+      
+      const flaskResponse = await axios.post(
+        `${FLASKAPP_LINK}/extract-photo-code`,
+        {
+          input: filename
+        },
+        {
+          headers: { 'Content-Type': 'application/json' },
+          timeout: 30000
+        }
+      );
+      
+      const { extracted_code } = flaskResponse.data;
+      
+      console.log(`🔑 NODE: Extracted code: ${extracted_code || 'None'}`);
+      
+      if (!extracted_code) {
+        return res.json({
+          leakDetected: false,
+          extractedCode: null,
+          message: 'No steganographic code found in image'
+        });
+      }
+      
+      // Step 2: Search database for matching code
+      console.log('🔍 NODE: Searching database for matching code...');
+      
+      const [rows] = await pool.query(
+        `SELECT 
+          wc.*,
+          ud.username,
+          ud.email,
+          p.id as purchase_id,
+          p.createdAt as purchase_date
+        FROM watermark_codes wc
+        LEFT JOIN userData ud ON wc.user_id = ud.id
+        LEFT JOIN purchases p ON wc.purchase_id = p.id
+        WHERE wc.code = ?`,
+        [extracted_code]
+      );
+      
+      if (rows.length === 0) {
+        console.log('✅ NODE: No match found in database - image is clean');
+        return res.json({
+          leakDetected: false,
+          extractedCode: extracted_code,
+          message: 'Code extracted but not found in database'
+        });
+      }
+      
+      // Step 3: Leak detected! Return details
+      const leakData = rows[0];
+      console.log('🚨 NODE: LEAK DETECTED!');
+      console.log(`   User: ${leakData.username} (${leakData.user_id})`);
+      console.log(`   File: ${leakData.filename}`);
+      
+      // Cleanup: delete uploaded file
+      try {
+        fs.unlinkSync(req.file.path);
+      } catch (cleanupErr) {
+        console.warn('⚠️  Could not delete uploaded file:', cleanupErr);
+      }
+      
+      console.log('='.repeat(60) + '\\n');
+      
+      return res.json({
+        leakDetected: true,
+        extractedCode: extracted_code,
+        leakData: {
+          id: leakData.id,
+          code: leakData.code,
+          user_id: leakData.user_id,
+          username: leakData.username,
+          email: leakData.email,
+          filename: leakData.filename,
+          media_type: leakData.media_type,
+          created_at: leakData.created_at,
+          purchase_id: leakData.purchase_id,
+          purchase_date: leakData.purchase_date,
+          device_fingerprint: leakData.device_fingerprint
+        },
+        message: 'Leak detected! Original owner identified.'
+      });
+      
+    } catch (error) {
+      console.error('❌ NODE ERROR:', error);
+      console.log('='.repeat(60) + '\\n');
+      
+      // Cleanup on error
+      if (req.file) {
+        try {
+          fs.unlinkSync(req.file.path);
+        } catch (cleanupErr) {
+          console.warn('⚠️  Could not delete uploaded file:', cleanupErr);
+        }
+      }
+      
+      return res.status(500).json({
+        error: error.message,
+        details: error.response?.data
+      });
+    }
+  });
+});
+
+// Video leak detection endpoint
+server.post('/api/check-video-leak', async (req, res) => {
+  console.log('\\n' + '='.repeat(60));
+  console.log('🎥 NODE: Video leak check request received');
+  console.log('='.repeat(60));
+  
+  const upload = multer({
+    dest: 'uploads/',
+    limits: { fileSize: 50 * 1024 * 1024 }, // 50MB limit for videos
+    fileFilter: (req, file, cb) => {
+      if (file.mimetype.startsWith('video/')) {
+        cb(null, true);
+      } else {
+        cb(new Error('Only video files are allowed'));
+      }
+    }
+  });
+  
+  upload.single('file')(req, res, async (err) => {
+    if (err) {
+      console.error('❌ NODE ERROR: Multer error:', err);
+      return res.status(400).json({ error: err.message });
+    }
+    
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: 'No file uploaded' });
+      }
+      
+      const filename = req.file.filename;
+      console.log(`📤 NODE: File saved as: ${filename}`);
+
+      // PAUSE HERE FOR A MOMENT TO AVOID RATE LIMITS
+
+      await new Promise(resolve => setTimeout(resolve, 3000));  
+      
+      // Step 1: Send to Flask to extract steganographic code
+      console.log('📡 NODE: Sending to Flask for code extraction...');
+      
+      const flaskResponse = await axios.post(
+        `${FLASKAPP_LINK}/extract-video-code`,
+        {
+          input: filename
+        },
+        {
+          headers: { 'Content-Type': 'application/json' },
+          timeout: 60000 // 60 seconds for video processing
+        }
+      );
+      
+      const { extracted_code } = flaskResponse.data;
+      
+      console.log(`🔑 NODE: Extracted code: ${extracted_code || 'None'}`);
+      
+      if (!extracted_code) {
+        return res.json({
+          leakDetected: false,
+          extractedCode: null,
+          message: 'No steganographic code found in video'
+        });
+      }
+      
+      // Step 2: Search database
+      console.log('🔍 NODE: Searching database for matching code...');
+      
+      const [rows] = await pool.query(
+        `SELECT 
+          wc.*,
+          ud.username,
+          ud.email,
+          p.id as purchase_id,
+          p.createdAt as purchase_date
+        FROM watermark_codes wc
+        LEFT JOIN userData ud ON wc.user_id = ud.id
+        LEFT JOIN purchases p ON wc.purchase_id = p.id
+        WHERE wc.code = ?`,
+        [extracted_code]
+      );
+      
+      if (rows.length === 0) {
+        console.log('✅ NODE: No match found in database - video is clean');
+        return res.json({
+          leakDetected: false,
+          extractedCode: extracted_code,
+          message: 'Code extracted but not found in database'
+        });
+      }
+      
+      // Step 3: Leak detected!
+      const leakData = rows[0];
+      console.log('🚨 NODE: LEAK DETECTED!');
+      console.log(`   User: ${leakData.username} (${leakData.user_id})`);
+      
+      // Cleanup
+      try {
+        fs.unlinkSync(req.file.path);
+      } catch (cleanupErr) {
+        console.warn('⚠️  Could not delete uploaded file:', cleanupErr);
+      }
+      
+      console.log('='.repeat(60) + '\\n');
+      
+      return res.json({
+        leakDetected: true,
+        extractedCode: extracted_code,
+        leakData: {
+          id: leakData.id,
+          code: leakData.code,
+          user_id: leakData.user_id,
+          username: leakData.username,
+          email: leakData.email,
+          filename: leakData.filename,
+          media_type: leakData.media_type,
+          created_at: leakData.created_at,
+          purchase_id: leakData.purchase_id,
+          purchase_date: leakData.purchase_date,
+          device_fingerprint: leakData.device_fingerprint
+        },
+        message: 'Leak detected! Original owner identified.'
+      });
+      
+    } catch (error) {
+      console.error('❌ NODE ERROR:', error.message);
+      console.log('='.repeat(60) + '\\n');
+      
+      if (req.file) {
+        try {
+          fs.unlinkSync(req.file.path);
+        } catch (cleanupErr) {}
+      }
+      
+      return res.status(500).json({
+        error: error.message,
+        details: error.response?.data
+      });
+    }
+  });
+});
+
+
+  // ========================================
+  // Stripe Subscription Endpoints
+  // ========================================
+
+  const FRONTEND_URL = 'http://localhost:5174';
+  // const FRONTEND_URL = process.env.STRIPE_SECRET_KEY || 'http://localhost:5174';
+
+  // Initialize Stripe
+  // const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY || 'sk_test_your_key_here');
+  const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+
+  // server.post('/create-checkout-session', async (req, res) => {
+  //   const { amount } = req.query
+  //   console.log("amount: ", amount)
+
+  //   try {
+  //     const session = await stripe.checkout.sessions.create({
+  //       ui_mode: 'embedded',
+  //       line_items: [
+  //         {
+  //           // Provide the exact Price ID (for example, pr_1234) of the product you want to sell
+  //           price: 'price_1SR9lZEViYxfJNd20x2uwukQ',
+  //           quantity: 1,
+  //         },
+  //       ],
+  //       mode: 'payment',
+  //       return_url: `${FRONTEND_URL}/return?session_id={CHECKOUT_SESSION_ID}&amount=${amount}`,
+  //     });
+
+  //     res.send({ clientSecret: session.client_secret });
+  //     res.status(200).json({ clientSecret: session.client_secret });
+  //   } catch (error) {
+  //     res.send({ error: "Checkout failed." });
+  //     res.status(500).json({ error: "Checkout failed." });
+  //   }
+  // });
+
+  server.post('/create-checkout-session', async (req, res) => {
+    const amount = req.body.amount
+    const priceId = req.body.priceId; // Replace with your actual Price ID
+
+    // console.log("req.body: ", req.body)
+
+    console.log("amount: ", amount)
+    console.log("priceId: ", priceId)
+
+    try {
+      const session = await stripe.checkout.sessions.create({
+        ui_mode: 'embedded',
+        mode: 'payment',
+        line_items: [
+          {
+            // Provide the exact Price ID (for example, pr_1234) of the product you want to sell
+            price: priceId,
+            quantity: 1,
+          },
+        ],
+        success_url: `${FRONTEND_URL}/return?session_id={CHECKOUT_SESSION_ID}&amount=${amount}`,
+        cancel_url: `${FRONTEND_URL}/cancel`,
+
+        // return_url: `${FRONTEND_URL}/return?session_id={CHECKOUT_SESSION_ID}&amount=${amount}`,
+      });
+
+      // Return a single response with the checkout URL (frontend should redirect user to this URL)
+      res.status(200).json({ url: session.url, sessionId: session.id });
+    } catch (error) {
+      console.error('Create checkout session error:', error);
+      res.status(500).json({ error: "Checkout failed." });
+    }
+  });
+
+
+  server.get('/session-status', async (req, res) => {
+    try {
+      const session = await stripe.checkout.sessions.retrieve(req.query.session_id);
+
+      // The paymentIntent ID is usually stored in session.payment_intent
+      const paymentIntentId = session.payment_intent;
+
+      // Retrieve PaymentIntent for more details, including total amounts & breakdown
+      const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+
+      console.log("PyINT: ", paymentIntent)
+
+      // Extract any relevant data, e.g. charges, amount received, etc.
+      // const charge = paymentIntent.charges.data[0]; // If only 1 charge
+      const amountReceived = paymentIntent.amount; // in cents
+      const receiptUrl = paymentIntent.receipt_url;
+      const createAt = paymentIntent.created;
+      const clientSecret = paymentIntent.clientSecret;
+      const paymentID = paymentIntent.id;
+      const paymentStatus = paymentIntent.paymentStatus;
+
+      res.json({
+        session,
+        paymentIntent,
+        status: session.status,
+        customer_email: session.customer_details.email,
+        receipt_url: receiptUrl,
+        amount_received_cents: amountReceived,
+        created: createAt,
+        clientSecret: clientSecret,
+        paymentID: paymentID,
+        paymentStatus: paymentStatus,
+        // ...any other data you need
+      });
+
+    } catch (error) {
+      console.log("Error retrieving session status:", error);
+      res.status(500).send("Error retrieving session status");
+    }
+  });
+
+
+  // Create subscription checkout session
+  server.post('/api/subscription/create-checkout', async (req, res) => {
+    try {
+      const {
+        userId,
+        username,
+        email,
+        priceId,
+        planId,
+        planName,
+        successUrl,
+        cancelUrl
+      } = req.body;
+
+      if (!userId || !email || !priceId) {
+        return res.status(400).json({
+          success: false,
+          message: 'Missing required fields'
+        });
+      }
+
+      // Check if user already has a subscription
+      const [existingSubs] = await pool.execute(
+        'SELECT * FROM subscriptions WHERE user_id = ? AND status = ?',
+        [userId, 'active']
+      );
+
+      if (existingSubs.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'User already has an active subscription'
+        });
+      }
+
+      // Create Stripe checkout session
+      const session = await stripe.checkout.sessions.create({
+        mode: 'subscription',
+        payment_method_types: ['card'],
+        line_items: [
+          {
+            price: priceId,
+            quantity: 1,
+          },
+        ],
+        customer_email: email,
+        client_reference_id: userId.toString(),
+        metadata: {
+          userId: userId.toString(),
+          username: username,
+          planId: planId,
+          planName: planName
+        },
+        success_url: successUrl,
+        cancel_url: cancelUrl,
+        subscription_data: {
+          metadata: {
+            userId: userId.toString(),
+            username: username,
+            planId: planId,
+            planName: planName
+          }
+        }
+      });
+
+      console.log(`✅ Created checkout session for user ${userId}: ${session.id}`);
+
+      res.json({
+        success: true,
+        sessionId: session.id,
+        url: session.url
+      });
+    } catch (error) {
+      console.error('Create checkout error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to create checkout session'
+      });
+    }
+  });
+
+  // Verify subscription session
+  server.get('/api/subscription/verify-session', async (req, res) => {
+    try {
+      const { session_id } = req.query;
+
+      if (!session_id) {
+        return res.status(400).json({
+          success: false,
+          message: 'Session ID is required'
+        });
+      }
+
+      // Retrieve session from Stripe
+      const session = await stripe.checkout.sessions.retrieve(session_id, {
+        expand: ['subscription', 'customer']
+      });
+
+      if (session.payment_status === 'paid' && session.subscription) {
+        const subscription = session.subscription;
+        const userId = session.metadata.userId || session.client_reference_id;
+
+        // Save subscription to database
+        await pool.execute(
+          `INSERT INTO subscriptions 
+         (user_id, stripe_subscription_id, stripe_customer_id, plan_id, plan_name, 
+          status, current_period_start, current_period_end, created_at) 
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE 
+         stripe_subscription_id = VALUES(stripe_subscription_id),
+         status = VALUES(status),
+         current_period_start = VALUES(current_period_start),
+         current_period_end = VALUES(current_period_end)`,
+          [
+            userId,
+            subscription.id,
+            session.customer.id || session.customer,
+            session.metadata.planId,
+            session.metadata.planName,
+            subscription.status,
+            new Date(subscription.current_period_start * 1000),
+            new Date(subscription.current_period_end * 1000),
+            new Date()
+          ]
+        );
+
+        console.log(`✅ Subscription activated for user ${userId}`);
+
+        res.json({
+          success: true,
+          session: {
+            amount_total: session.amount_total,
+            customer_email: session.customer_details?.email || session.customer_email,
+            subscription: {
+              id: subscription.id,
+              planId: session.metadata.planId,
+              planName: session.metadata.planName,
+              interval: subscription.items.data[0]?.plan.interval,
+              current_period_end: subscription.current_period_end,
+              status: subscription.status
+            }
+          }
+        });
+      } else {
+        res.json({
+          success: false,
+          message: 'Payment not completed'
+        });
+      }
+    } catch (error) {
+      console.error('Verify session error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to verify session'
+      });
+    }
+  });
+
+  // Get current subscription
+  server.get('/api/subscription/current/:userId', async (req, res) => {
+    try {
+      const { userId } = req.params;
+
+      const [subscriptions] = await pool.execute(
+        `SELECT * FROM subscriptions 
+       WHERE user_id = ? AND status IN ('active', 'trialing') 
+       ORDER BY created_at DESC LIMIT 1`,
+        [userId]
+      );
+
+      if (subscriptions.length > 0) {
+        res.json({
+          success: true,
+          subscription: subscriptions[0]
+        });
+      } else {
+        res.json({
+          success: true,
+          subscription: null
+        });
+      }
+    } catch (error) {
+      console.error('Get subscription error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Database error'
+      });
+    }
+  });
+
+  // Create customer portal session
+  server.post('/api/subscription/portal', async (req, res) => {
+    try {
+      const { userId, returnUrl } = req.body;
+
+      // Get user's subscription
+      const [subscriptions] = await pool.execute(
+        'SELECT stripe_customer_id FROM subscriptions WHERE user_id = ? AND status = ?',
+        [userId, 'active']
+      );
+
+      if (subscriptions.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: 'No active subscription found'
+        });
+      }
+
+      const customerId = subscriptions[0].stripe_customer_id;
+
+      // Create portal session
+      const session = await stripe.billingPortal.sessions.create({
+        customer: customerId,
+        return_url: returnUrl,
+      });
+
+      res.json({
+        success: true,
+        url: session.url
+      });
+    } catch (error) {
+      console.error('Portal error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to create portal session'
+      });
+    }
+  });
+
+  // Cancel subscription
+  server.post('/api/subscription/cancel', async (req, res) => {
+    try {
+      const { userId } = req.body;
+
+      // Get user's subscription
+      const [subscriptions] = await pool.execute(
+        'SELECT stripe_subscription_id FROM subscriptions WHERE user_id = ? AND status = ?',
+        [userId, 'active']
+      );
+
+      if (subscriptions.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: 'No active subscription found'
+        });
+      }
+
+      const subscriptionId = subscriptions[0].stripe_subscription_id;
+
+      // Cancel at period end (don't cancel immediately)
+      await stripe.subscriptions.update(subscriptionId, {
+        cancel_at_period_end: true
+      });
+
+      // Update database
+      await pool.execute(
+        'UPDATE subscriptions SET status = ? WHERE user_id = ?',
+        ['canceling', userId]
+      );
+
+      console.log(`✅ Subscription cancelled for user ${userId}`);
+
+      res.json({
+        success: true,
+        message: 'Subscription will be cancelled at the end of the billing period'
+      });
+    } catch (error) {
+      console.error('Cancel subscription error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to cancel subscription'
+      });
+    }
+  });
+
+  // Stripe webhook handler
+  server.post('/api/subscription/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+    const sig = req.headers['stripe-signature'];
+    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+
+    let event;
+
+    try {
+      event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
+    } catch (err) {
+      console.error('Webhook signature verification failed:', err.message);
+      return res.status(400).send(`Webhook Error: ${err.message}`);
+    }
+
+    // Handle the event
+    switch (event.type) {
+      case 'customer.subscription.updated':
+      case 'customer.subscription.created':
+        const subscription = event.data.object;
+        await pool.execute(
+          `UPDATE subscriptions 
+         SET status = ?, current_period_start = ?, current_period_end = ? 
+         WHERE stripe_subscription_id = ?`,
+          [
+            subscription.status,
+            new Date(subscription.current_period_start * 1000),
+            new Date(subscription.current_period_end * 1000),
+            subscription.id
+          ]
+        );
+        console.log(`✅ Subscription updated: ${subscription.id}`);
+        break;
+
+      case 'customer.subscription.deleted':
+        const deletedSub = event.data.object;
+        await pool.execute(
+          'UPDATE subscriptions SET status = ? WHERE stripe_subscription_id = ?',
+          ['canceled', deletedSub.id]
+        );
+        console.log(`✅ Subscription cancelled: ${deletedSub.id}`);
+        break;
+
+      default:
+        console.log(`Unhandled event type ${event.type}`);
+    }
+
+    res.json({ received: true });
+  });
+
+
+
+
+  // Global error handler
+  server.use((error, req, res, next) => {
+    console.error('Global error handler:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: process.env.NODE_ENV === 'development' ? error.message : 'Something went wrong'
+    });
+  });
+
+  // 404 handler for undefined routes (MUST BE LAST!)
+  server.use((req, res) => {
+    res.status(404).json({ error: 'Route not found' });
+  });
+
+  const PORT = process.env.PORT || 3001;
+  server.listen(PORT, async () => {
+    try {
+      // Test database connection
+      await pool.execute('SELECT 1');
+      console.log('🚀 Express Server with MySQL is running on port', PORT);
+      console.log('�️  Database: KeyChingDB (MySQL)');
+      console.log('🌐 API Base URL: http://localhost:' + PORT + '/api');
+      console.log('� Flask Service: ' + FLASKAPP_LINK);
+      console.log('📋 Available endpoints:');
+      console.log('   - GET /api/userData');
+      console.log('   - GET /api/createdKeys');
+      console.log('   - GET /api/unlocks/:username');
+      console.log('   - GET /api/purchases/:username');
+      console.log('   - GET /api/redemptions/:username');
+      console.log('   - GET /api/notifications/:username');
+      console.log('   - POST /api/auth/login');
+      console.log('   - GET /api/wallet/balance');
+      console.log('   - POST /api/unlock/:keyId');
+      console.log('   - GET /api/listings');
+      console.log('   - POST /api/create-key');
+      console.log('   - GET /api/:table');
+      console.log('   - GET /api/:table/:id');
+      console.log('   - PATCH /api/:table/:id');
+    } catch (error) {
+      console.error('❌ Failed to connect to MySQL database:', error.message);
+      console.log('📝 Please ensure:');
+      console.log('   1. MySQL server is running');
+      console.log('   2. KeyChingDB database exists');
+      console.log('   3. Database credentials are correct in server.cjs');
+      process.exit(1);
+    }
+  });
+  // Graceful shutdown
+  process.on('SIGTERM', async () => {
+    console.log('🛑 Received SIGTERM, shutting down gracefully...');
+    await pool.end();
+    process.exit(0);
+  });
+
+  process.on('SIGINT', async () => {
+    console.log('🛑 Received SIGINT, shutting down gracefully...');
+    await pool.end();
+    process.exit(0);
+  });
+
+

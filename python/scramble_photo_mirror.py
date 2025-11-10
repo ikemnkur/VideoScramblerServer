@@ -50,6 +50,26 @@ def gen_random_seed() -> int:
     """
     return secrets.randbits(32)
 
+def seeded_mirrors(size: int, seed: int) -> List[str]:
+    """
+    Generate random mirror flip types for each tile.
+    Returns a list of mirror types: 'none', 'horizontal', or 'vertical' for each tile.
+    """
+    rand = mulberry32(seed & 0xFFFFFFFF)
+    mirrors = []
+    
+    for _ in range(size):
+        # Generate random mirror type: 0=none, 1=horizontal, 2=vertical
+        mirror_type = int(rand() * 3)
+        if mirror_type == 0:
+            mirrors.append('none')
+        elif mirror_type == 1:
+            mirrors.append('horizontal')
+        else:  # mirror_type == 2
+            mirrors.append('vertical')
+    
+    return mirrors
+
 def seeded_permutation(size: int, seed: int) -> List[int]:
     """
     Create a Fisher–Yates shuffled permutation array.
@@ -186,12 +206,91 @@ def cell_rects(w: int, h: int, n: int, m: int) -> List[Rect]:
     return rects
 
 
+def mirror_tile(tile: np.ndarray, mirror_type: str) -> np.ndarray:
+    """
+    Mirror flip a tile according to the specified type.
+    mirror_type: 'none', 'horizontal', or 'vertical'
+    """
+    if mirror_type == 'none':
+        return tile
+    elif mirror_type == 'horizontal':
+        # Flip horizontally (left-right)
+        return cv2.flip(tile, 1)
+    elif mirror_type == 'vertical':
+        # Flip vertically (up-down)
+        return cv2.flip(tile, 0)
+    else:
+        raise ValueError(f"Invalid mirror type: {mirror_type}")
+
+
+def mirror_params_to_json(seed: int, n: int, m: int, mirrors: List[str]) -> Dict[str, Any]:
+    """
+    Convert mirror parameters to JSON-like dict for export/saving.
+    """
+    return {
+        "version": 4,
+        "algorithm": "mirror",
+        "seed": int(seed),
+        "n": int(n),
+        "m": int(m),
+        "mirrors": mirrors,
+        "semantics": "Mirror flip types applied to each grid cell (0-based indexing): 'none', 'horizontal', or 'vertical'",
+    }
+
+
 # === paste all helper functions from above here ===
 # mulberry32, gen_random_seed, seeded_permutation, one_based, zero_based,
 # auto_grid_for_aspect, params_to_json, json_to_params, inverse_permutation,
 # Rect, cell_rects
 
 
+def mirror_scramble_frame(frame: np.ndarray,
+                         n: int,
+                         m: int,
+                         mirrors: List[str],
+                         rects: List[Rect]) -> np.ndarray:
+    """
+    Scramble a frame by mirror flipping each tile according to the mirror types.
+    """
+    h, w, c = frame.shape
+    out = frame.copy()
+
+    N = n * m
+    if len(mirrors) != N:
+        raise ValueError("Mirrors length does not equal n*m")
+
+    for tile_idx in range(N):
+        rect = rects[tile_idx]
+        mirror_type = mirrors[tile_idx]
+
+        # Extract the tile
+        y0, y1 = rect.y0, rect.y1
+        x0, x1 = rect.x0, rect.x1
+        tile = frame[y0:y1, x0:x1, :]
+
+        # Mirror flip the tile
+        mirrored_tile = mirror_tile(tile, mirror_type)
+
+        # Place the mirrored tile back (no dimension changes with mirroring)
+        out[y0:y1, x0:x1, :] = mirrored_tile
+
+    return out
+
+
+def mirror_unscramble_frame(frame: np.ndarray,
+                           n: int,
+                           m: int,
+                           mirrors: List[str],
+                           rects: List[Rect]) -> np.ndarray:
+    """
+    Unscramble a frame by mirror flipping each tile in the reverse direction.
+    Since mirroring is its own inverse, we apply the same mirror operation.
+    """
+    # Mirror operations are self-inverse: flipping twice returns to original
+    return mirror_scramble_frame(frame, n, m, mirrors, rects)
+
+
+# Legacy functions for compatibility
 def scramble_frame(frame: np.ndarray,
                    n: int,
                    m: int,
@@ -261,7 +360,7 @@ def process_photo(input_path: str,
                   rows: Optional[int] = None,
                   cols: Optional[int] = None,
                   mode: str = "scramble",
-                  percentage: Optional[int] = 100) -> str:
+                  algorithm: str = "mirror") -> str:
     """
     Process a photo: scramble or unscramble according to mode.
     Returns path to params JSON (for scramble mode).
@@ -295,167 +394,37 @@ def process_photo(input_path: str,
     if seed is None:
         seed = gen_random_seed()
 
-    if mode == "scramble":
-        perm_dest_to_src_0 = seeded_permutation(N, seed)
-    elif mode == "unscramble":
-        # For Unscramble you'd normally load perm from JSON, not generate it.
-        # But we support deterministic unscramble if we know seed/n/m.
-        perm_dest_to_src_0 = seeded_permutation(N, seed)
-    else:
-        raise ValueError("mode must be 'scramble' or 'unscramble'")
-
-    # Precompute rectangles for the photo (src and dest shapes are same)
-    src_rects = cell_rects(width, height, n, m)
-    dest_rects = cell_rects(width, height, n, m)
-
-    # Process the single frame
-    if mode == "scramble":
-        processed = scramble_frame(frame, n, m, perm_dest_to_src_0, src_rects, dest_rects)
-    else:
-        processed = unscramble_frame(frame, n, m, perm_dest_to_src_0, src_rects, dest_rects)
-
-    # Write the output image
-    cv2.imwrite(output_path, processed)
-
-    # Save params JSON (only for scramble mode)
-    params_path = ""
-    if mode == "scramble":
-        params = params_to_json(seed, n, m, perm_dest_to_src_0)
-        base, ext = os.path.splitext(output_path)
-        params_path = base + ".params.json"
-        with open(params_path, "w", encoding="utf-8") as f:
-            json.dump(params, f, indent=2)
-
-    return params_path
-
-def process_photo_by_percentage(input_path: str,
-                  output_path: str,
-                  seed: Optional[int] = None,
-                  rows: Optional[int] = None,
-                  cols: Optional[int] = None,
-                  mode: str = "scramble",
-                  percentage: Optional[int] = 100) -> str:
-    """
-    Process a photo: scramble or unscramble according to mode.
-    Only scrambles a certain percentage of tiles based on the percentage parameter.
-    Returns path to params JSON (for scramble mode).
-    """
-
-    if not os.path.isfile(input_path):
-        raise FileNotFoundError(f"Input photo not found: {input_path}")
-
-    # Read the image
-    frame = cv2.imread(input_path)
-    if frame is None:
-        raise RuntimeError(f"Could not read image: {input_path}")
-
-    height, width, channels = frame.shape
-
-    if width <= 0 or height <= 0:
-        raise RuntimeError("Invalid photo dimensions")
-
-    # If rows/cols missing, choose them based on aspect ratio
-    if rows is None or cols is None:
-        dims = auto_grid_for_aspect(width, height)
-        if rows is None:
-            rows = dims.n
-        if cols is None:
-            cols = dims.m
-
-    n, m = rows, cols
-    N = n * m
-
-    # Validate percentage
-    if percentage is None:
-        percentage = 100
-    percentage = max(0, min(100, percentage))  # Clamp between 0 and 100
-
-    # seed management
-    if seed is None:
-        seed = gen_random_seed()
-
-    # Calculate how many tiles to scramble based on percentage
-    tiles_to_scramble = max(1, int(N * percentage / 100.0))
-    
-    print(f"Scrambling {tiles_to_scramble} out of {N} tiles ({percentage}%)")
-
-    if mode == "scramble":
-        # Use the seed to select which tiles to scramble
-        rand = mulberry32(seed & 0xFFFFFFFF)
+    # Generate scrambling parameters based on algorithm
+    if algorithm == "mirror":
+        # Generate mirror flip types for each tile
+        mirrors = seeded_mirrors(N, seed)
+        rects = cell_rects(width, height, n, m)
         
-        # Create a list of all tile indices and shuffle it to randomly select which to scramble
-        tile_indices = list(range(N))
-        for i in range(N - 1, 0, -1):
-            j = math.floor(rand() * (i + 1))
-            tile_indices[i], tile_indices[j] = tile_indices[j], tile_indices[i]
-        
-        # Select the first 'tiles_to_scramble' indices to be scrambled
-        scrambled_indices = sorted(tile_indices[:tiles_to_scramble])
-        
-        print(f"Tiles to scramble (0-indexed): {scrambled_indices}")
-        
-        # Generate a permutation ONLY for the scrambled tiles
-        # Use a different seed offset to get a different permutation
-        scrambled_perm = seeded_permutation(len(scrambled_indices), seed + 1)
-        
-        # Create the full permutation: identity for most, scrambled for selected tiles
-        partial_perm = list(range(N))  # Start with identity permutation
-        
-        # Apply the scrambled permutation to only the selected tiles
-        # scrambled_indices[i] should map to scrambled_indices[scrambled_perm[i]]
-        for i, src_idx in enumerate(scrambled_indices):
-            dest_tile = scrambled_indices[scrambled_perm[i]]
-            partial_perm[src_idx] = dest_tile
-        
-        perm_dest_to_src_0 = partial_perm
-        
-        # Verify it's a valid permutation
-        perm_set = set(partial_perm)
-        if len(perm_set) != N:
-            print(f"WARNING: Invalid permutation! Expected {N} unique values, got {len(perm_set)}")
-            print(f"Permutation: {partial_perm}")
-            duplicates = [x for x in range(N) if partial_perm.count(x) > 1]
-            missing = [x for x in range(N) if x not in perm_set]
-            print(f"Duplicate values: {duplicates}")
-            print(f"Missing values: {missing}")
+        # Process the image
+        if mode == "scramble":
+            processed = mirror_scramble_frame(frame, n, m, mirrors, rects)
+        elif mode == "unscramble":
+            processed = mirror_unscramble_frame(frame, n, m, mirrors, rects)
         else:
-            print(f"✓ Valid permutation generated")
-        
-    elif mode == "unscramble":
-        # For unscramble, we need to reverse the same partial scramble
-        # Use the EXACT same logic as scramble to generate the same permutation
-        rand = mulberry32(seed & 0xFFFFFFFF)
-        tile_indices = list(range(N))
-        for i in range(N - 1, 0, -1):
-            j = math.floor(rand() * (i + 1))
-            tile_indices[i], tile_indices[j] = tile_indices[j], tile_indices[i]
-        
-        scrambled_indices = sorted(tile_indices[:tiles_to_scramble])
-        print(f"Tiles to unscramble (0-indexed): {scrambled_indices}")
-        
-        # Generate the SAME permutation for scrambled tiles
-        scrambled_perm = seeded_permutation(len(scrambled_indices), seed + 1)
-        
-        # Create the same partial permutation as scrambling
-        partial_perm = list(range(N))
-        for i, src_idx in enumerate(scrambled_indices):
-            dest_tile = scrambled_indices[scrambled_perm[i]]
-            partial_perm[src_idx] = dest_tile
-        
-        perm_dest_to_src_0 = partial_perm
-        print(f"✓ Valid permutation generated for unscrambling")
-    else:
-        raise ValueError("mode must be 'scramble' or 'unscramble'")
+            raise ValueError("mode must be 'scramble' or 'unscramble'")
+            
+    else:  # Legacy spatial algorithm
+        if mode == "scramble":
+            perm_dest_to_src_0 = seeded_permutation(N, seed)
+        elif mode == "unscramble":
+            perm_dest_to_src_0 = seeded_permutation(N, seed)
+        else:
+            raise ValueError("mode must be 'scramble' or 'unscramble'")
 
-    # Precompute rectangles for the photo (src and dest shapes are same)
-    src_rects = cell_rects(width, height, n, m)
-    dest_rects = cell_rects(width, height, n, m)
+        # Precompute rectangles for the photo (src and dest shapes are same)
+        src_rects = cell_rects(width, height, n, m)
+        dest_rects = cell_rects(width, height, n, m)
 
-    # Process the single frame
-    if mode == "scramble":
-        processed = scramble_frame(frame, n, m, perm_dest_to_src_0, src_rects, dest_rects)
-    else:
-        processed = unscramble_frame(frame, n, m, perm_dest_to_src_0, src_rects, dest_rects)
+        # Process the single frame
+        if mode == "scramble":
+            processed = scramble_frame(frame, n, m, perm_dest_to_src_0, src_rects, dest_rects)
+        else:
+            processed = unscramble_frame(frame, n, m, perm_dest_to_src_0, src_rects, dest_rects)
 
     # Write the output image
     cv2.imwrite(output_path, processed)
@@ -463,12 +432,11 @@ def process_photo_by_percentage(input_path: str,
     # Save params JSON (only for scramble mode)
     params_path = ""
     if mode == "scramble":
-        params = params_to_json(seed, n, m, perm_dest_to_src_0)
-        # Add percentage info to params
-        params["percentage"] = percentage
-        params["tiles_scrambled"] = tiles_to_scramble
-        params["total_tiles"] = N
-        
+        if algorithm == "mirror":
+            params = mirror_params_to_json(seed, n, m, mirrors)
+        else:
+            params = params_to_json(seed, n, m, perm_dest_to_src_0)
+            
         base, ext = os.path.splitext(output_path)
         params_path = base + ".params.json"
         with open(params_path, "w", encoding="utf-8") as f:
@@ -478,44 +446,34 @@ def process_photo_by_percentage(input_path: str,
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Scramble/unscramble a photo using grid permutation.")
+    parser = argparse.ArgumentParser(description="Scramble/unscramble a photo using tile mirroring or grid permutation.")
     parser.add_argument("--input", "-i", required=True, help="Input photo path")
     parser.add_argument("--output", "-o", required=True, help="Output photo path")
     parser.add_argument("--seed", type=int, help="Random seed (32-bit). If omitted, one is generated.")
     parser.add_argument("--rows", type=int, help="Grid rows (n). If omitted, auto-chosen from aspect ratio.")
     parser.add_argument("--cols", type=int, help="Grid cols (m). If omitted, auto-chosen from aspect ratio.")
-    parser.add_argument("--percentage", type=int, default=100, help="Percentage of tiles to scramble (default: 100).")
     parser.add_argument("--mode", choices=["scramble", "unscramble"], default="scramble",
                         help="Operation mode (default: scramble). Unscramble assumes same seed/n/m.")
+    parser.add_argument("--algorithm", choices=["mirror", "spatial"], default="mirror",
+                        help="Scrambling algorithm: 'mirror' for flipping tiles horizontally/vertically, 'spatial' for position swapping (default: mirror)")
 
     args = parser.parse_args()
 
     try:
-        # Use percentage-based processing if percentage is less than 100
-        if args.percentage < 100:
-            params_path = process_photo_by_percentage(
-                input_path=args.input,
-                output_path=args.output,
-                seed=args.seed,
-                rows=args.rows,
-                cols=args.cols,
-                percentage=args.percentage,
-                mode=args.mode,
-            )
-        else:
-            # Use the standard photo processing function for 100% scrambling
-            params_path = process_photo(
-                input_path=args.input,
-                output_path=args.output,
-                seed=args.seed,
-                rows=args.rows,
-                cols=args.cols,
-                mode=args.mode,
-            )
-        
+        # Use the photo processing function
+        params_path = process_photo(
+            input_path=args.input,
+            output_path=args.output,
+            seed=args.seed,
+            rows=args.rows,
+            cols=args.cols,
+            mode=args.mode,
+            algorithm=args.algorithm,
+        )
         print(f"Done. Output photo: {args.output}")
         if args.mode == "scramble" and params_path:
             print(f"Scramble params saved to: {params_path}")
+            print(f"Algorithm used: {args.algorithm}")
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)

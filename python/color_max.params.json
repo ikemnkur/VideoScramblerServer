@@ -1,17 +1,17 @@
 {
   "version": 3,
   "algorithm": "color_scramble",
-  "seed": 123456,
+  "seed": 999999,
   "n": 2,
   "m": 3,
-  "max_shift": 64,
+  "max_shift": 128,
   "hue_shifts": [
-    49,
-    46,
-    30,
-    4,
-    47,
-    18
+    111,
+    116,
+    122,
+    76,
+    102,
+    79
   ],
   "semantics": "Hue shifts applied to each grid cell (0-based indexing)"
 }

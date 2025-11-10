@@ -1,0 +1,30 @@
+1. embed_code_image.py - Message Embedding Tool
+Purpose: Embeds secret text messages into images using a dot grid pattern
+
+Key Features:
+
+Converts text to bytes and embeds them as a grid of dots
+Each row represents one byte (character)
+Each column represents one bit (8 columns = 8 bits per byte)
+Configurable dot size, spacing, position, and color
+Handles messages up to grid capacity (rows parameter)
+Usage:
+
+python3 embed_code_image.py --input image.jpg --output secret.jpg --message "Hello World!" --rows 15 --cell-size 4 --dot-color "255,255,255"
+
+
+
+
+2. decode_code_image.py - Message Decoding Tool
+Purpose: Extracts hidden messages from images containing dot grids
+
+Key Features:
+
+Analyzes brightness of grid cells to determine bit values
+Reconstructs bytes from the bit patterns
+Converts bytes back to readable text
+Configurable brightness threshold for bit detection
+Strips padding bytes and shows decoding statistics
+Usage:
+
+python3 decode_code_image.py --input secret.jpg --rows 15 --cell-size 4 --threshold 150

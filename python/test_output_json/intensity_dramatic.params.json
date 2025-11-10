@@ -1,0 +1,23 @@
+{
+  "version": 4,
+  "algorithm": "intensity_scramble",
+  "seed": 777777,
+  "n": 3,
+  "m": 4,
+  "max_shift": 128,
+  "intensity_shifts": [
+    125,
+    121,
+    74,
+    108,
+    63,
+    109,
+    10,
+    84,
+    19,
+    3,
+    85,
+    3
+  ],
+  "semantics": "Intensity shifts applied to each grid cell (0-based indexing)"
+}

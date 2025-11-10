@@ -50,6 +50,22 @@ def gen_random_seed() -> int:
     """
     return secrets.randbits(32)
 
+def generate_hue_shifts(n: int, m: int, seed: int, max_shift: int = 128) -> List[int]:
+    """
+    Generate random hue shifts for each cell in the grid.
+    Returns a list of hue shift values (0 to max_shift) for each cell.
+    """
+    rand = mulberry32(seed & 0xFFFFFFFF)
+    N = n * m
+    shifts = []
+    
+    for _ in range(N):
+        # Generate random shift from 0 to max_shift
+        shift = int(rand() * (max_shift + 1))
+        shifts.append(shift)
+    
+    return shifts
+
 def seeded_permutation(size: int, seed: int) -> List[int]:
     """
     Create a Fisher–Yates shuffled permutation array.
@@ -186,12 +202,91 @@ def cell_rects(w: int, h: int, n: int, m: int) -> List[Rect]:
     return rects
 
 
-# === paste all helper functions from above here ===
-# mulberry32, gen_random_seed, seeded_permutation, one_based, zero_based,
-# auto_grid_for_aspect, params_to_json, json_to_params, inverse_permutation,
-# Rect, cell_rects
+def apply_hue_shift_to_region(region: np.ndarray, hue_shift: int) -> np.ndarray:
+    """
+    Apply hue shift to a specific region of the frame.
+    region: BGR image region
+    hue_shift: amount to shift hue (0-179 for OpenCV HSV)
+    """
+    if hue_shift == 0:
+        return region.copy()
+    
+    # Convert BGR to HSV
+    hsv = cv2.cvtColor(region, cv2.COLOR_BGR2HSV)
+    
+    # Shift the hue channel
+    # OpenCV hue range is 0-179, so we need to map our 0-128 range appropriately
+    hue_shift_cv = int((hue_shift / 128.0) * 179)
+    
+    # Apply hue shift with wrapping
+    hsv[:, :, 0] = (hsv[:, :, 0].astype(np.int32) + hue_shift_cv) % 180
+    
+    # Convert back to BGR
+    result = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
+    return result
 
 
+def color_scramble_frame(frame: np.ndarray,
+                        n: int,
+                        m: int,
+                        hue_shifts: List[int],
+                        cell_rects: List[Rect]) -> np.ndarray:
+    """
+    Apply color scrambling (hue shifts) to each cell in the frame.
+    """
+    h, w, c = frame.shape
+    out = frame.copy()
+    
+    N = n * m
+    if len(hue_shifts) != N or len(cell_rects) != N:
+        raise ValueError("Hue shifts and cell rects must match grid size")
+    
+    for cell_idx in range(N):
+        rect = cell_rects[cell_idx]
+        hue_shift = hue_shifts[cell_idx]
+        
+        # Extract the cell region
+        region = frame[rect.y0:rect.y1, rect.x0:rect.x1, :]
+        
+        # Apply hue shift
+        shifted_region = apply_hue_shift_to_region(region, hue_shift)
+        
+        # Place back in output frame
+        out[rect.y0:rect.y1, rect.x0:rect.x1, :] = shifted_region
+    
+    return out
+
+
+def color_unscramble_frame(frame: np.ndarray,
+                          n: int,
+                          m: int,
+                          hue_shifts: List[int],
+                          cell_rects: List[Rect]) -> np.ndarray:
+    """
+    Reverse color scrambling by applying negative hue shifts.
+    """
+    # Create inverse hue shifts
+    inverse_shifts = [-shift for shift in hue_shifts]
+    return color_scramble_frame(frame, n, m, inverse_shifts, cell_rects)
+
+
+def color_params_to_json(seed: int, n: int, m: int, hue_shifts: List[int], max_shift: int) -> Dict[str, Any]:
+    """
+    Convert color scramble parameters to JSON for export/saving.
+    """
+    return {
+        "version": 3,
+        "algorithm": "color_scramble",
+        "seed": int(seed),
+        "n": int(n),
+        "m": int(m),
+        "max_shift": int(max_shift),
+        "hue_shifts": hue_shifts,
+        "semantics": "Hue shifts applied to each grid cell (0-based indexing)",
+    }
+
+
+# Legacy functions for compatibility
 def scramble_frame(frame: np.ndarray,
                    n: int,
                    m: int,
@@ -261,7 +356,8 @@ def process_photo(input_path: str,
                   rows: Optional[int] = None,
                   cols: Optional[int] = None,
                   mode: str = "scramble",
-                  percentage: Optional[int] = 100) -> str:
+                  algorithm: str = "color",
+                  max_hue_shift: int = 128) -> str:
     """
     Process a photo: scramble or unscramble according to mode.
     Returns path to params JSON (for scramble mode).
@@ -295,167 +391,37 @@ def process_photo(input_path: str,
     if seed is None:
         seed = gen_random_seed()
 
-    if mode == "scramble":
-        perm_dest_to_src_0 = seeded_permutation(N, seed)
-    elif mode == "unscramble":
-        # For Unscramble you'd normally load perm from JSON, not generate it.
-        # But we support deterministic unscramble if we know seed/n/m.
-        perm_dest_to_src_0 = seeded_permutation(N, seed)
-    else:
-        raise ValueError("mode must be 'scramble' or 'unscramble'")
-
-    # Precompute rectangles for the photo (src and dest shapes are same)
-    src_rects = cell_rects(width, height, n, m)
-    dest_rects = cell_rects(width, height, n, m)
-
-    # Process the single frame
-    if mode == "scramble":
-        processed = scramble_frame(frame, n, m, perm_dest_to_src_0, src_rects, dest_rects)
-    else:
-        processed = unscramble_frame(frame, n, m, perm_dest_to_src_0, src_rects, dest_rects)
-
-    # Write the output image
-    cv2.imwrite(output_path, processed)
-
-    # Save params JSON (only for scramble mode)
-    params_path = ""
-    if mode == "scramble":
-        params = params_to_json(seed, n, m, perm_dest_to_src_0)
-        base, ext = os.path.splitext(output_path)
-        params_path = base + ".params.json"
-        with open(params_path, "w", encoding="utf-8") as f:
-            json.dump(params, f, indent=2)
-
-    return params_path
-
-def process_photo_by_percentage(input_path: str,
-                  output_path: str,
-                  seed: Optional[int] = None,
-                  rows: Optional[int] = None,
-                  cols: Optional[int] = None,
-                  mode: str = "scramble",
-                  percentage: Optional[int] = 100) -> str:
-    """
-    Process a photo: scramble or unscramble according to mode.
-    Only scrambles a certain percentage of tiles based on the percentage parameter.
-    Returns path to params JSON (for scramble mode).
-    """
-
-    if not os.path.isfile(input_path):
-        raise FileNotFoundError(f"Input photo not found: {input_path}")
-
-    # Read the image
-    frame = cv2.imread(input_path)
-    if frame is None:
-        raise RuntimeError(f"Could not read image: {input_path}")
-
-    height, width, channels = frame.shape
-
-    if width <= 0 or height <= 0:
-        raise RuntimeError("Invalid photo dimensions")
-
-    # If rows/cols missing, choose them based on aspect ratio
-    if rows is None or cols is None:
-        dims = auto_grid_for_aspect(width, height)
-        if rows is None:
-            rows = dims.n
-        if cols is None:
-            cols = dims.m
-
-    n, m = rows, cols
-    N = n * m
-
-    # Validate percentage
-    if percentage is None:
-        percentage = 100
-    percentage = max(0, min(100, percentage))  # Clamp between 0 and 100
-
-    # seed management
-    if seed is None:
-        seed = gen_random_seed()
-
-    # Calculate how many tiles to scramble based on percentage
-    tiles_to_scramble = max(1, int(N * percentage / 100.0))
-    
-    print(f"Scrambling {tiles_to_scramble} out of {N} tiles ({percentage}%)")
-
-    if mode == "scramble":
-        # Use the seed to select which tiles to scramble
-        rand = mulberry32(seed & 0xFFFFFFFF)
+    # Generate scrambling parameters based on algorithm
+    if algorithm == "color":
+        # Generate hue shifts for each tile
+        hue_shifts = generate_hue_shifts(n, m, seed, max_hue_shift)
+        rects = cell_rects(width, height, n, m)
         
-        # Create a list of all tile indices and shuffle it to randomly select which to scramble
-        tile_indices = list(range(N))
-        for i in range(N - 1, 0, -1):
-            j = math.floor(rand() * (i + 1))
-            tile_indices[i], tile_indices[j] = tile_indices[j], tile_indices[i]
-        
-        # Select the first 'tiles_to_scramble' indices to be scrambled
-        scrambled_indices = sorted(tile_indices[:tiles_to_scramble])
-        
-        print(f"Tiles to scramble (0-indexed): {scrambled_indices}")
-        
-        # Generate a permutation ONLY for the scrambled tiles
-        # Use a different seed offset to get a different permutation
-        scrambled_perm = seeded_permutation(len(scrambled_indices), seed + 1)
-        
-        # Create the full permutation: identity for most, scrambled for selected tiles
-        partial_perm = list(range(N))  # Start with identity permutation
-        
-        # Apply the scrambled permutation to only the selected tiles
-        # scrambled_indices[i] should map to scrambled_indices[scrambled_perm[i]]
-        for i, src_idx in enumerate(scrambled_indices):
-            dest_tile = scrambled_indices[scrambled_perm[i]]
-            partial_perm[src_idx] = dest_tile
-        
-        perm_dest_to_src_0 = partial_perm
-        
-        # Verify it's a valid permutation
-        perm_set = set(partial_perm)
-        if len(perm_set) != N:
-            print(f"WARNING: Invalid permutation! Expected {N} unique values, got {len(perm_set)}")
-            print(f"Permutation: {partial_perm}")
-            duplicates = [x for x in range(N) if partial_perm.count(x) > 1]
-            missing = [x for x in range(N) if x not in perm_set]
-            print(f"Duplicate values: {duplicates}")
-            print(f"Missing values: {missing}")
+        # Process the image
+        if mode == "scramble":
+            processed = color_scramble_frame(frame, n, m, hue_shifts, rects)
+        elif mode == "unscramble":
+            processed = color_unscramble_frame(frame, n, m, hue_shifts, rects)
         else:
-            print(f"✓ Valid permutation generated")
-        
-    elif mode == "unscramble":
-        # For unscramble, we need to reverse the same partial scramble
-        # Use the EXACT same logic as scramble to generate the same permutation
-        rand = mulberry32(seed & 0xFFFFFFFF)
-        tile_indices = list(range(N))
-        for i in range(N - 1, 0, -1):
-            j = math.floor(rand() * (i + 1))
-            tile_indices[i], tile_indices[j] = tile_indices[j], tile_indices[i]
-        
-        scrambled_indices = sorted(tile_indices[:tiles_to_scramble])
-        print(f"Tiles to unscramble (0-indexed): {scrambled_indices}")
-        
-        # Generate the SAME permutation for scrambled tiles
-        scrambled_perm = seeded_permutation(len(scrambled_indices), seed + 1)
-        
-        # Create the same partial permutation as scrambling
-        partial_perm = list(range(N))
-        for i, src_idx in enumerate(scrambled_indices):
-            dest_tile = scrambled_indices[scrambled_perm[i]]
-            partial_perm[src_idx] = dest_tile
-        
-        perm_dest_to_src_0 = partial_perm
-        print(f"✓ Valid permutation generated for unscrambling")
-    else:
-        raise ValueError("mode must be 'scramble' or 'unscramble'")
+            raise ValueError("mode must be 'scramble' or 'unscramble'")
+            
+    else:  # Legacy spatial algorithm
+        if mode == "scramble":
+            perm_dest_to_src_0 = seeded_permutation(N, seed)
+        elif mode == "unscramble":
+            perm_dest_to_src_0 = seeded_permutation(N, seed)
+        else:
+            raise ValueError("mode must be 'scramble' or 'unscramble'")
 
-    # Precompute rectangles for the photo (src and dest shapes are same)
-    src_rects = cell_rects(width, height, n, m)
-    dest_rects = cell_rects(width, height, n, m)
+        # Precompute rectangles for the photo (src and dest shapes are same)
+        src_rects = cell_rects(width, height, n, m)
+        dest_rects = cell_rects(width, height, n, m)
 
-    # Process the single frame
-    if mode == "scramble":
-        processed = scramble_frame(frame, n, m, perm_dest_to_src_0, src_rects, dest_rects)
-    else:
-        processed = unscramble_frame(frame, n, m, perm_dest_to_src_0, src_rects, dest_rects)
+        # Process the single frame
+        if mode == "scramble":
+            processed = scramble_frame(frame, n, m, perm_dest_to_src_0, src_rects, dest_rects)
+        else:
+            processed = unscramble_frame(frame, n, m, perm_dest_to_src_0, src_rects, dest_rects)
 
     # Write the output image
     cv2.imwrite(output_path, processed)
@@ -463,12 +429,11 @@ def process_photo_by_percentage(input_path: str,
     # Save params JSON (only for scramble mode)
     params_path = ""
     if mode == "scramble":
-        params = params_to_json(seed, n, m, perm_dest_to_src_0)
-        # Add percentage info to params
-        params["percentage"] = percentage
-        params["tiles_scrambled"] = tiles_to_scramble
-        params["total_tiles"] = N
-        
+        if algorithm == "color":
+            params = color_params_to_json(seed, n, m, hue_shifts, max_hue_shift)
+        else:
+            params = params_to_json(seed, n, m, perm_dest_to_src_0)
+            
         base, ext = os.path.splitext(output_path)
         params_path = base + ".params.json"
         with open(params_path, "w", encoding="utf-8") as f:
@@ -478,44 +443,44 @@ def process_photo_by_percentage(input_path: str,
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Scramble/unscramble a photo using grid permutation.")
+    parser = argparse.ArgumentParser(description="Scramble/unscramble a photo using color/hue shifting or grid permutation.")
     parser.add_argument("--input", "-i", required=True, help="Input photo path")
     parser.add_argument("--output", "-o", required=True, help="Output photo path")
     parser.add_argument("--seed", type=int, help="Random seed (32-bit). If omitted, one is generated.")
     parser.add_argument("--rows", type=int, help="Grid rows (n). If omitted, auto-chosen from aspect ratio.")
     parser.add_argument("--cols", type=int, help="Grid cols (m). If omitted, auto-chosen from aspect ratio.")
-    parser.add_argument("--percentage", type=int, default=100, help="Percentage of tiles to scramble (default: 100).")
     parser.add_argument("--mode", choices=["scramble", "unscramble"], default="scramble",
                         help="Operation mode (default: scramble). Unscramble assumes same seed/n/m.")
+    parser.add_argument("--algorithm", choices=["color", "spatial"], default="color",
+                        help="Scrambling algorithm: 'color' for hue shifting, 'spatial' for position swapping (default: color)")
+    parser.add_argument("--max-hue-shift", type=int, default=128, 
+                        help="Maximum hue shift amount for color algorithm (0-128, default: 128)")
 
     args = parser.parse_args()
 
+    # Validate max-hue-shift range
+    if args.max_hue_shift < 0 or args.max_hue_shift > 128:
+        print("Error: --max-hue-shift must be between 0 and 128", file=sys.stderr)
+        sys.exit(1)
+
     try:
-        # Use percentage-based processing if percentage is less than 100
-        if args.percentage < 100:
-            params_path = process_photo_by_percentage(
-                input_path=args.input,
-                output_path=args.output,
-                seed=args.seed,
-                rows=args.rows,
-                cols=args.cols,
-                percentage=args.percentage,
-                mode=args.mode,
-            )
-        else:
-            # Use the standard photo processing function for 100% scrambling
-            params_path = process_photo(
-                input_path=args.input,
-                output_path=args.output,
-                seed=args.seed,
-                rows=args.rows,
-                cols=args.cols,
-                mode=args.mode,
-            )
-        
+        # Use the photo processing function
+        params_path = process_photo(
+            input_path=args.input,
+            output_path=args.output,
+            seed=args.seed,
+            rows=args.rows,
+            cols=args.cols,
+            mode=args.mode,
+            algorithm=args.algorithm,
+            max_hue_shift=args.max_hue_shift,
+        )
         print(f"Done. Output photo: {args.output}")
         if args.mode == "scramble" and params_path:
             print(f"Scramble params saved to: {params_path}")
+            print(f"Algorithm used: {args.algorithm}")
+            if args.algorithm == "color":
+                print(f"Max hue shift: {args.max_hue_shift}")
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)

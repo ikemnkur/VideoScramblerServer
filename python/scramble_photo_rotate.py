@@ -50,6 +50,21 @@ def gen_random_seed() -> int:
     """
     return secrets.randbits(32)
 
+def seeded_rotations(size: int, seed: int) -> List[int]:
+    """
+    Generate random rotation angles for each tile.
+    Returns a list of rotation angles (0, 90, 180, 270 degrees) for each tile.
+    """
+    rand = mulberry32(seed & 0xFFFFFFFF)
+    rotations = []
+    
+    for _ in range(size):
+        # Generate random rotation: 0, 90, 180, or 270 degrees
+        rotation = int(rand() * 4) * 90
+        rotations.append(rotation)
+    
+    return rotations
+
 def seeded_permutation(size: int, seed: int) -> List[int]:
     """
     Create a Fisher–Yates shuffled permutation array.
@@ -186,12 +201,102 @@ def cell_rects(w: int, h: int, n: int, m: int) -> List[Rect]:
     return rects
 
 
+def rotate_tile(tile: np.ndarray, angle: int) -> np.ndarray:
+    """
+    Rotate a tile by the specified angle (0, 90, 180, 270 degrees).
+    """
+    if angle == 0:
+        return tile
+    elif angle == 90:
+        return cv2.rotate(tile, cv2.ROTATE_90_CLOCKWISE)
+    elif angle == 180:
+        return cv2.rotate(tile, cv2.ROTATE_180)
+    elif angle == 270:
+        return cv2.rotate(tile, cv2.ROTATE_90_COUNTERCLOCKWISE)
+    else:
+        # For any other angle, use standard rotation
+        h, w = tile.shape[:2]
+        center = (w // 2, h // 2)
+        matrix = cv2.getRotationMatrix2D(center, angle, 1.0)
+        return cv2.warpAffine(tile, matrix, (w, h))
+
+
+def rotation_params_to_json(seed: int, n: int, m: int, rotations: List[int]) -> Dict[str, Any]:
+    """
+    Convert rotation parameters to JSON-like dict for export/saving.
+    """
+    return {
+        "version": 3,
+        "algorithm": "rotation",
+        "seed": int(seed),
+        "n": int(n),
+        "m": int(m),
+        "rotations": rotations,
+        "semantics": "Rotation angles (degrees) applied to each grid cell (0-based indexing)",
+    }
+
+
 # === paste all helper functions from above here ===
 # mulberry32, gen_random_seed, seeded_permutation, one_based, zero_based,
 # auto_grid_for_aspect, params_to_json, json_to_params, inverse_permutation,
 # Rect, cell_rects
 
 
+def rotate_scramble_frame(frame: np.ndarray,
+                         n: int,
+                         m: int,
+                         rotations: List[int],
+                         rects: List[Rect]) -> np.ndarray:
+    """
+    Scramble a frame by rotating each tile according to the rotation angles.
+    """
+    h, w, c = frame.shape
+    out = frame.copy()
+
+    N = n * m
+    if len(rotations) != N:
+        raise ValueError("Rotations length does not equal n*m")
+
+    for tile_idx in range(N):
+        rect = rects[tile_idx]
+        rotation_angle = rotations[tile_idx]
+
+        # Extract the tile
+        y0, y1 = rect.y0, rect.y1
+        x0, x1 = rect.x0, rect.x1
+        tile = frame[y0:y1, x0:x1, :]
+
+        # Rotate the tile
+        rotated_tile = rotate_tile(tile, rotation_angle)
+        
+        # Handle size mismatch if rotation changes dimensions (for 90/270 degree rotations)
+        tile_h, tile_w = tile.shape[:2]
+        rot_h, rot_w = rotated_tile.shape[:2]
+        
+        if rot_h != tile_h or rot_w != tile_w:
+            # Resize rotated tile to fit original tile dimensions
+            rotated_tile = cv2.resize(rotated_tile, (tile_w, tile_h), interpolation=cv2.INTER_LINEAR)
+
+        # Place the rotated tile back
+        out[y0:y1, x0:x1, :] = rotated_tile
+
+    return out
+
+
+def rotate_unscramble_frame(frame: np.ndarray,
+                           n: int,
+                           m: int,
+                           rotations: List[int],
+                           rects: List[Rect]) -> np.ndarray:
+    """
+    Unscramble a frame by rotating each tile in the reverse direction.
+    """
+    # Create reverse rotations (subtract from 360 to get opposite rotation)
+    reverse_rotations = [360 - rotation if rotation > 0 else 0 for rotation in rotations]
+    return rotate_scramble_frame(frame, n, m, reverse_rotations, rects)
+
+
+# Legacy functions for compatibility
 def scramble_frame(frame: np.ndarray,
                    n: int,
                    m: int,
@@ -261,7 +366,7 @@ def process_photo(input_path: str,
                   rows: Optional[int] = None,
                   cols: Optional[int] = None,
                   mode: str = "scramble",
-                  percentage: Optional[int] = 100) -> str:
+                  algorithm: str = "rotation") -> str:
     """
     Process a photo: scramble or unscramble according to mode.
     Returns path to params JSON (for scramble mode).
@@ -295,167 +400,37 @@ def process_photo(input_path: str,
     if seed is None:
         seed = gen_random_seed()
 
-    if mode == "scramble":
-        perm_dest_to_src_0 = seeded_permutation(N, seed)
-    elif mode == "unscramble":
-        # For Unscramble you'd normally load perm from JSON, not generate it.
-        # But we support deterministic unscramble if we know seed/n/m.
-        perm_dest_to_src_0 = seeded_permutation(N, seed)
-    else:
-        raise ValueError("mode must be 'scramble' or 'unscramble'")
-
-    # Precompute rectangles for the photo (src and dest shapes are same)
-    src_rects = cell_rects(width, height, n, m)
-    dest_rects = cell_rects(width, height, n, m)
-
-    # Process the single frame
-    if mode == "scramble":
-        processed = scramble_frame(frame, n, m, perm_dest_to_src_0, src_rects, dest_rects)
-    else:
-        processed = unscramble_frame(frame, n, m, perm_dest_to_src_0, src_rects, dest_rects)
-
-    # Write the output image
-    cv2.imwrite(output_path, processed)
-
-    # Save params JSON (only for scramble mode)
-    params_path = ""
-    if mode == "scramble":
-        params = params_to_json(seed, n, m, perm_dest_to_src_0)
-        base, ext = os.path.splitext(output_path)
-        params_path = base + ".params.json"
-        with open(params_path, "w", encoding="utf-8") as f:
-            json.dump(params, f, indent=2)
-
-    return params_path
-
-def process_photo_by_percentage(input_path: str,
-                  output_path: str,
-                  seed: Optional[int] = None,
-                  rows: Optional[int] = None,
-                  cols: Optional[int] = None,
-                  mode: str = "scramble",
-                  percentage: Optional[int] = 100) -> str:
-    """
-    Process a photo: scramble or unscramble according to mode.
-    Only scrambles a certain percentage of tiles based on the percentage parameter.
-    Returns path to params JSON (for scramble mode).
-    """
-
-    if not os.path.isfile(input_path):
-        raise FileNotFoundError(f"Input photo not found: {input_path}")
-
-    # Read the image
-    frame = cv2.imread(input_path)
-    if frame is None:
-        raise RuntimeError(f"Could not read image: {input_path}")
-
-    height, width, channels = frame.shape
-
-    if width <= 0 or height <= 0:
-        raise RuntimeError("Invalid photo dimensions")
-
-    # If rows/cols missing, choose them based on aspect ratio
-    if rows is None or cols is None:
-        dims = auto_grid_for_aspect(width, height)
-        if rows is None:
-            rows = dims.n
-        if cols is None:
-            cols = dims.m
-
-    n, m = rows, cols
-    N = n * m
-
-    # Validate percentage
-    if percentage is None:
-        percentage = 100
-    percentage = max(0, min(100, percentage))  # Clamp between 0 and 100
-
-    # seed management
-    if seed is None:
-        seed = gen_random_seed()
-
-    # Calculate how many tiles to scramble based on percentage
-    tiles_to_scramble = max(1, int(N * percentage / 100.0))
-    
-    print(f"Scrambling {tiles_to_scramble} out of {N} tiles ({percentage}%)")
-
-    if mode == "scramble":
-        # Use the seed to select which tiles to scramble
-        rand = mulberry32(seed & 0xFFFFFFFF)
+    # Generate scrambling parameters based on algorithm
+    if algorithm == "rotation":
+        # Generate rotation angles for each tile
+        rotations = seeded_rotations(N, seed)
+        rects = cell_rects(width, height, n, m)
         
-        # Create a list of all tile indices and shuffle it to randomly select which to scramble
-        tile_indices = list(range(N))
-        for i in range(N - 1, 0, -1):
-            j = math.floor(rand() * (i + 1))
-            tile_indices[i], tile_indices[j] = tile_indices[j], tile_indices[i]
-        
-        # Select the first 'tiles_to_scramble' indices to be scrambled
-        scrambled_indices = sorted(tile_indices[:tiles_to_scramble])
-        
-        print(f"Tiles to scramble (0-indexed): {scrambled_indices}")
-        
-        # Generate a permutation ONLY for the scrambled tiles
-        # Use a different seed offset to get a different permutation
-        scrambled_perm = seeded_permutation(len(scrambled_indices), seed + 1)
-        
-        # Create the full permutation: identity for most, scrambled for selected tiles
-        partial_perm = list(range(N))  # Start with identity permutation
-        
-        # Apply the scrambled permutation to only the selected tiles
-        # scrambled_indices[i] should map to scrambled_indices[scrambled_perm[i]]
-        for i, src_idx in enumerate(scrambled_indices):
-            dest_tile = scrambled_indices[scrambled_perm[i]]
-            partial_perm[src_idx] = dest_tile
-        
-        perm_dest_to_src_0 = partial_perm
-        
-        # Verify it's a valid permutation
-        perm_set = set(partial_perm)
-        if len(perm_set) != N:
-            print(f"WARNING: Invalid permutation! Expected {N} unique values, got {len(perm_set)}")
-            print(f"Permutation: {partial_perm}")
-            duplicates = [x for x in range(N) if partial_perm.count(x) > 1]
-            missing = [x for x in range(N) if x not in perm_set]
-            print(f"Duplicate values: {duplicates}")
-            print(f"Missing values: {missing}")
+        # Process the image
+        if mode == "scramble":
+            processed = rotate_scramble_frame(frame, n, m, rotations, rects)
+        elif mode == "unscramble":
+            processed = rotate_unscramble_frame(frame, n, m, rotations, rects)
         else:
-            print(f"✓ Valid permutation generated")
-        
-    elif mode == "unscramble":
-        # For unscramble, we need to reverse the same partial scramble
-        # Use the EXACT same logic as scramble to generate the same permutation
-        rand = mulberry32(seed & 0xFFFFFFFF)
-        tile_indices = list(range(N))
-        for i in range(N - 1, 0, -1):
-            j = math.floor(rand() * (i + 1))
-            tile_indices[i], tile_indices[j] = tile_indices[j], tile_indices[i]
-        
-        scrambled_indices = sorted(tile_indices[:tiles_to_scramble])
-        print(f"Tiles to unscramble (0-indexed): {scrambled_indices}")
-        
-        # Generate the SAME permutation for scrambled tiles
-        scrambled_perm = seeded_permutation(len(scrambled_indices), seed + 1)
-        
-        # Create the same partial permutation as scrambling
-        partial_perm = list(range(N))
-        for i, src_idx in enumerate(scrambled_indices):
-            dest_tile = scrambled_indices[scrambled_perm[i]]
-            partial_perm[src_idx] = dest_tile
-        
-        perm_dest_to_src_0 = partial_perm
-        print(f"✓ Valid permutation generated for unscrambling")
-    else:
-        raise ValueError("mode must be 'scramble' or 'unscramble'")
+            raise ValueError("mode must be 'scramble' or 'unscramble'")
+            
+    else:  # Legacy spatial algorithm
+        if mode == "scramble":
+            perm_dest_to_src_0 = seeded_permutation(N, seed)
+        elif mode == "unscramble":
+            perm_dest_to_src_0 = seeded_permutation(N, seed)
+        else:
+            raise ValueError("mode must be 'scramble' or 'unscramble'")
 
-    # Precompute rectangles for the photo (src and dest shapes are same)
-    src_rects = cell_rects(width, height, n, m)
-    dest_rects = cell_rects(width, height, n, m)
+        # Precompute rectangles for the photo (src and dest shapes are same)
+        src_rects = cell_rects(width, height, n, m)
+        dest_rects = cell_rects(width, height, n, m)
 
-    # Process the single frame
-    if mode == "scramble":
-        processed = scramble_frame(frame, n, m, perm_dest_to_src_0, src_rects, dest_rects)
-    else:
-        processed = unscramble_frame(frame, n, m, perm_dest_to_src_0, src_rects, dest_rects)
+        # Process the single frame
+        if mode == "scramble":
+            processed = scramble_frame(frame, n, m, perm_dest_to_src_0, src_rects, dest_rects)
+        else:
+            processed = unscramble_frame(frame, n, m, perm_dest_to_src_0, src_rects, dest_rects)
 
     # Write the output image
     cv2.imwrite(output_path, processed)
@@ -463,12 +438,11 @@ def process_photo_by_percentage(input_path: str,
     # Save params JSON (only for scramble mode)
     params_path = ""
     if mode == "scramble":
-        params = params_to_json(seed, n, m, perm_dest_to_src_0)
-        # Add percentage info to params
-        params["percentage"] = percentage
-        params["tiles_scrambled"] = tiles_to_scramble
-        params["total_tiles"] = N
-        
+        if algorithm == "rotation":
+            params = rotation_params_to_json(seed, n, m, rotations)
+        else:
+            params = params_to_json(seed, n, m, perm_dest_to_src_0)
+            
         base, ext = os.path.splitext(output_path)
         params_path = base + ".params.json"
         with open(params_path, "w", encoding="utf-8") as f:
@@ -478,44 +452,34 @@ def process_photo_by_percentage(input_path: str,
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Scramble/unscramble a photo using grid permutation.")
+    parser = argparse.ArgumentParser(description="Scramble/unscramble a photo using tile rotation or grid permutation.")
     parser.add_argument("--input", "-i", required=True, help="Input photo path")
     parser.add_argument("--output", "-o", required=True, help="Output photo path")
     parser.add_argument("--seed", type=int, help="Random seed (32-bit). If omitted, one is generated.")
     parser.add_argument("--rows", type=int, help="Grid rows (n). If omitted, auto-chosen from aspect ratio.")
     parser.add_argument("--cols", type=int, help="Grid cols (m). If omitted, auto-chosen from aspect ratio.")
-    parser.add_argument("--percentage", type=int, default=100, help="Percentage of tiles to scramble (default: 100).")
     parser.add_argument("--mode", choices=["scramble", "unscramble"], default="scramble",
                         help="Operation mode (default: scramble). Unscramble assumes same seed/n/m.")
+    parser.add_argument("--algorithm", choices=["rotation", "spatial"], default="rotation",
+                        help="Scrambling algorithm: 'rotation' for rotating tiles, 'spatial' for position swapping (default: rotation)")
 
     args = parser.parse_args()
 
     try:
-        # Use percentage-based processing if percentage is less than 100
-        if args.percentage < 100:
-            params_path = process_photo_by_percentage(
-                input_path=args.input,
-                output_path=args.output,
-                seed=args.seed,
-                rows=args.rows,
-                cols=args.cols,
-                percentage=args.percentage,
-                mode=args.mode,
-            )
-        else:
-            # Use the standard photo processing function for 100% scrambling
-            params_path = process_photo(
-                input_path=args.input,
-                output_path=args.output,
-                seed=args.seed,
-                rows=args.rows,
-                cols=args.cols,
-                mode=args.mode,
-            )
-        
+        # Use the photo processing function
+        params_path = process_photo(
+            input_path=args.input,
+            output_path=args.output,
+            seed=args.seed,
+            rows=args.rows,
+            cols=args.cols,
+            mode=args.mode,
+            algorithm=args.algorithm,
+        )
         print(f"Done. Output photo: {args.output}")
         if args.mode == "scramble" and params_path:
             print(f"Scramble params saved to: {params_path}")
+            print(f"Algorithm used: {args.algorithm}")
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)

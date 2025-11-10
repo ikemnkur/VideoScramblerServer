@@ -1,0 +1,32 @@
+{
+  "version": 2,
+  "seed": 999,
+  "n": 4,
+  "m": 5,
+  "perm1based": [
+    1,
+    2,
+    18,
+    4,
+    5,
+    6,
+    7,
+    8,
+    16,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    9,
+    17,
+    20,
+    19,
+    3
+  ],
+  "semantics": "Index = destination cell (1-based), value = source cell index (1-based)",
+  "percentage": 25,
+  "tiles_scrambled": 5,
+  "total_tiles": 20
+}

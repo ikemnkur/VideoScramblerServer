@@ -1,0 +1,41 @@
+### Photo Scrambler
+
+## Position scramble
+
+# scramble
+python scramble_photo.py  --input Lamborghini_Veneno.jpg  --output scrambled_Lamborghini_Veneno.jpg --seed 123456789  --rows 4  --cols 6  --mode scramble
+
+# unscramble
+python scramble_photo.py  --input Lamborghini_Veneno.jpg  --output scrambled_Lamborghini_Veneno.jpg --seed 123456789  --rows 4  --cols 6  --mode scramble
+
+## Color Scramble
+
+# scramble
+python scramble_photo.py  --input input.jpg --output color_test.jpg --algorithm color --max-hue-shift 64 --seed 123456
+
+# unscramble
+python scramble_video.py  --input color_test.jpg --output color_restored.jpg --algorithm color --mode unscramble --max-hue-shift 64 --seed 123456
+
+## Rotation Scramble
+
+# scramble
+python3 scramble_photo_rotate.py --input Lamborghini_Veneno.jpg --output rotated_scrambled.jpg --seed 123456 --rows 4 --cols 6 --mode scramble --algorithm rotation
+
+# unscramble
+python3 scramble_photo_rotate.py --input rotated_scrambled.jpg --output rotated_restored.jpg --seed 123456 --rows 4 --cols 6 --mode unscramble --algorithm rotation
+
+## Mirror Scramble
+
+# scramble
+python3 scramble_photo_mirror.py --input Lamborghini_Veneno.jpg --output mirrored_scrambled.jpg --seed 123456 --rows 4 --cols 6 --mode scramble --algorithm mirror
+
+# unscramble
+python3 scramble_photo_mirror.py --input mirrored_scrambled.jpg --output mirrored_restored.jpg --seed 123456 --rows 4 --cols 6 --mode unscramble --algorithm mirror
+
+# Intensity Scramble
+
+# Scramble with intensity shifting (max shift 128)
+python3 scramble_photo_intensity.py --input image.jpg --output scrambled.jpg --algorithm intensity --max-intensity-shift 128 --seed 123456
+
+# Unscramble
+python3 scramble_photo_intensity.py --input scrambled.jpg --output unscrambled.jpg --algorithm intensity --max-intensity-shift 128 --seed 123456 --mode unscramble
