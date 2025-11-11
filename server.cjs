@@ -217,19 +217,25 @@ server.post('/api/user', async (req, res) => {
     let earnings = [];
     let unlocks = [];
 
-    if (user.accountType == 'seller') {
-      const [earnings_db] = await pool.execute(
-        'SELECT * FROM earnings WHERE username = ?',
-        [username]
-      );
-      earnings = earnings_db;
-    } else {
-      const [unlocks_db] = await pool.execute(
-        'SELECT * FROM unlocks WHERE email = ?',
+    // if (user.accountType == 'seller') {
+    //   const [earnings_db] = await pool.execute(
+    //     'SELECT * FROM earnings WHERE username = ?',
+    //     [username]
+    //   );
+    //   earnings = earnings_db;
+    // } else {
+      // const [unlocks_db] = await pool.execute(
+      //   'SELECT * FROM unlocks WHERE email = ?',
+      //   [email]
+      // );
+      // unlocks = unlocks_db;
+
+        const [action_db] = await pool.execute(
+        'SELECT * FROM actions WHERE email = ?',
         [email]
       );
-      unlocks = unlocks_db;
-    }
+      actions = action_db;
+    // }
 
 
     // const unlock = unlocks[0];
@@ -269,23 +275,23 @@ server.post('/api/user', async (req, res) => {
       // Generate a proper JWT-like token (in production, use actual JWT)
       // const token = Buffer.from(`${user.id}_${Date.now()}_${Math.random()}`).toString('base64');
 
-      if (user.accountType === 'seller') {
+      // if (user.accountType === 'seller') {
+      //   res.json({
+      //     success: true,
+      //     user: userData,
+      //     earnings: earnings,
+      //     // token: token,
+      //     message: 'Login successful'
+      //   });
+      // } else {
         res.json({
           success: true,
           user: userData,
-          earnings: earnings,
+          unlocks: actions,
           // token: token,
           message: 'Login successful'
         });
-      } else {
-        res.json({
-          success: true,
-          user: userData,
-          unlocks: unlocks,
-          // token: token,
-          message: 'Login successful'
-        });
-      }
+      // }
 
     } else {
       res.status(401).json({
@@ -353,11 +359,13 @@ server.post('/api/auth/register', async (req, res) => {
     const currentTime = Date.now();
     const currentDateTime = formatDateTimeForMySQL(new Date());
 
+    console.log("Account type during registration:", accountType);
+
     const newUser = {
       id: userId,
       loginStatus: true,
       lastLogin: currentDateTime,
-      accountType: accountType || 'buyer',
+      accountType: accountType || 'free',
       username: username,
       email: email,
       firstName: firstName,
@@ -551,38 +559,38 @@ server.get('/api/wallet/balance/:username', async (req, res) => {
   }
 });
 //  const response = await fetch(`${API_URL}/api/earnings/${username}?password=${localStorage.getItem("passwordtxt")}`);
-server.get('/api/earnings/:username', async (req, res) => {
-  try {
-    const username = req.params.username;
-    const password = req.query.password;
+// server.get('/api/earnings/:username', async (req, res) => {
+//   try {
+//     const username = req.params.username;
+//     const password = req.query.password;
 
-    if (!username) {
-      return res.status(400).json({ error: 'Username is required' });
-    }
+//     if (!username) {
+//       return res.status(400).json({ error: 'Username is required' });
+//     }
 
-    const [users] = await pool.execute(
-      'SELECT * FROM userData WHERE username = ?',
-      [username]
-    );
-    const user = users[0];
+//     const [users] = await pool.execute(
+//       'SELECT * FROM userData WHERE username = ?',
+//       [username]
+//     );
+//     const user = users[0];
 
-    if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
-      return res.status(401).json({ error: 'Invalid username or password' });
-    }
+//     if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
+//       return res.status(401).json({ error: 'Invalid username or password' });
+//     }
 
-    const [earnings] = await pool.execute(
-      'SELECT * FROM unlocks WHERE sellerUsername = ?',
-      [username]
-    );
+//     const [earnings] = await pool.execute(
+//       'SELECT * FROM unlocks WHERE sellerUsername = ?',
+//       [username]
+//     );
 
-    console.log(`Earnings retrieved for user: ${username}`, earnings);
+//     console.log(`Earnings retrieved for user: ${username}`, earnings);
 
-    res.json({ earnings });
-  } catch (error) {
-    console.error('Earnings retrieval error:', error);
-    res.status(500).json({ error: 'Database error - earnings retrieval failed' });
-  }
-});
+//     res.json({ earnings });
+//   } catch (error) {
+//     console.error('Earnings retrieval error:', error);
+//     res.status(500).json({ error: 'Database error - earnings retrieval failed' });
+//   }
+// });
 
 // Todo: Implement spend credits functionality, replace old and borrow function unlock with spend
 
@@ -610,13 +618,13 @@ server.post('/api/spend/:keyId', async (req, res) => {
     const user = users[0];
 
 
-    if (key && key.available > 0) {
-      // Simulate random key from available pool
-      const keyVariations = [
-        `${key.keyValue}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
-        `${key.keyValue.replace('ABCD', Math.random().toString(36).substring(2, 6).toUpperCase())}`,
-        key.keyValue
-      ];
+    // if (key && key.available > 0) {
+    //   // Simulate random key from available pool
+    //   const keyVariations = [
+    //     `${key.keyValue}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
+    //     `${key.keyValue.replace('ABCD', Math.random().toString(36).substring(2, 6).toUpperCase())}`,
+    //     key.keyValue
+    //   ];
 
       // const randomKey = keyVariations[Math.floor(Math.random() * keyVariations.length)];
 
@@ -681,9 +689,9 @@ server.post('/api/spend/:keyId', async (req, res) => {
         key: key.keyValue,
         transactionId: transactionId
       });
-    } else {
-      res.status(404).json({ success: false, message: 'Key not available or not found' });
-    }
+    // } else {
+    //   res.status(404).json({ success: false, message: 'Key not available or not found' });
+    // }
   } catch (error) {
     console.error('Unlock key error:', error);
     res.status(500).json({ success: false, message: 'Database error - unlock key failed' });
@@ -1850,28 +1858,6 @@ server.post('/api/lookup-transaction', async (req, res) => {
 
 
 
-// example API startpoint usage in React:
-// export const uploadTransactionScreenshot = async (formData) => {
-//   try {
-//     const res = await api.post('/upload/transaction-screenshot', formData, {
-//       // Let Axios/browser set the multipart boundary automatically:
-//       // headers: { 'Content-Type': undefined },  // <- clears any JSON default
-//       //  headers: { 'Content-Type': 'multipart/form-data' },
-//       headers: { 'Content-Type': 'application/json' },
-//       transformRequest: [(data, headers) => {
-//         // Remove any JSON defaults your instance might add
-//         delete headers.common?.['Content-Type'];
-//         delete headers.post?.['Content-Type'];
-//         return data; // keep FormData as-is
-//       }],
-//     });
-//     return res.data;
-//   } catch (error) {
-//     console.error('API - Error uploading transaction screenshot:', error);
-//     throw error;
-//   }
-// };
-
 // ######################## POST TRANSACTION SCREENSHOT ###############################
 // todo: change the route below to /transaction-screenshot
 
@@ -2261,74 +2247,74 @@ server.post('/api/profile-picture/:username', async (req, res) => {
   req.pipe(busboy);
 });
 
-// Custom route for user redemptions
-server.post('/api/redemptions/:username', async (req, res) => {
-  try {
-    const username = req.params.username;
-    [walletAddress, currency, credits] = req.body;
+// // Custom route for user redemptions
+// server.post('/api/redemptions/:username', async (req, res) => {
+//   try {
+//     const username = req.params.username;
+//     [walletAddress, currency, credits] = req.body;
 
-    const [users] = await pool.execute(
-      'SELECT * FROM userData WHERE username = ?',
-      [username]
-    );
+//     const [users] = await pool.execute(
+//       'SELECT * FROM userData WHERE username = ?',
+//       [username]
+//     );
 
-    const user = users[0];
+//     const user = users[0];
 
-    // const [wallets] = await pool.execute(
-    //   'SELECT * FROM wallet WHERE username = ?',
-    //   [username]
-    // );
+//     // const [wallets] = await pool.execute(
+//     //   'SELECT * FROM wallet WHERE username = ?',
+//     //   [username]
+//     // );
 
 
-    // const wallet = wallets[0];
+//     // const wallet = wallets[0];
 
-    // Update availability
-    await pool.execute(
-      'UPDATE wallet SET available = available - ? WHERE username = ?',
-      [credits, username]
-    );
+//     // Update availability
+//     await pool.execute(
+//       'UPDATE wallet SET available = available - ? WHERE username = ?',
+//       [credits, username]
+//     );
 
-    const [usersCredits] = await pool.execute(
-      'SELECT credits FROM userData WHERE username = ?',
-      [username]
-    );
+//     const [usersCredits] = await pool.execute(
+//       'SELECT credits FROM userData WHERE username = ?',
+//       [username]
+//     );
 
-    const userCredits = usersCredits[0];
+//     const userCredits = usersCredits[0];
 
-    const [redemptions] = await pool.execute(
-      'SELECT * FROM redeemCredits WHERE username = ? ORDER BY date DESC',
-      [username]
-    );
+//     const [redemptions] = await pool.execute(
+//       'SELECT * FROM redeemCredits WHERE username = ? ORDER BY date DESC',
+//       [username]
+//     );
 
-    const [redemption] = await pool.execute(
-      'INSERT INTO redemption (transactionId, username, email, date, time, credits, currency, walletAddress, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [
-        transactionId,
-        user.username, // Demo user
-        user.email,
-        Date.now(),
-        new Date().toLocaleTimeString(),
-        credits,
-        currency,
-        walletAddress,
-        'Pending'
-      ]
-    );
+//     const [redemption] = await pool.execute(
+//       'INSERT INTO redemption (transactionId, username, email, date, time, credits, currency, walletAddress, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+//       [
+//         transactionId,
+//         user.username, // Demo user
+//         user.email,
+//         Date.now(),
+//         new Date().toLocaleTimeString(),
+//         credits,
+//         currency,
+//         walletAddress,
+//         'Pending'
+//       ]
+//     );
 
-    await CreateNotification(
-      'redemption_status',
-      'Credits Redemption Requested',
-      `User ${username} has requested a redemption of ${credits} credits.`,
-      'redemption',
-      username || 'anonymous'
-    );
+//     await CreateNotification(
+//       'redemption_status',
+//       'Credits Redemption Requested',
+//       `User ${username} has requested a redemption of ${credits} credits.`,
+//       'redemption',
+//       username || 'anonymous'
+//     );
 
-    res.json(redemption);
-  } catch (error) {
-    console.error('Redemptions error:', error);
-    res.status(500).json({ error: 'Database error' });
-  }
-});
+//     res.json(redemption);
+//   } catch (error) {
+//     console.error('Redemptions error:', error);
+//     res.status(500).json({ error: 'Database error' });
+//   }
+// });
 
 
 
@@ -3879,31 +3865,6 @@ const FRONTEND_URL = 'http://localhost:5174';
 // const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY || 'sk_test_your_key_here');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
-// server.post('/create-checkout-session', async (req, res) => {
-//   const { amount } = req.query
-//   console.log("amount: ", amount)
-
-//   try {
-//     const session = await stripe.checkout.sessions.create({
-//       ui_mode: 'embedded',
-//       line_items: [
-//         {
-//           // Provide the exact Price ID (for example, pr_1234) of the product you want to sell
-//           price: 'price_1SR9lZEViYxfJNd20x2uwukQ',
-//           quantity: 1,
-//         },
-//       ],
-//       mode: 'payment',
-//       return_url: `${FRONTEND_URL}/return?session_id={CHECKOUT_SESSION_ID}&amount=${amount}`,
-//     });
-
-//     res.send({ clientSecret: session.client_secret });
-//     res.status(200).json({ clientSecret: session.client_secret });
-//   } catch (error) {
-//     res.send({ error: "Checkout failed." });
-//     res.status(500).json({ error: "Checkout failed." });
-//   }
-// });
 
 server.post('/create-checkout-session', async (req, res) => {
   const amount = req.body.amount
@@ -4259,7 +4220,7 @@ server.post('/api/subscription/cancel', async (req, res) => {
 
 
 // Webhook handler for asynchronous events.
-app.post("/webhook", async (req, res) => {
+server.post("/webhook", async (req, res) => {
   let data;
   let eventType;
   // Check if webhook signing is configured.
@@ -4312,7 +4273,23 @@ server.post('/api/subscription/webhook', express.raw({ type: 'application/json' 
   // Handle the event
   switch (event.type) {
     case 'customer.subscription.updated':
+      console.log('Subscription updated event received.');
+      const updatedSubscription = event.data.object;
+      await pool.execute(
+        `UPDATE subscriptions 
+         SET status = ?, current_period_start = ?, current_period_end = ? 
+         WHERE stripe_subscription_id = ?`,
+        [
+          updatedSubscription.status,
+          new Date(updatedSubscription.current_period_start * 1000),
+          new Date(updatedSubscription.current_period_end * 1000),
+          updatedSubscription.id
+        ]
+      );
+      console.log(`✅ Subscription updated: ${updatedSubscription.id}`);
+      break;
     case 'customer.subscription.created':
+      console.log('Subscription created event received.');
       const subscription = event.data.object;
       await pool.execute(
         `UPDATE subscriptions 
@@ -4331,20 +4308,17 @@ server.post('/api/subscription/webhook', express.raw({ type: 'application/json' 
         "subscription_cost": subcost,
         "username": username,
         "userId": userId,
-      name,
-      "email": email,
-      walletAddress,
-      transactionId,
-
-
-      }
-
+        "name": name,
+        "email": email,
+        "transactionId": transactionId,
+      };
+      
       stripeBuycredits(data);
-
-      console.log(`✅ Subscription updated: ${subscription.id}`);
+      console.log(`✅ Subscription created: ${subscription.id}`);
       break;
 
     case 'customer.subscription.deleted':
+      console.log('Subscription deleted event received.');
       const deletedSub = event.data.object;
       await pool.execute(
         'UPDATE subscriptions SET status = ? WHERE stripe_subscription_id = ?',
@@ -4408,18 +4382,7 @@ async function stripeBuycredits(data) {
       const txHash = transactionId;
       const senderAddress = walletAddress;
 
-      // if (!crypto || !txHash || !senderAddress) {
-      //   return res.status(400).json({ error: 'Missing required fields for transaction verification' });
-      // }
-      // Verify the transaction using blockchain APIs
-      // const result = await checkTransaction(crypto, txHash, walletAddress, cryptoAmount);
-
-      // if (result === cryptoAmount) {
-      //   console.log('Transaction verified successfully:', result);
-      // } else {
-      //   return res.status(400).json({ error: 'Transaction amount does not match expected amount' });
-      // }
-
+      
       // if (result.success) {
         const [purchases] = await pool.execute(
           'INSERT into buyCredits (username, id, name, email, walletAddress, transactionHash, blockExplorerLink, currency, amount, cryptoAmount, rate, date, time, session_id, orderLoggingEnabled, userAgent, ip, credits) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
