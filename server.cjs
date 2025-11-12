@@ -110,7 +110,7 @@ server.use((req, res, next) => {
 });
 
 // Root route
-app.get('/', (req, res) => {
+server.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
