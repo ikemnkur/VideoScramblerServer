@@ -3858,6 +3858,26 @@ server.post('/api/check-video-leak', async (req, res) => {
   });
 });
 
+// create a rout that will allow the clients to download video files from the server via file name
+// server.get('/api/download/:filename', (req, res) => {
+  server.get('/download/:filename', (req, res) => {
+  const filename = req.params.filename;
+  // const videoDir = path.join(__dirname, 'videos');
+  const videoDir = path.join(__dirname, 'inputs');
+  // const videoDir = path.join(__dirname, 'outputs');
+  const filePath = path.join(videoDir, filename);
+
+  console.log('📥 Download request for video:', filename);
+
+  res.download(filePath, (err) => {
+    if (err) {
+      console.error('❌ Error downloading video:', err);
+      res.status(500).send('Error downloading video');
+    } else {
+      console.log('✅ Video downloaded successfully:', filename);
+    }
+  });
+});
 
 // ========================================
 // Stripe Subscription Endpoints
