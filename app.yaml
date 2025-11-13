@@ -1,0 +1,222 @@
+name: monkfish-app
+region: nyc
+
+alerts:
+  - rule: DEPLOYMENT_FAILED
+  - rule: DOMAIN_FAILED
+
+features:
+  - buildpack-stack=ubuntu-22
+
+# Route "/" to Node, and "/py" to Flask
+ingress:
+  rules:
+    - component:
+        name: videoscramblerserver
+      match:
+        path:
+          prefix: /
+    - component:
+        name: py-scrambler
+      match:
+        path:
+          prefix: /py
+      preserve_path_prefix: true
+
+services:
+  # --------------------------
+  # Node.js API (root repo)
+  # --------------------------
+  - name: videoscramblerserver
+    source_dir: /
+    environment_slug: node-js
+    instance_size_slug: apps-s-1vcpu-0.5gb
+    instance_count: 1
+    github:
+      repo: ikemnkur/VideoScramblerServer
+      branch: main
+      deploy_on_push: true
+    run_command: npm start
+    http_port: 3001    # Node app listens on 3001
+    envs:
+      - key: DATABASE_URL
+        scope: RUN_AND_BUILD_TIME
+        value: ${dev-db-133499.DATABASE_URL}
+
+      # fixed typo FRONTENFD_URL -> FRONTEND_URL
+      - key: FRONTEND_URL
+        scope: RUN_AND_BUILD_TIME
+        value: http://localhost:5174
+
+      - key: DB_HOST
+        scope: RUN_AND_BUILD_TIME
+        value: 34.68.5.170
+      - key: DB_PORT
+        scope: RUN_AND_BUILD_TIME
+        value: "3306"
+      - key: DB_USER
+        scope: RUN_AND_BUILD_TIME
+        value: remote
+      - key: DB_PASSWORD
+        scope: RUN_AND_BUILD_TIME
+        value: Password!*
+      - key: DB_NAME
+        scope: RUN_AND_BUILD_TIME
+        value: video-scrambler
+      - key: DB_4_ADS_NAME
+        scope: RUN_AND_BUILD_TIME
+        value: ad_system
+      - key: JWT_SECRET
+        scope: RUN_AND_BUILD_TIME
+        value: your_secret_key_here
+      - key: STRIPE_SECRET_KEY
+        scope: RUN_AND_BUILD_TIME
+        value: sk_test_51OPgiOEViYxfJNd2Mp4NrKUMHAqfoRBAtj5dKCxD1VWbHNSYZEIERtq6ZaRCUttKEyY9kvDWxVM4I4QcoK2Ni>
+      - key: STRIPE_WEBHOOK_SECRET
+        scope: RUN_AND_BUILD_TIME
+        value: whsec_OqBqIUaSZoQB38mUVpe7efzN7NIc71Y7
+      - key: CLOUDINARY_URL
+        scope: RUN_AND_BUILD_TIME
+        value: cloudinary://464793128734399:yNe3uZ1lgIIeecDqwRzRASq6SMk@dabegwb2z
+      - key: ETHERSCAN_API_KEY
+        scope: RUN_AND_BUILD_TIME
+        value: THBNQBECYBUWC4UYQF6HZBJTPT9TRB9P2K
+      - key: SOLANA_RPC_URL
+        scope: RUN_AND_BUILD_TIME
+        value: https://api.mainnet-beta.solana.com
+      - key: BTC_ESPLORA
+        scope: RUN_AND_BUILD_TIME
+        value: https://blockstream.info/api
+      - key: LTC_ESPLORA
+        scope: RUN_AND_BUILD_TIME
+        value: https://litecoinspace.org/api
+      - key: SMTP_HOST
+        scope: RUN_AND_BUILD_TIME
+        value: smtp.gmail.com
+      - key: SMTP_PORT
+        scope: RUN_AND_BUILD_TIME
+        value: "587"
+      - key: SMTP_SECURE
+        scope: RUN_AND_BUILD_TIME
+        value: "false"
+      - key: SMTP_USER
+        scope: RUN_AND_BUILD_TIME
+        value: your-email@gmail.com
+      - key: SMTP_PASS
+        scope: RUN_AND_BUILD_TIME
+        value: your-app-password
+      - key: EMAIL_FROM
+        scope: RUN_AND_BUILD_TIME
+        value: admin@example.com
+      - key: AD_PORT
+        scope: RUN_AND_BUILD_TIME
+        value: "3001"
+      - key: MAX_FILE_SIZE
+        scope: RUN_AND_BUILD_TIME
+        value: "2621440"
+      - key: UPLOAD_PATH
+        scope: RUN_AND_BUILD_TIME
+        value: uploads/
+      - key: RATE_LIMIT_WINDOW_MS
+        scope: RUN_AND_BUILD_TIME
+        value: "900000"
+      - key: RATE_LIMIT_MAX_REQUESTS
+        scope: RUN_AND_BUILD_TIME
+        value: "100"
+      - key: CORS_ORIGIN
+        scope: RUN_AND_BUILD_TIME
+        value: http://localhost:3000
+      - key: REDIS_HOST
+        scope: RUN_AND_BUILD_TIME
+        value: localhost
+      - key: REDIS_PORT
+        scope: RUN_AND_BUILD_TIME
+        value: "6379"
+      - key: REDIS_PASSWORD
+        scope: RUN_AND_BUILD_TIME
+      - key: AWS_ACCESS_KEY_ID
+        scope: RUN_AND_BUILD_TIME
+      - key: AWS_SECRET_ACCESS_KEY
+        scope: RUN_AND_BUILD_TIME
+      - key: AWS_S3_BUCKET
+        scope: RUN_AND_BUILD_TIME
+      - key: AWS_REGION
+        scope: RUN_AND_BUILD_TIME
+        value: us-east-1
+      - key: ENABLE_ANALYTICS
+        scope: RUN_AND_BUILD_TIME
+        value: "true"
+      - key: ANALYTICS_RETENTION_DAYS
+        scope: RUN_AND_BUILD_TIME
+        value: "90"
+      - key: BCRYPT_ROUNDS
+        scope: RUN_AND_BUILD_TIME
+        value: "12"
+      - key: SESSION_TIMEOUT_HOURS
+        scope: RUN_AND_BUILD_TIME
+        value: "24"
+      - key: LOG_LEVEL
+        scope: RUN_AND_BUILD_TIME
+        value: info
+      - key: LOG_FILE
+        scope: RUN_AND_BUILD_TIME
+        value: logs/app.log
+      - key: DEFAULT_USER_CREDITS
+        scope: RUN_AND_BUILD_TIME
+        value: "5000"
+      - key: MIN_AD_BUDGET
+        scope: RUN_AND_BUILD_TIME
+        value: "2000"
+      - key: MAX_AD_BUDGET
+        scope: RUN_AND_BUILD_TIME
+        value: "20000"
+      - key: MIN_REWARD_CREDITS
+        scope: RUN_AND_BUILD_TIME
+        value: "0"
+      - key: MAX_REWARD_CREDITS
+        scope: RUN_AND_BUILD_TIME
+        value: "100"
+      - key: COST_LOW_FREQUENCY
+        scope: RUN_AND_BUILD_TIME
+        value: "1"
+      - key: COST_LIGHT_FREQUENCY
+        scope: RUN_AND_BUILD_TIME
+        value: "2"
+      - key: COST_MODERATE_FREQUENCY
+        scope: RUN_AND_BUILD_TIME
+        value: "3"
+      - key: COST_HIGH_FREQUENCY
+        scope: RUN_AND_BUILD_TIME
+        value: "4"
+      - key: COST_AGGRESSIVE_FREQUENCY
+        scope: RUN_AND_BUILD_TIME
+        value: "5"
+      - key: QUIZ_TIMEOUT_SECONDS
+        scope: RUN_AND_BUILD_TIME
+        value: "20"
+      - key: REWARD_MODAL_DISPLAY_SECONDS
+        scope: RUN_AND_BUILD_TIME
+        value: "5"
+      - key: MIN_AD_VIEW_SECONDS
+        scope: RUN_AND_BUILD_TIME
+        value: "3"
+      - key: MAX_AD_VIEW_SECONDS
+        scope: RUN_AND_BUILD_TIME
+        value: "15"
+
+  # --------------------------
+  # Python (Flask) API at /py
+  # --------------------------
+  - name: py-scrambler
+    source_dir: ./python
+    environment_slug: python
+    instance_size_slug: apps-s-1vcpu-0.5gb
+    instance_count: 1
+    # If your app.py exposes 'app = Flask(__name__)'
+    run_command: gunicorn -b 0.0.0.0:8000 app:app
+    http_port: 8000
+    envs:
+      # share any needed vars with Flask here too (copy as needed)
+      - key: LOG_LEVEL
+        scope: RUN_AND_BUILD_TIME
+        value: info
