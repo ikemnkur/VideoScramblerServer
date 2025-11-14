@@ -66,6 +66,25 @@ def generate_intensity_shifts(n: int, m: int, seed: int, max_shift: int = 128) -
     
     return shifts
 
+def select_tiles_to_scramble(N: int, seed: int, percentage: int) -> List[int]:
+    """
+    Select which tiles to scramble based on the percentage.
+    Returns a sorted list of tile indices to scramble.
+    """
+    tiles_to_scramble = max(1, int(N * percentage / 100.0))
+    
+    # Use the seed to select which tiles to scramble
+    rand = mulberry32(seed & 0xFFFFFFFF)
+    
+    # Create a list of all tile indices and shuffle it
+    tile_indices = list(range(N))
+    for i in range(N - 1, 0, -1):
+        j = math.floor(rand() * (i + 1))
+        tile_indices[i], tile_indices[j] = tile_indices[j], tile_indices[i]
+    
+    # Select and sort the first 'tiles_to_scramble' indices
+    return sorted(tile_indices[:tiles_to_scramble])
+
 def seeded_permutation(size: int, seed: int) -> List[int]:
     """
     Create a Fisher–Yates shuffled permutation array.
@@ -223,9 +242,11 @@ def intensity_scramble_frame(frame: np.ndarray,
                             n: int,
                             m: int,
                             intensity_shifts: List[int],
-                            cell_rects: List[Rect]) -> np.ndarray:
+                            cell_rects: List[Rect],
+                            scrambled_indices: Optional[List[int]] = None) -> np.ndarray:
     """
     Apply intensity scrambling (intensity shifts) to each cell in the frame.
+    If scrambled_indices is provided, only shift intensity for those specific tiles.
     """
     h, w, c = frame.shape
     out = frame.copy()
@@ -234,9 +255,17 @@ def intensity_scramble_frame(frame: np.ndarray,
     if len(intensity_shifts) != N or len(cell_rects) != N:
         raise ValueError("Intensity shifts and cell rects must match grid size")
     
-    for cell_idx in range(N):
+    # If no specific indices provided, scramble all tiles
+    if scrambled_indices is None:
+        scrambled_indices = list(range(N))
+    
+    for cell_idx in scrambled_indices:
         rect = cell_rects[cell_idx]
         intensity_shift = intensity_shifts[cell_idx]
+        
+        # Skip if no intensity shift
+        if intensity_shift == 0:
+            continue
         
         # Extract the cell region
         region = frame[rect.y0:rect.y1, rect.x0:rect.x1, :]
@@ -254,20 +283,22 @@ def intensity_unscramble_frame(frame: np.ndarray,
                                n: int,
                                m: int,
                                intensity_shifts: List[int],
-                               cell_rects: List[Rect]) -> np.ndarray:
+                               cell_rects: List[Rect],
+                               scrambled_indices: Optional[List[int]] = None) -> np.ndarray:
     """
     Reverse intensity scrambling by applying negative intensity shifts with modulo wrapping.
+    If scrambled_indices is provided, only unshift intensity for those specific tiles.
     """
     # Create inverse intensity shifts with proper modulo arithmetic
     inverse_shifts = [(-shift) % 256 for shift in intensity_shifts]
-    return intensity_scramble_frame(frame, n, m, inverse_shifts, cell_rects)
+    return intensity_scramble_frame(frame, n, m, inverse_shifts, cell_rects, scrambled_indices)
 
 
-def intensity_params_to_json(seed: int, n: int, m: int, intensity_shifts: List[int], max_shift: int) -> Dict[str, Any]:
+def intensity_params_to_json(seed: int, n: int, m: int, intensity_shifts: List[int], max_shift: int, percentage: int = 100, tiles_scrambled: Optional[int] = None, total_tiles: Optional[int] = None) -> Dict[str, Any]:
     """
     Convert intensity scramble parameters to JSON for export/saving.
     """
-    return {
+    params = {
         "version": 4,
         "algorithm": "intensity_scramble",
         "seed": int(seed),
@@ -277,6 +308,16 @@ def intensity_params_to_json(seed: int, n: int, m: int, intensity_shifts: List[i
         "intensity_shifts": intensity_shifts,
         "semantics": "Intensity shifts applied to each grid cell (0-based indexing)",
     }
+    
+    # Add percentage info if less than 100%
+    if percentage < 100:
+        params["percentage"] = percentage
+        if tiles_scrambled is not None:
+            params["tiles_scrambled"] = tiles_scrambled
+        if total_tiles is not None:
+            params["total_tiles"] = total_tiles
+    
+    return params
 
 
 # Legacy functions for compatibility
@@ -350,7 +391,8 @@ def process_photo(input_path: str,
                   cols: Optional[int] = None,
                   mode: str = "scramble",
                   algorithm: str = "intensity",
-                  max_intensity_shift: int = 128) -> str:
+                  max_intensity_shift: int = 128,
+                  percentage: int = 100) -> str:
     """
     Process a photo: scramble or unscramble according to mode using intensity shifting.
     Returns path to params JSON (for scramble mode).
@@ -380,6 +422,9 @@ def process_photo(input_path: str,
     n, m = rows, cols
     N = n * m
 
+    # Validate and clamp percentage
+    percentage = max(0, min(100, percentage))
+
     # seed management
     if seed is None:
         seed = gen_random_seed()
@@ -390,11 +435,29 @@ def process_photo(input_path: str,
         intensity_shifts = generate_intensity_shifts(n, m, seed, max_intensity_shift)
         rects = cell_rects(width, height, n, m)
         
+        # Determine which tiles to scramble based on percentage
+        scrambled_indices = None
+        tiles_scrambled = N
+        
+        if percentage < 100:
+            scrambled_indices = select_tiles_to_scramble(N, seed, percentage)
+            tiles_scrambled = len(scrambled_indices)
+            
+            # Zero out intensity shifts for tiles that shouldn't be scrambled
+            intensity_shifts_partial = intensity_shifts.copy()
+            for i in range(N):
+                if i not in scrambled_indices:
+                    intensity_shifts_partial[i] = 0
+            intensity_shifts = intensity_shifts_partial
+            
+            print(f"Scrambling {tiles_scrambled} out of {N} tiles ({percentage}%)")
+            print(f"Tiles to scramble (0-indexed): {scrambled_indices}")
+        
         # Process the image
         if mode == "scramble":
-            processed = intensity_scramble_frame(frame, n, m, intensity_shifts, rects)
+            processed = intensity_scramble_frame(frame, n, m, intensity_shifts, rects, scrambled_indices)
         elif mode == "unscramble":
-            processed = intensity_unscramble_frame(frame, n, m, intensity_shifts, rects)
+            processed = intensity_unscramble_frame(frame, n, m, intensity_shifts, rects, scrambled_indices)
         else:
             raise ValueError("mode must be 'scramble' or 'unscramble'")
             
@@ -415,6 +478,8 @@ def process_photo(input_path: str,
             processed = scramble_frame(frame, n, m, perm_dest_to_src_0, src_rects, dest_rects)
         else:
             processed = unscramble_frame(frame, n, m, perm_dest_to_src_0, src_rects, dest_rects)
+        
+        tiles_scrambled = N
 
     # Write the output image
     cv2.imwrite(output_path, processed)
@@ -423,7 +488,7 @@ def process_photo(input_path: str,
     params_path = ""
     if mode == "scramble":
         if algorithm == "intensity":
-            params = intensity_params_to_json(seed, n, m, intensity_shifts, max_intensity_shift)
+            params = intensity_params_to_json(seed, n, m, intensity_shifts, max_intensity_shift, percentage, tiles_scrambled, N)
         else:
             params = params_to_json(seed, n, m, perm_dest_to_src_0)
             
@@ -448,6 +513,7 @@ def main():
                         help="Scrambling algorithm: 'intensity' for pixel intensity shifting, 'spatial' for position swapping (default: intensity)")
     parser.add_argument("--max-intensity-shift", type=int, default=128, 
                         help="Maximum intensity shift amount for intensity algorithm (0-128, default: 128)")
+    parser.add_argument("--percentage", type=int, default=100, help="Percentage of tiles to scramble (default: 100).")
 
     args = parser.parse_args()
 
@@ -467,6 +533,7 @@ def main():
             mode=args.mode,
             algorithm=args.algorithm,
             max_intensity_shift=args.max_intensity_shift,
+            percentage=args.percentage,
         )
         print(f"Done. Output photo: {args.output}")
         if args.mode == "scramble" and params_path:

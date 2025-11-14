@@ -39,3 +39,15 @@ python3 scramble_photo_intensity.py --input image.jpg --output scrambled.jpg --a
 
 # Unscramble
 python3 scramble_photo_intensity.py --input scrambled.jpg --output unscrambled.jpg --algorithm intensity --max-intensity-shift 128 --seed 123456 --mode unscramble
+
+# Scramble 50% of tiles using rotation
+python3 scramble_photo_rotate.py --input image.jpg --output rotated.jpg --percentage 50 --seed 12345
+
+# Scramble 25% of tiles using color shifts
+python3 scramble_photo_color.py --input image.jpg --output colored.jpg --percentage 25 --seed 12345
+
+# Scramble 75% of tiles using mirror flips
+python3 scramble_photo_mirror.py --input image.jpg --output mirrored.jpg --percentage 75 --seed 12345
+
+# Scramble 60% of tiles using intensity shifts
+python3 scramble_photo_intensity.py --input image.jpg --output intensity.jpg --percentage 60 --seed 12345

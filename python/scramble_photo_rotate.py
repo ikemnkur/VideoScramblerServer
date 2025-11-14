@@ -221,11 +221,11 @@ def rotate_tile(tile: np.ndarray, angle: int) -> np.ndarray:
         return cv2.warpAffine(tile, matrix, (w, h))
 
 
-def rotation_params_to_json(seed: int, n: int, m: int, rotations: List[int]) -> Dict[str, Any]:
+def rotation_params_to_json(seed: int, n: int, m: int, rotations: List[int], percentage: int = 100, tiles_scrambled: Optional[int] = None, total_tiles: Optional[int] = None) -> Dict[str, Any]:
     """
     Convert rotation parameters to JSON-like dict for export/saving.
     """
-    return {
+    params = {
         "version": 3,
         "algorithm": "rotation",
         "seed": int(seed),
@@ -234,6 +234,16 @@ def rotation_params_to_json(seed: int, n: int, m: int, rotations: List[int]) -> 
         "rotations": rotations,
         "semantics": "Rotation angles (degrees) applied to each grid cell (0-based indexing)",
     }
+    
+    # Add percentage info if less than 100%
+    if percentage < 100:
+        params["percentage"] = percentage
+        if tiles_scrambled is not None:
+            params["tiles_scrambled"] = tiles_scrambled
+        if total_tiles is not None:
+            params["total_tiles"] = total_tiles
+    
+    return params
 
 
 # === paste all helper functions from above here ===
@@ -242,13 +252,35 @@ def rotation_params_to_json(seed: int, n: int, m: int, rotations: List[int]) -> 
 # Rect, cell_rects
 
 
+def select_tiles_to_scramble(N: int, seed: int, percentage: int) -> List[int]:
+    """
+    Select which tiles to scramble based on the percentage.
+    Returns a sorted list of tile indices to scramble.
+    """
+    tiles_to_scramble = max(1, int(N * percentage / 100.0))
+    
+    # Use the seed to select which tiles to scramble
+    rand = mulberry32(seed & 0xFFFFFFFF)
+    
+    # Create a list of all tile indices and shuffle it
+    tile_indices = list(range(N))
+    for i in range(N - 1, 0, -1):
+        j = math.floor(rand() * (i + 1))
+        tile_indices[i], tile_indices[j] = tile_indices[j], tile_indices[i]
+    
+    # Select and sort the first 'tiles_to_scramble' indices
+    return sorted(tile_indices[:tiles_to_scramble])
+
+
 def rotate_scramble_frame(frame: np.ndarray,
                          n: int,
                          m: int,
                          rotations: List[int],
-                         rects: List[Rect]) -> np.ndarray:
+                         rects: List[Rect],
+                         scrambled_indices: Optional[List[int]] = None) -> np.ndarray:
     """
     Scramble a frame by rotating each tile according to the rotation angles.
+    If scrambled_indices is provided, only rotate those specific tiles.
     """
     h, w, c = frame.shape
     out = frame.copy()
@@ -257,9 +289,17 @@ def rotate_scramble_frame(frame: np.ndarray,
     if len(rotations) != N:
         raise ValueError("Rotations length does not equal n*m")
 
-    for tile_idx in range(N):
+    # If no specific indices provided, scramble all tiles
+    if scrambled_indices is None:
+        scrambled_indices = list(range(N))
+
+    for tile_idx in scrambled_indices:
         rect = rects[tile_idx]
         rotation_angle = rotations[tile_idx]
+
+        # Skip if no rotation (0 degrees)
+        if rotation_angle == 0:
+            continue
 
         # Extract the tile
         y0, y1 = rect.y0, rect.y1
@@ -287,13 +327,15 @@ def rotate_unscramble_frame(frame: np.ndarray,
                            n: int,
                            m: int,
                            rotations: List[int],
-                           rects: List[Rect]) -> np.ndarray:
+                           rects: List[Rect],
+                           scrambled_indices: Optional[List[int]] = None) -> np.ndarray:
     """
     Unscramble a frame by rotating each tile in the reverse direction.
+    If scrambled_indices is provided, only unrotate those specific tiles.
     """
     # Create reverse rotations (subtract from 360 to get opposite rotation)
     reverse_rotations = [360 - rotation if rotation > 0 else 0 for rotation in rotations]
-    return rotate_scramble_frame(frame, n, m, reverse_rotations, rects)
+    return rotate_scramble_frame(frame, n, m, reverse_rotations, rects, scrambled_indices)
 
 
 # Legacy functions for compatibility
@@ -366,7 +408,8 @@ def process_photo(input_path: str,
                   rows: Optional[int] = None,
                   cols: Optional[int] = None,
                   mode: str = "scramble",
-                  algorithm: str = "rotation") -> str:
+                  algorithm: str = "rotation",
+                  percentage: int = 100) -> str:
     """
     Process a photo: scramble or unscramble according to mode.
     Returns path to params JSON (for scramble mode).
@@ -396,6 +439,9 @@ def process_photo(input_path: str,
     n, m = rows, cols
     N = n * m
 
+    # Validate and clamp percentage
+    percentage = max(0, min(100, percentage))
+
     # seed management
     if seed is None:
         seed = gen_random_seed()
@@ -406,11 +452,29 @@ def process_photo(input_path: str,
         rotations = seeded_rotations(N, seed)
         rects = cell_rects(width, height, n, m)
         
+        # Determine which tiles to scramble based on percentage
+        scrambled_indices = None
+        tiles_scrambled = N
+        
+        if percentage < 100:
+            scrambled_indices = select_tiles_to_scramble(N, seed, percentage)
+            tiles_scrambled = len(scrambled_indices)
+            
+            # Zero out rotations for tiles that shouldn't be scrambled
+            rotations_partial = rotations.copy()
+            for i in range(N):
+                if i not in scrambled_indices:
+                    rotations_partial[i] = 0
+            rotations = rotations_partial
+            
+            print(f"Scrambling {tiles_scrambled} out of {N} tiles ({percentage}%)")
+            print(f"Tiles to scramble (0-indexed): {scrambled_indices}")
+        
         # Process the image
         if mode == "scramble":
-            processed = rotate_scramble_frame(frame, n, m, rotations, rects)
+            processed = rotate_scramble_frame(frame, n, m, rotations, rects, scrambled_indices)
         elif mode == "unscramble":
-            processed = rotate_unscramble_frame(frame, n, m, rotations, rects)
+            processed = rotate_unscramble_frame(frame, n, m, rotations, rects, scrambled_indices)
         else:
             raise ValueError("mode must be 'scramble' or 'unscramble'")
             
@@ -431,6 +495,8 @@ def process_photo(input_path: str,
             processed = scramble_frame(frame, n, m, perm_dest_to_src_0, src_rects, dest_rects)
         else:
             processed = unscramble_frame(frame, n, m, perm_dest_to_src_0, src_rects, dest_rects)
+        
+        tiles_scrambled = N
 
     # Write the output image
     cv2.imwrite(output_path, processed)
@@ -439,7 +505,7 @@ def process_photo(input_path: str,
     params_path = ""
     if mode == "scramble":
         if algorithm == "rotation":
-            params = rotation_params_to_json(seed, n, m, rotations)
+            params = rotation_params_to_json(seed, n, m, rotations, percentage, tiles_scrambled, N)
         else:
             params = params_to_json(seed, n, m, perm_dest_to_src_0)
             
@@ -462,6 +528,7 @@ def main():
                         help="Operation mode (default: scramble). Unscramble assumes same seed/n/m.")
     parser.add_argument("--algorithm", choices=["rotation", "spatial"], default="rotation",
                         help="Scrambling algorithm: 'rotation' for rotating tiles, 'spatial' for position swapping (default: rotation)")
+    parser.add_argument("--percentage", type=int, default=100, help="Percentage of tiles to scramble (default: 100).")
 
     args = parser.parse_args()
 
@@ -475,6 +542,7 @@ def main():
             cols=args.cols,
             mode=args.mode,
             algorithm=args.algorithm,
+            percentage=args.percentage,
         )
         print(f"Done. Output photo: {args.output}")
         if args.mode == "scramble" and params_path:

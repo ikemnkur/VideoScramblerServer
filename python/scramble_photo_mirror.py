@@ -70,6 +70,25 @@ def seeded_mirrors(size: int, seed: int) -> List[str]:
     
     return mirrors
 
+def select_tiles_to_scramble(N: int, seed: int, percentage: int) -> List[int]:
+    """
+    Select which tiles to scramble based on the percentage.
+    Returns a sorted list of tile indices to scramble.
+    """
+    tiles_to_scramble = max(1, int(N * percentage / 100.0))
+    
+    # Use the seed to select which tiles to scramble
+    rand = mulberry32(seed & 0xFFFFFFFF)
+    
+    # Create a list of all tile indices and shuffle it
+    tile_indices = list(range(N))
+    for i in range(N - 1, 0, -1):
+        j = math.floor(rand() * (i + 1))
+        tile_indices[i], tile_indices[j] = tile_indices[j], tile_indices[i]
+    
+    # Select and sort the first 'tiles_to_scramble' indices
+    return sorted(tile_indices[:tiles_to_scramble])
+
 def seeded_permutation(size: int, seed: int) -> List[int]:
     """
     Create a Fisher–Yates shuffled permutation array.
@@ -223,11 +242,11 @@ def mirror_tile(tile: np.ndarray, mirror_type: str) -> np.ndarray:
         raise ValueError(f"Invalid mirror type: {mirror_type}")
 
 
-def mirror_params_to_json(seed: int, n: int, m: int, mirrors: List[str]) -> Dict[str, Any]:
+def mirror_params_to_json(seed: int, n: int, m: int, mirrors: List[str], percentage: int = 100, tiles_scrambled: Optional[int] = None, total_tiles: Optional[int] = None) -> Dict[str, Any]:
     """
     Convert mirror parameters to JSON-like dict for export/saving.
     """
-    return {
+    params = {
         "version": 4,
         "algorithm": "mirror",
         "seed": int(seed),
@@ -236,6 +255,16 @@ def mirror_params_to_json(seed: int, n: int, m: int, mirrors: List[str]) -> Dict
         "mirrors": mirrors,
         "semantics": "Mirror flip types applied to each grid cell (0-based indexing): 'none', 'horizontal', or 'vertical'",
     }
+    
+    # Add percentage info if less than 100%
+    if percentage < 100:
+        params["percentage"] = percentage
+        if tiles_scrambled is not None:
+            params["tiles_scrambled"] = tiles_scrambled
+        if total_tiles is not None:
+            params["total_tiles"] = total_tiles
+    
+    return params
 
 
 # === paste all helper functions from above here ===
@@ -248,9 +277,11 @@ def mirror_scramble_frame(frame: np.ndarray,
                          n: int,
                          m: int,
                          mirrors: List[str],
-                         rects: List[Rect]) -> np.ndarray:
+                         rects: List[Rect],
+                         scrambled_indices: Optional[List[int]] = None) -> np.ndarray:
     """
     Scramble a frame by mirror flipping each tile according to the mirror types.
+    If scrambled_indices is provided, only mirror flip those specific tiles.
     """
     h, w, c = frame.shape
     out = frame.copy()
@@ -259,9 +290,17 @@ def mirror_scramble_frame(frame: np.ndarray,
     if len(mirrors) != N:
         raise ValueError("Mirrors length does not equal n*m")
 
-    for tile_idx in range(N):
+    # If no specific indices provided, scramble all tiles
+    if scrambled_indices is None:
+        scrambled_indices = list(range(N))
+
+    for tile_idx in scrambled_indices:
         rect = rects[tile_idx]
         mirror_type = mirrors[tile_idx]
+
+        # Skip if no mirroring
+        if mirror_type == 'none':
+            continue
 
         # Extract the tile
         y0, y1 = rect.y0, rect.y1
@@ -281,13 +320,15 @@ def mirror_unscramble_frame(frame: np.ndarray,
                            n: int,
                            m: int,
                            mirrors: List[str],
-                           rects: List[Rect]) -> np.ndarray:
+                           rects: List[Rect],
+                           scrambled_indices: Optional[List[int]] = None) -> np.ndarray:
     """
     Unscramble a frame by mirror flipping each tile in the reverse direction.
     Since mirroring is its own inverse, we apply the same mirror operation.
+    If scrambled_indices is provided, only mirror flip those specific tiles.
     """
     # Mirror operations are self-inverse: flipping twice returns to original
-    return mirror_scramble_frame(frame, n, m, mirrors, rects)
+    return mirror_scramble_frame(frame, n, m, mirrors, rects, scrambled_indices)
 
 
 # Legacy functions for compatibility
@@ -360,7 +401,8 @@ def process_photo(input_path: str,
                   rows: Optional[int] = None,
                   cols: Optional[int] = None,
                   mode: str = "scramble",
-                  algorithm: str = "mirror") -> str:
+                  algorithm: str = "mirror",
+                  percentage: int = 100) -> str:
     """
     Process a photo: scramble or unscramble according to mode.
     Returns path to params JSON (for scramble mode).
@@ -390,6 +432,9 @@ def process_photo(input_path: str,
     n, m = rows, cols
     N = n * m
 
+    # Validate and clamp percentage
+    percentage = max(0, min(100, percentage))
+
     # seed management
     if seed is None:
         seed = gen_random_seed()
@@ -400,11 +445,29 @@ def process_photo(input_path: str,
         mirrors = seeded_mirrors(N, seed)
         rects = cell_rects(width, height, n, m)
         
+        # Determine which tiles to scramble based on percentage
+        scrambled_indices = None
+        tiles_scrambled = N
+        
+        if percentage < 100:
+            scrambled_indices = select_tiles_to_scramble(N, seed, percentage)
+            tiles_scrambled = len(scrambled_indices)
+            
+            # Set to 'none' for tiles that shouldn't be scrambled
+            mirrors_partial = mirrors.copy()
+            for i in range(N):
+                if i not in scrambled_indices:
+                    mirrors_partial[i] = 'none'
+            mirrors = mirrors_partial
+            
+            print(f"Scrambling {tiles_scrambled} out of {N} tiles ({percentage}%)")
+            print(f"Tiles to scramble (0-indexed): {scrambled_indices}")
+        
         # Process the image
         if mode == "scramble":
-            processed = mirror_scramble_frame(frame, n, m, mirrors, rects)
+            processed = mirror_scramble_frame(frame, n, m, mirrors, rects, scrambled_indices)
         elif mode == "unscramble":
-            processed = mirror_unscramble_frame(frame, n, m, mirrors, rects)
+            processed = mirror_unscramble_frame(frame, n, m, mirrors, rects, scrambled_indices)
         else:
             raise ValueError("mode must be 'scramble' or 'unscramble'")
             
@@ -425,6 +488,8 @@ def process_photo(input_path: str,
             processed = scramble_frame(frame, n, m, perm_dest_to_src_0, src_rects, dest_rects)
         else:
             processed = unscramble_frame(frame, n, m, perm_dest_to_src_0, src_rects, dest_rects)
+        
+        tiles_scrambled = N
 
     # Write the output image
     cv2.imwrite(output_path, processed)
@@ -433,7 +498,7 @@ def process_photo(input_path: str,
     params_path = ""
     if mode == "scramble":
         if algorithm == "mirror":
-            params = mirror_params_to_json(seed, n, m, mirrors)
+            params = mirror_params_to_json(seed, n, m, mirrors, percentage, tiles_scrambled, N)
         else:
             params = params_to_json(seed, n, m, perm_dest_to_src_0)
             
@@ -456,6 +521,7 @@ def main():
                         help="Operation mode (default: scramble). Unscramble assumes same seed/n/m.")
     parser.add_argument("--algorithm", choices=["mirror", "spatial"], default="mirror",
                         help="Scrambling algorithm: 'mirror' for flipping tiles horizontally/vertically, 'spatial' for position swapping (default: mirror)")
+    parser.add_argument("--percentage", type=int, default=100, help="Percentage of tiles to scramble (default: 100).")
 
     args = parser.parse_args()
 
@@ -469,6 +535,7 @@ def main():
             cols=args.cols,
             mode=args.mode,
             algorithm=args.algorithm,
+            percentage=args.percentage,
         )
         print(f"Done. Output photo: {args.output}")
         if args.mode == "scramble" and params_path:
