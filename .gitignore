@@ -39,7 +39,5 @@ service-account.json
 python/.venv
 
 
-python/test_images
-
 python/venv
 
