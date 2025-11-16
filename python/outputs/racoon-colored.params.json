@@ -1,0 +1,19 @@
+{
+  "version": 3,
+  "algorithm": "rotation",
+  "seed": 12345,
+  "n": 2,
+  "m": 3,
+  "rotations": [
+    270,
+    0,
+    0,
+    270,
+    0,
+    0
+  ],
+  "semantics": "Rotation angles (degrees) applied to each grid cell (0-based indexing)",
+  "percentage": 75,
+  "tiles_scrambled": 4,
+  "total_tiles": 6
+}

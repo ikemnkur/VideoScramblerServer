@@ -75,6 +75,8 @@ def select_tiles_to_scramble(N: int, seed: int, percentage: int) -> List[int]:
     Select which tiles to scramble based on the percentage.
     Returns a sorted list of tile indices to scramble.
     """
+    if percentage == 0:
+        return []
     tiles_to_scramble = max(1, int(N * percentage / 100.0))
     
     # Use the seed to select which tiles to scramble

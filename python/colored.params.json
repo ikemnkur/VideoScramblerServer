@@ -1,0 +1,20 @@
+{
+  "version": 3,
+  "algorithm": "color_scramble",
+  "seed": 12345,
+  "n": 3,
+  "m": 2,
+  "max_shift": 128,
+  "hue_shifts": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+  ],
+  "semantics": "Hue shifts applied to each grid cell (0-based indexing)",
+  "percentage": 25,
+  "tiles_scrambled": 1,
+  "total_tiles": 6
+}
