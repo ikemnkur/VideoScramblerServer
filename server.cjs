@@ -128,7 +128,7 @@ server.get('/health', (req, res) => {
 });
 
 // Custom authentication route
-server.post(PROXY+'/api/auth/login', async (req, res) => {
+server.post(PROXY + '/api/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
 
@@ -203,7 +203,7 @@ server.post(PROXY+'/api/auth/login', async (req, res) => {
 });
 
 // Custom fetch account details route
-server.post(PROXY+'/api/user', async (req, res) => {
+server.post(PROXY + '/api/user', async (req, res) => {
   console.log("Fetching user details...");
   try {
     const { email, username, password } = req.body;
@@ -232,17 +232,17 @@ server.post(PROXY+'/api/user', async (req, res) => {
     //   );
     //   earnings = earnings_db;
     // } else {
-      // const [unlocks_db] = await pool.execute(
-      //   'SELECT * FROM unlocks WHERE email = ?',
-      //   [email]
-      // );
-      // unlocks = unlocks_db;
+    // const [unlocks_db] = await pool.execute(
+    //   'SELECT * FROM unlocks WHERE email = ?',
+    //   [email]
+    // );
+    // unlocks = unlocks_db;
 
-        const [action_db] = await pool.execute(
-        'SELECT * FROM actions WHERE email = ?',
-        [email]
-      );
-      actions = action_db;
+    const [action_db] = await pool.execute(
+      'SELECT * FROM actions WHERE email = ?',
+      [email]
+    );
+    actions = action_db;
     // }
 
 
@@ -292,13 +292,13 @@ server.post(PROXY+'/api/user', async (req, res) => {
       //     message: 'Login successful'
       //   });
       // } else {
-        res.json({
-          success: true,
-          user: userData,
-          unlocks: actions,
-          // token: token,
-          message: 'Login successful'
-        });
+      res.json({
+        success: true,
+        user: userData,
+        unlocks: actions,
+        // token: token,
+        message: 'Login successful'
+      });
       // }
 
     } else {
@@ -317,7 +317,7 @@ server.post(PROXY+'/api/user', async (req, res) => {
 });
 
 // Custom registration route
-server.post(PROXY+'/api/auth/register', async (req, res) => {
+server.post(PROXY + '/api/auth/register', async (req, res) => {
   try {
     const { username, email, password, firstName, lastName, accountType, birthDate } = req.body;
 
@@ -506,7 +506,7 @@ module.exports = {
 
 
 // Custom logout route
-server.post(PROXY+'/api/auth/logout', async (req, res) => {
+server.post(PROXY + '/api/auth/logout', async (req, res) => {
   try {
     const { username } = req.body;
 
@@ -532,7 +532,7 @@ server.post(PROXY+'/api/auth/logout', async (req, res) => {
 });
 
 // Custom wallet balance route
-server.post(PROXY+'/api/wallet/balance/:username', async (req, res) => {
+server.post(PROXY + '/api/wallet/balance/:username', async (req, res) => {
   try {
     // const username = req.query.username || 'user_123'; // Default for demo
     const username = req.params.username;
@@ -608,77 +608,94 @@ server.post(PROXY+'/api/wallet/balance/:username', async (req, res) => {
 // Todo: Implement spend credits functionality, replace old and borrow function unlock with spend
 
 // Custom unlock key route
-// server.post(PROXY+'/api/spend-credits', async (req, res) => {
-//   try {
-//     // const keyId = req.params.keyId;
-
-//     const { username, action } = req.body;
-
+// spend credits route
+server.post(PROXY + '/api/spend-credits', async (req, res) => {
+  try {
     
+    const { username, action } = req.body;
 
-//     const [users] = await pool.execute(
-//       'SELECT * FROM userData WHERE username = ?',
-//       [username]
-//     );
+    // Basic validation
+    if (!username || !action || typeof action.cost === 'undefined') {
+      return res.status(400).json({ success: false, message: 'username and action (with cost) are required' });
+    }
 
-//     const user = users[0];
+    const cost = Number(action.cost);
+    if (Number.isNaN(cost) || cost <= 0) {
+      return res.status(400).json({ success: false, message: 'Invalid action cost' });
+    }
 
-//       console.log(`User ${username} as spent ${action.cost} credits.`);
+    const [users] = await pool.execute(
+      'SELECT * FROM userData WHERE username = ?',
+      [username]
+    );
 
-      
-//       if (user.credits >= action.price) {
-//         // Update buyer credits
-//         await pool.execute(
-//           'UPDATE userData SET credits = credits - ? WHERE email = ?',
-//           [action.cost, user.email]
-//         );
-      
-//       }
+    const user = users[0];
 
-//       // Create credit spend record
-//       const transactionId = uuidv4();
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
 
-//       await pool.execute(
-//         'INSERT INTO actions (id, transactionId, username, email, date, time, credits, action_type, action_cost, action_description) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-//         [
-//           uuidv4(),
-//           transactionId,
-//           user.username, // Demo user
-//           user.email,
-//           Date.now(),
-//           new Date().toLocaleTimeString(),
-//           user.credits,
-//           action.type,
-//           // randomKey,
-//           action.cost,
-//           action.description
-//         ]
-//       );
+    console.log(`User ${username} is attempting to spend ${cost} credits.`);
 
-//       await CreateNotification(
-//         'key_purchased',
-//         'Key Unlocked: Key Purchase Successful',
-//         `User ${username} as spent ${action.cost} credits to: ${action.description}.`,
-//         'unlock',
-//         username || 'anonymous'
-//       );
+    if (user.credits < cost) {
+      return res.status(400).json({ success: false, message: 'Insufficient credits' });
+    }
 
-//       res.json({
-//         success: true,
-//         key: key.keyValue,
-//         transactionId: transactionId
-//       });
-//     // } else {
-//     //   res.status(404).json({ success: false, message: 'Key not available or not found' });
-//     // }
-//   } catch (error) {
-//     console.error('Unlock key error:', error);
-//     res.status(500).json({ success: false, message: 'Database error - unlock key failed' });
-//   }
-// });
+    // Deduct buyer credits
+    await pool.execute(
+      'UPDATE userData SET credits = credits - ? WHERE email = ?',
+      [cost, user.email]
+    );
+
+    // Get updated credits
+    const [updatedRows] = await pool.execute(
+      'SELECT credits FROM userData WHERE email = ?',
+      [user.email]
+    );
+    const updatedCredits = updatedRows[0] ? updatedRows[0].credits : (user.credits - cost);
+
+    // Create credit spend record
+    const transactionId = uuidv4();
+
+    await pool.execute(
+      'INSERT INTO actions (id, transactionId, username, email, date, time, credits, action_type, action_cost, action_description) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [
+        uuidv4(),
+        transactionId,
+        user.username, // Demo user
+        user.email,
+        Date.now(),
+        new Date().toLocaleTimeString(),
+        updatedCredits,
+        action.type || null,
+        cost,
+        action.description || ''
+      ]
+    );
+
+    await CreateNotification(
+      'key_purchased',
+      'Key Unlocked: Key Purchase Successful',
+      `User ${username} has spent ${cost} credits to: ${action.description || 'purchase'}.`,
+      'unlock',
+      username || 'anonymous'
+    );
+
+    res.json({
+      success: true,
+      transactionId: transactionId,
+      credits: updatedCredits,
+      message: 'Credits spent successfully'
+    });
+
+  } catch (error) {
+    console.error('Unlock key error:', error);
+    res.status(500).json({ success: false, message: 'Database error - unlock key failed' });
+  }
+});
 
 // Custom route for seller listings
-server.get(PROXY+'/api/seller/listings/:id', async (req, res) => {
+server.get(PROXY + '/api/seller/listings/:id', async (req, res) => {
   try {
     const id = req.params.id;
 
@@ -702,7 +719,7 @@ server.get(PROXY+'/api/seller/listings/:id', async (req, res) => {
 
 
 // Custom route for user-specific listings
-server.get(PROXY+'/api/listings/:username', async (req, res) => {
+server.get(PROXY + '/api/listings/:username', async (req, res) => {
   try {
     const username = req.params.username;
     const [listings] = await pool.execute(
@@ -717,7 +734,7 @@ server.get(PROXY+'/api/listings/:username', async (req, res) => {
 });
 
 // Custom route for editing a key listing
-server.put(PROXY+'/api/listings/:id', async (req, res) => {
+server.put(PROXY + '/api/listings/:id', async (req, res) => {
   try {
     const listingId = req.params.id;
     const {
@@ -826,7 +843,7 @@ server.put(PROXY+'/api/listings/:id', async (req, res) => {
 });
 
 // Custom route for deleting a key listing
-server.delete(PROXY+'/api/listings/:id', async (req, res) => {
+server.delete(PROXY + '/api/listings/:id', async (req, res) => {
   try {
     const listingId = req.params.id;
     const { username } = req.body; // For security, verify ownership
@@ -907,7 +924,7 @@ server.delete(PROXY+'/api/listings/:id', async (req, res) => {
 // const { data } = await api.post(PROXY+'/api/create-key', fd);
 
 
-server.get(PROXY+'/api/createdKey/:id', async (req, res) => {
+server.get(PROXY + '/api/createdKey/:id', async (req, res) => {
   try {
     const id = req.params.id;
     const [keys] = await pool.execute(
@@ -943,7 +960,7 @@ server.get(PROXY+'/api/createdKey/:id', async (req, res) => {
 });
 
 // Custom route for create key
-server.post(PROXY+'/api/create-key', async (req, res) => {
+server.post(PROXY + '/api/create-key', async (req, res) => {
   try {
     const {
       title,
@@ -1075,7 +1092,7 @@ server.post(PROXY+'/api/create-key', async (req, res) => {
 });
 
 // Custom route for user notifications
-server.get(PROXY+'/api/notifications/:username', async (req, res) => {
+server.get(PROXY + '/api/notifications/:username', async (req, res) => {
   try {
     const username = req.params.username;
 
@@ -1176,7 +1193,7 @@ async function CreateNotification(type, title, message, category, username, prio
 // // Create user in server
 
 
-server.post(PROXY+'/api/userData', async (req, res) => {
+server.post(PROXY + '/api/userData', async (req, res) => {
   try {
     const newUser = req.body;
 
@@ -1243,7 +1260,7 @@ server.post(PROXY+'/api/userData', async (req, res) => {
 });
 
 // Custom route for user purchases
-server.get(PROXY+'/api/purchases/:username', async (req, res) => {
+server.get(PROXY + '/api/purchases/:username', async (req, res) => {
   try {
     const username = req.params.username;
 
@@ -1260,7 +1277,7 @@ server.get(PROXY+'/api/purchases/:username', async (req, res) => {
 });
 
 // Custom route for user redemptions
-server.get(PROXY+'/api/redemptions/:username', async (req, res) => {
+server.get(PROXY + '/api/redemptions/:username', async (req, res) => {
   try {
     const username = req.params.username;
 
@@ -1386,7 +1403,7 @@ async function checkTransaction(crypto, txHash, walletAddress, amount) {
   }
 }
 
-server.post(PROXY+'/api/purchases/:username', async (req, res) => {
+server.post(PROXY + '/api/purchases/:username', async (req, res) => {
   try {
     const {
       username,
@@ -1747,7 +1764,7 @@ async function fetchSol(address, limit = 100) {
 
 
 
-server.post(PROXY+'/api/lookup-transaction', async (req, res) => {
+server.post(PROXY + '/api/lookup-transaction', async (req, res) => {
 
   FetchRecentTransactionsCron();
 
@@ -1877,7 +1894,7 @@ const MIME_TO_EXT = {
 
 
 // Endpoint to handle transaction screenshot upload
-server.post(PROXY+'/api/upload/transaction-screenshot/:username/:txHash', async (req, res) => {
+server.post(PROXY + '/api/upload/transaction-screenshot/:username/:txHash', async (req, res) => {
   console.log("Transaction screenshot upload request received");
 
   const { username, txHash } = req.params;
@@ -2079,7 +2096,7 @@ server.post(PROXY+'/api/upload/transaction-screenshot/:username/:txHash', async 
  * Accepts a multipart/form-data upload for a user's profile picture.
  * Stores the image in Google Cloud Storage and updates the user's profilePicture field.
  */
-server.post(PROXY+'/api/profile-picture/:username', async (req, res) => {
+server.post(PROXY + '/api/profile-picture/:username', async (req, res) => {
   const { username } = req.params;
   let busboy;
   try {
@@ -2298,7 +2315,7 @@ server.post(PROXY+'/api/profile-picture/:username', async (req, res) => {
 
 
 // Basic RESTful routes for all tables
-server.get(PROXY+'/api/:table', async (req, res) => {
+server.get(PROXY + '/api/:table', async (req, res) => {
   try {
     const table = req.params.table;
     const allowedTables = ['userData', 'buyCredits', 'redeemCredits', 'earnings', 'actions', 'createdKeys', 'notifications', 'wallet', 'reports', 'supportTickets'];
@@ -2315,7 +2332,7 @@ server.get(PROXY+'/api/:table', async (req, res) => {
   }
 });
 
-server.get(PROXY+'/api/:table/:id', async (req, res) => {
+server.get(PROXY + '/api/:table/:id', async (req, res) => {
   try {
     const { table, id } = req.params;
     const allowedTables = ['userData', 'buyCredits', 'redeemCredits', 'earnings', 'actions', 'notifications', 'wallet', 'reports', 'supportTickets'];
@@ -2337,7 +2354,7 @@ server.get(PROXY+'/api/:table/:id', async (req, res) => {
   }
 });
 
-server.patch(PROXY+'/api/:table/:id', async (req, res) => {
+server.patch(PROXY + '/api/:table/:id', async (req, res) => {
   try {
     const { table, id } = req.params;
     const allowedTables = ['userData', 'buyCredits', 'redeemCredits', 'earnings', 'actions', 'createdKeys', 'notifications', 'wallet', 'reports', 'supportTickets'];
@@ -2482,7 +2499,7 @@ async function FetchRecentTransactionsCron() {
 // ========================================
 
 // Save or update device fingerprint
-server.post(PROXY+'/api/fingerprint/save', async (req, res) => {
+server.post(PROXY + '/api/fingerprint/save', async (req, res) => {
   try {
     const {
       userId,
@@ -2586,7 +2603,7 @@ server.post(PROXY+'/api/fingerprint/save', async (req, res) => {
 });
 
 // Get all fingerprints for a user
-server.get(PROXY+'/api/fingerprint/user/:userId', async (req, res) => {
+server.get(PROXY + '/api/fingerprint/user/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
 
@@ -2637,7 +2654,7 @@ server.get(PROXY+'/api/fingerprint/user/:userId', async (req, res) => {
 });
 
 // Get full fingerprint details by hash
-server.get(PROXY+'/api/fingerprint/details/:hash', async (req, res) => {
+server.get(PROXY + '/api/fingerprint/details/:hash', async (req, res) => {
   try {
     const { hash } = req.params;
 
@@ -2667,7 +2684,7 @@ server.get(PROXY+'/api/fingerprint/details/:hash', async (req, res) => {
 });
 
 // Increment unscramble count when content is unscrambled
-server.post(PROXY+'/api/fingerprint/unscramble/:hash', async (req, res) => {
+server.post(PROXY + '/api/fingerprint/unscramble/:hash', async (req, res) => {
   try {
     const { hash } = req.params;
 
@@ -2690,7 +2707,7 @@ server.post(PROXY+'/api/fingerprint/unscramble/:hash', async (req, res) => {
 });
 
 // Mark device as leaked (when leaked content is detected)
-server.post(PROXY+'/api/fingerprint/leaked/:hash', async (req, res) => {
+server.post(PROXY + '/api/fingerprint/leaked/:hash', async (req, res) => {
   try {
     const { hash } = req.params;
     const { reason } = req.body;
@@ -2714,7 +2731,7 @@ server.post(PROXY+'/api/fingerprint/leaked/:hash', async (req, res) => {
 });
 
 // Block/unblock a device
-server.patch(PROXY+'/api/fingerprint/block/:id', async (req, res) => {
+server.patch(PROXY + '/api/fingerprint/block/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const { isBlocked, blockReason } = req.body;
@@ -2738,7 +2755,7 @@ server.patch(PROXY+'/api/fingerprint/block/:id', async (req, res) => {
 });
 
 // Get device statistics for admin
-server.get(PROXY+'/api/fingerprint/stats', async (req, res) => {
+server.get(PROXY + '/api/fingerprint/stats', async (req, res) => {
   try {
     const [stats] = await pool.execute(`
       SELECT 
@@ -2859,7 +2876,7 @@ const FLASKAPP_LINK = process.env.FLASKAPP_LINK || 'http://localhost:5000';
 //         return jsonify({'error': 'File type not allowed'}), 400
 
 
-server.get(PROXY+'/api/flask-python/download', (req, res) => {
+server.get(PROXY + '/api/flask-python/download', (req, res) => {
   // Proxy the request to the Flask app
   const axios = require('axios');
   const FormData = require('form-data');
@@ -3135,7 +3152,7 @@ const upload = multer({
 // SCRAMBLE PHOTO ENDPOINT
 // =============================
 
-server.post(PROXY+'/api/scramble-photo', upload.single('file'), async (req, res) => {
+server.post(PROXY + '/api/scramble-photo', upload.single('file'), async (req, res) => {
   console.log('📸 Scramble photo request received');
 
   try {
@@ -3256,7 +3273,7 @@ server.post(PROXY+'/api/scramble-photo', upload.single('file'), async (req, res)
 // =============================
 // UNSCRAMBLE PHOTO ENDPOINT
 // =============================
-server.post(PROXY+'/api/unscramble-photo', upload.single('file'), async (req, res) => {
+server.post(PROXY + '/api/unscramble-photo', upload.single('file'), async (req, res) => {
   console.log('🔓 Unscramble photo request received');
 
   try {
@@ -3351,7 +3368,7 @@ server.post(PROXY+'/api/unscramble-photo', upload.single('file'), async (req, re
 // =============================
 // DOWNLOAD SCRAMBLED IMAGE
 // =============================
-server.get(PROXY+'/api/download/:filename', (req, res) => {
+server.get(PROXY + '/api/download/:filename', (req, res) => {
   const filename = req.params.filename;
   const outputDir = path.join(__dirname, 'python', 'outputs');
   const filePath = path.join(outputDir, filename);
@@ -3513,7 +3530,7 @@ server.get(PROXY+'/api/download/:filename', (req, res) => {
 
 
 
-server.post(PROXY+'/api/unscramble-photo', (req, res) => {
+server.post(PROXY + '/api/unscramble-photo', (req, res) => {
   // Proxy the request to the Flask app
   const axios = require('axios');
   const FormData = require('form-data');
@@ -3554,7 +3571,7 @@ server.post(PROXY+'/api/unscramble-photo', (req, res) => {
 
 
 // Photo leak detection endpoint
-server.post(PROXY+'/api/check-photo-leak', async (req, res) => {
+server.post(PROXY + '/api/check-photo-leak', async (req, res) => {
   console.log('\\n' + '='.repeat(60));
   console.log('🔍 NODE: Photo leak check request received');
   console.log('='.repeat(60));
@@ -3694,7 +3711,7 @@ server.post(PROXY+'/api/check-photo-leak', async (req, res) => {
 });
 
 // Video leak detection endpoint
-server.post(PROXY+'/api/check-video-leak', async (req, res) => {
+server.post(PROXY + '/api/check-video-leak', async (req, res) => {
   console.log('\\n' + '='.repeat(60));
   console.log('🎥 NODE: Video leak check request received');
   console.log('='.repeat(60));
@@ -3834,7 +3851,7 @@ server.post(PROXY+'/api/check-video-leak', async (req, res) => {
 
 // create a rout that will allow the clients to download video files from the server via file name
 // server.get(PROXY+'/api/download/:filename', (req, res) => {
-  server.get('/download/:filename', (req, res) => {
+server.get('/download/:filename', (req, res) => {
   const filename = req.params.filename;
   // const videoDir = path.join(__dirname, 'videos');
   const videoDir = path.join(__dirname, 'inputs');
@@ -3857,8 +3874,8 @@ server.post(PROXY+'/api/check-video-leak', async (req, res) => {
 // Stripe Subscription Endpoints
 // ========================================
 
-const FRONTEND_URL = 'http://localhost:5174';
-// const FRONTEND_URL = process.env.STRIPE_SECRET_KEY || 'http://localhost:5174';
+// const FRONTEND_URL = 'http://localhost:5174';
+const FRONTEND_URL = process.env.FLASKAPP_LINK || 'http://localhost:5174';
 
 // Initialize Stripe
 // const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY || 'sk_test_your_key_here');
@@ -3943,7 +3960,7 @@ server.get('/session-status', async (req, res) => {
 
 
 // Create subscription checkout session
-server.post(PROXY+'/api/subscription/create-checkout', async (req, res) => {
+server.post(PROXY + '/api/subscription/create-checkout', async (req, res) => {
   try {
     const {
       userId,
@@ -4023,7 +4040,7 @@ server.post(PROXY+'/api/subscription/create-checkout', async (req, res) => {
 });
 
 // Verify subscription session
-server.get(PROXY+'/api/subscription/verify-session', async (req, res) => {
+server.get(PROXY + '/api/subscription/verify-session', async (req, res) => {
   try {
     const { session_id } = req.query;
 
@@ -4100,7 +4117,7 @@ server.get(PROXY+'/api/subscription/verify-session', async (req, res) => {
 });
 
 // Get current subscription
-server.get(PROXY+'/api/subscription/current/:userId', async (req, res) => {
+server.get(PROXY + '/api/subscription/current/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
 
@@ -4132,7 +4149,7 @@ server.get(PROXY+'/api/subscription/current/:userId', async (req, res) => {
 });
 
 // Create customer portal session
-server.post(PROXY+'/api/subscription/portal', async (req, res) => {
+server.post(PROXY + '/api/subscription/portal', async (req, res) => {
   try {
     const { userId, returnUrl } = req.body;
 
@@ -4171,7 +4188,7 @@ server.post(PROXY+'/api/subscription/portal', async (req, res) => {
 });
 
 // Cancel subscription
-server.post(PROXY+'/api/subscription/cancel', async (req, res) => {
+server.post(PROXY + '/api/subscription/cancel', async (req, res) => {
   try {
     const { userId } = req.body;
 
@@ -4256,7 +4273,7 @@ server.post("/webhook", async (req, res) => {
 });
 
 // Stripe webhook handler
-server.post(PROXY+'/api/subscription/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+server.post(PROXY + '/api/subscription/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
   const sig = req.headers['stripe-signature'];
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
@@ -4303,7 +4320,7 @@ server.post(PROXY+'/api/subscription/webhook', express.raw({ type: 'application/
       );
 
       let data = {
-        "subscription_type":  subtype,
+        "subscription_type": subtype,
         "subscription_cost": subcost,
         "username": username,
         "userId": userId,
@@ -4311,7 +4328,7 @@ server.post(PROXY+'/api/subscription/webhook', express.raw({ type: 'application/
         "email": email,
         "transactionId": transactionId,
       };
-      
+
       stripeBuycredits(data);
       console.log(`✅ Subscription created: ${subscription.id}`);
       break;
@@ -4335,7 +4352,7 @@ server.post(PROXY+'/api/subscription/webhook', express.raw({ type: 'application/
 
 // async function fetchEth({
 async function stripeBuycredits(data) {
-  
+
   try {
     const {
       username,
@@ -4381,41 +4398,41 @@ async function stripeBuycredits(data) {
       const txHash = transactionId;
       const senderAddress = walletAddress;
 
-      
+
       // if (result.success) {
-        const [purchases] = await pool.execute(
-          'INSERT into buyCredits (username, id, name, email, walletAddress, transactionHash, blockExplorerLink, currency, amount, cryptoAmount, rate, date, time, session_id, orderLoggingEnabled, userAgent, ip, credits) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-          [
-            username,
-            Math.random().toString(36).substring(2, 10),
-            name,
-            email,
-            walletAddress,
-            transactionId,
-            "Stripe",
-            currency,
-            amount,
-            cryptoAmount,
-            rate,
-            Date.now(),
-            new Date().toISOString(),
-            session_id,
-            orderLoggingEnabled,
-            userAgent,
-            ip,
-            amount !== undefined && amount !== null ? Math.floor(amount) : 0
-          ]
-        );
+      const [purchases] = await pool.execute(
+        'INSERT into buyCredits (username, id, name, email, walletAddress, transactionHash, blockExplorerLink, currency, amount, cryptoAmount, rate, date, time, session_id, orderLoggingEnabled, userAgent, ip, credits) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [
+          username,
+          Math.random().toString(36).substring(2, 10),
+          name,
+          email,
+          walletAddress,
+          transactionId,
+          "Stripe",
+          currency,
+          amount,
+          cryptoAmount,
+          rate,
+          Date.now(),
+          new Date().toISOString(),
+          session_id,
+          orderLoggingEnabled,
+          userAgent,
+          ip,
+          amount !== undefined && amount !== null ? Math.floor(amount) : 0
+        ]
+      );
 
-        await CreateNotification(
-          'credits_purchased',
-          'Credits Purchase Logged',
-          `A new purchase has been logged for user ${username}.`,
-          'purchase',
-          username || 'anonymous'
-        );
+      await CreateNotification(
+        'credits_purchased',
+        'Credits Purchase Logged',
+        `A new purchase has been logged for user ${username}.`,
+        'purchase',
+        username || 'anonymous'
+      );
 
-        res.json(purchases);
+      res.json(purchases);
       // } else {
       //   // invladid transaction
       //   return res.status(400).json({ error: 'Transaction verification failed: ' + result.error });
@@ -4468,7 +4485,7 @@ server.listen(PORT, async () => {
     await pool.execute('SELECT 1');
     console.log('🚀 Express Server with MySQL is running on port', PORT);
     console.log('�️  Database: KeyChingDB (MySQL)');
-    console.log('🌐 API Base URL: http://localhost:' + PORT + PROXY+'/api');
+    console.log('🌐 API Base URL: http://localhost:' + PORT + PROXY + '/api');
     console.log('� Flask Service: ' + FLASKAPP_LINK);
     console.log('📋 Available endpoints:');
     console.log('   - GET /api/userData');
