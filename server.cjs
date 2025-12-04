@@ -71,6 +71,87 @@ const corsOptions = {
 server.use(cors(corsOptions));
 // server.use(express.json());
 
+const LOG_FILE = path.join(__dirname, 'universal.log');
+
+// #################################################################################
+
+// Ensure the log file is clear at startup for demonstration purposes (optional)
+fs.writeFileSync(LOG_FILE, 'Server started at ' + new Date().toISOString() + '\n\n');
+
+/**
+ * Overrides standard console methods (log, warn, error) to capture output to a file.
+ */
+function overrideConsole() {
+    const originalLog = console.log;
+    const originalWarn = console.warn;
+    const originalError = console.error;
+
+    // Helper function to format arguments and append to file
+    const appendToFile = (level, ...args) => {
+        // Use util.format to handle placeholders like %s, %d correctly
+        const message = util.format(...args);
+        const timestamp = new Date().toISOString();
+        const logEntry = `${timestamp} [${level.toUpperCase()}]: ${message}\n`;
+        
+        fs.appendFile(LOG_FILE, logEntry, (err) => {
+            if (err) {
+                // If file writing fails, use the original error console method
+                originalError('Failed to write to log file:', err);
+            }
+        });
+    };
+
+    // Monkey-patch console.log
+    console.log = function(...args) {
+        appendToFile('info', ...args);
+        originalLog.apply(console, args); // Also call the original console method to display in terminal
+    };
+
+    // Monkey-patch console.warn
+    console.warn = function(...args) {
+        appendToFile('warn', ...args);
+        originalWarn.apply(console, args);
+    };
+
+    // Monkey-patch console.error
+    console.error = function(...args) {
+        appendToFile('error', ...args);
+        originalError.apply(console, args);
+    };
+}
+
+// Activate the console override immediately
+overrideConsole();
+
+
+// --- Express Endpoints ---
+
+// Log some test messages using the *now-overridden* console methods
+console.log("Console logging is now being redirected to the webpage endpoint.");
+console.warn("This is a sample warning message!");
+console.error("This is a sample error message!");
+
+
+// Endpoint to fetch and display the raw logs
+server.get('/logs', (req, res) => {
+  fs.readFile(LOG_FILE, 'utf8', (err, data) => {
+      if (err) {
+          console.error('Error reading log file for endpoint:', err);
+          return res.status(500).send('Error reading logs.');
+      }
+      res.setHeader('Content-Type', 'text/plain');
+      res.send(data);
+  });
+});
+
+// A sample endpoint to generate more log activity
+server.get('/generate-activity', (req, res) => {
+  console.log(`User accessed /generate-activity endpoint (IP: ${req.ip})`);
+  res.send('Activity logged using console.log()! Check your main page.');
+});
+
+
+// ###########################################################
 
 server.use(express.json({ limit: '10mb' }));
 server.use(express.urlencoded({ extended: true, limit: '10mb' }));
