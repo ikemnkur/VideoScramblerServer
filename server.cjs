@@ -46,8 +46,10 @@ const corsOptions = {
   origin: function (origin, callback) {
     const allowedOrigins = [
       'http://localhost:3000',
+      'http://localhost:3001',
       'http://localhost:5001',
       'https://key-ching.com',
+      'https://videoscrambler.com',
       'https://microtrax.netlify.app',
       "https://servers4sqldb.uc.r.appspot.com",
       "https://orca-app-j32vd.ondigitalocean.app",
@@ -691,11 +693,13 @@ server.post(PROXY + '/api/wallet/balance/:username', async (req, res) => {
 
 // Custom unlock key route
 // spend credits route
-server.post(PROXY + '/api/spend-credits', async (req, res) => {
+server.post(PROXY + '/api/spend-credits/:username', async (req, res) => {
   try {
     
-    const { username, action } = req.body;
-
+    const { action } = req.body;
+    console.log("Spend credits action:", action);
+    const username = req.params.username;
+    
     // Basic validation
     if (!username || !action || typeof action.cost === 'undefined') {
       return res.status(400).json({ success: false, message: 'username and action (with cost) are required' });
@@ -756,10 +760,10 @@ server.post(PROXY + '/api/spend-credits', async (req, res) => {
     );
 
     await CreateNotification(
-      'key_purchased',
-      'Key Unlocked: Key Purchase Successful',
+      'credits_spent',
+      `Credits Spent: ${action.description || 'Purchase Successful'}`,
       `User ${username} has spent ${cost} credits to: ${action.description || 'purchase'}.`,
-      'unlock',
+      action.type,
       username || 'anonymous'
     );
 
@@ -769,6 +773,8 @@ server.post(PROXY + '/api/spend-credits', async (req, res) => {
       credits: updatedCredits,
       message: 'Credits spent successfully'
     });
+
+    console.log(`User ${username} successfully spent ${cost} credits to do ${action.description || 'purchase'}.`);
 
   } catch (error) {
     console.error('Unlock key error:', error);
@@ -3109,9 +3115,9 @@ const upload = multer({
   dest: 'python/inputs',
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
   fileFilter: function (req, file, cb) {
-    // Accept images only
-    if (!file.mimetype.startsWith('image/')) {
-      return cb(new Error('Only image files are allowed!'), false);
+    // Accept images and videos only
+    if (!file.mimetype.startsWith('image/') && !file.mimetype.startsWith('video/')) {
+      return cb(new Error('Only image and video files are allowed!'), false);
     }
     cb(null, true);
   }
@@ -3447,6 +3453,228 @@ server.post(PROXY + '/api/unscramble-photo', upload.single('file'), async (req, 
   }
 });
 
+
+server.post(PROXY+ "/api/upload", async (req, res) => {
+
+});
+
+// =============================
+// SCRAMBLE VIDEO ENDPOINT
+// =============================
+
+server.post(PROXY + '/api/scramble-video', upload.single('file'), async (req, res) => {
+  console.log('📸 Scramble video request received');
+
+  try {
+    // 1) Make sure a file came in
+    if (!req.file) {
+      return res.status(400).json({ error: 'No video file provided' });
+    }
+
+    console.log('✅ File uploaded:', req.file.filename);
+    console.log('📁 File path:', req.file.path);
+
+    // 2) Parse params from multipart/form-data
+    let params;
+    try {
+      params = typeof req.body.params === 'string'
+        ? JSON.parse(req.body.params)
+        : (req.body.params || {});
+    } catch (parseError) {
+      console.error('❌ Failed to parse parameters:', parseError);
+      return res.status(400).json({ error: 'Invalid parameters format' });
+    }
+
+    console.log('📋 Scrambling parameters (from frontend):', params);
+
+    // 3) Normalize for Flask
+    //
+    // IMPORTANT:
+    // - Ignore params.input from the client and instead use the actual stored filename.
+    // - Optionally reuse params.output, but better to tie it to the stored filename.
+    const inputFile = req.file.filename; // file as saved by multer
+    const outputFile = `scrambled_${inputFile}`;
+
+    // Build the payload in the exact shape Flask expects
+    const flaskPayload = {
+      input: inputFile,
+      output: outputFile,
+      seed: params.seed ?? 123456,
+      mode: params.mode || 'scramble',
+      algorithm: params.algorithm || 'position',
+      percentage: params.percentage ?? 100,
+      // Algorithm-specific params
+      rows: params.rows,
+      cols: params.cols,
+      max_hue_shift: params.max_hue_shift,
+      max_intensity_shift: params.max_intensity_shift
+    };
+
+    // Remove undefined keys so Flask doesn’t see them at all
+    Object.keys(flaskPayload).forEach((key) => {
+      if (flaskPayload[key] === undefined) delete flaskPayload[key];
+    });
+
+    console.log('🔄 Sending normalized payload to Flask:', flaskPayload);
+    console.log('📡 Flask URL:', `${FLASKAPP_LINK}/scramble-video`);
+
+    // 4) Call Flask /scramble-photo as JSON
+    const flaskResponse = await axios.post(
+      `${FLASKAPP_LINK}/scramble-video`,
+      flaskPayload,
+      {
+        timeout: 60000,
+        headers: { 'Content-Type': 'application/json' }
+      }
+    );
+
+    console.log('✅ Flask response received:', flaskResponse.data);
+
+    // Flask returns: { message, output_file, algorithm, seed, download_url, ... }
+    const data = flaskResponse.data;
+
+    // 5) Send a clean response back to the React frontend
+    res.json({
+      success: true,
+      output_file: data.output_file,
+      algorithm: data.algorithm,
+      seed: data.seed,
+      download_url: data.download_url,
+      message: data.message || 'Image scrambled successfully',
+      // Include everything else from Flask, just in case
+      ...data
+    });
+
+  } catch (error) {
+    console.error('❌ Error in /api/scramble-video endpoint:', error.message);
+
+    // Cleanup uploaded file if something failed
+    if (req.file && fs.existsSync(req.file.path)) {
+      try {
+        fs.unlinkSync(req.file.path);
+        console.log('🗑️  Cleaned up failed upload:', req.file.filename);
+      } catch (unlinkError) {
+        console.error('Failed to delete file:', unlinkError);
+      }
+    }
+
+    if (error.code === 'ECONNREFUSED') {
+      return res.status(503).json({
+        error: 'Python/Flask service is not running. Please start the Flask server on port 5000.'
+      });
+    }
+
+    if (error.response) {
+      // Flask returned an HTTP error
+      return res.status(error.response.status || 500).json({
+        error: error.response.data?.error || 'Scrambling failed in Python service',
+        details: error.response.data
+      });
+    }
+
+    res.status(500).json({
+      error: 'Failed to scramble video',
+      message: error.message
+    });
+  }
+});
+
+
+// =============================
+// UNSCRAMBLE VIDEO ENDPOINT
+// =============================
+server.post(PROXY + '/api/unscramble-video', upload.single('file'), async (req, res) => {
+  console.log('🔓 Unscramble video request received');
+
+  try {
+    // Check if file was uploaded
+    if (!req.file) {
+      return res.status(400).json({ error: 'No video file provided' });
+    }
+
+    console.log('✅ File uploaded:', req.file.filename);
+    console.log('📁 File path:', req.file.path);
+
+    // Parse parameters from request body
+    let params;
+    try {
+      params = typeof req.body.params === 'string'
+        ? JSON.parse(req.body.params)
+        : req.body.params;
+    } catch (parseError) {
+      console.error('❌ Failed to parse parameters:', parseError);
+      return res.status(400).json({ error: 'Invalid parameters format' });
+    }
+
+    console.log('📋 Unscrambling parameters:', params);
+
+    // Prepare data to send to Flask
+    const flaskPayload = {
+      localFileName: req.file.filename,
+      localFilePath: req.file.path,
+      params: params
+    };
+
+    console.log('🔄 Sending normalized payload to Flask:', flaskPayload);
+    console.log('🔄 Sending to Flask service:', FLASKAPP_LINK + '/unscramble-video');
+
+    // Send request to Flask/Python service
+    const flaskResponse = await axios.post(
+      `${FLASKAPP_LINK}/unscramble-video`,
+      flaskPayload,
+      {
+        timeout: 30000, // 30 second timeout
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+
+    console.log('✅ Flask response received:', flaskResponse.data);
+
+    // Return Flask response to frontend
+    res.json({
+      success: true,
+      output_file: flaskResponse.data.output_file || flaskResponse.data.unscrambledFileName,
+      unscrambledImageUrl: flaskResponse.data.unscrambledImageUrl,
+      message: 'Image unscrambled successfully',
+      ...flaskResponse.data
+    });
+
+  } catch (error) {
+    console.error('❌ Error in /api/unscramble-video endpoint:', error.message);
+
+    // Clean up uploaded file if processing failed
+    if (req.file && fs.existsSync(req.file.path)) {
+      try {
+        fs.unlinkSync(req.file.path);
+        console.log('🗑️  Cleaned up failed upload:', req.file.filename);
+      } catch (unlinkError) {
+        console.error('Failed to delete file:', unlinkError);
+      }
+    }
+
+    if (error.code === 'ECONNREFUSED') {
+      return res.status(503).json({
+        error: 'Python/Flask service is not running. Please start the Flask server on port 5000.'
+      });
+    }
+
+    if (error.response) {
+      // Flask returned an error
+      return res.status(error.response.status || 500).json({
+        error: error.response.data?.error || 'Unscrambling failed in Python service',
+        details: error.response.data
+      });
+    }
+
+    res.status(500).json({
+      error: 'Failed to unscramble video',
+      message: error.message
+    });
+  }
+});
+
 // =============================
 // DOWNLOAD SCRAMBLED IMAGE
 // =============================
@@ -3730,6 +3958,146 @@ server.post(PROXY + '/api/check-photo-leak', async (req, res) => {
 
       if (rows.length === 0) {
         console.log('✅ NODE: No match found in database - image is clean');
+        return res.json({
+          leakDetected: false,
+          extractedCode: extracted_code,
+          message: 'Code extracted but not found in database'
+        });
+      }
+
+      // Step 3: Leak detected! Return details
+      const leakData = rows[0];
+      console.log('🚨 NODE: LEAK DETECTED!');
+      console.log(`   User: ${leakData.username} (${leakData.user_id})`);
+      console.log(`   File: ${leakData.filename}`);
+
+      // Cleanup: delete uploaded file
+      try {
+        fs.unlinkSync(req.file.path);
+      } catch (cleanupErr) {
+        console.warn('⚠️  Could not delete uploaded file:', cleanupErr);
+      }
+
+      console.log('='.repeat(60) + '\\n');
+
+      return res.json({
+        leakDetected: true,
+        extractedCode: extracted_code,
+        leakData: {
+          id: leakData.id,
+          code: leakData.code,
+          user_id: leakData.user_id,
+          username: leakData.username,
+          email: leakData.email,
+          filename: leakData.filename,
+          media_type: leakData.media_type,
+          created_at: leakData.created_at,
+          purchase_id: leakData.purchase_id,
+          purchase_date: leakData.purchase_date,
+          device_fingerprint: leakData.device_fingerprint
+        },
+        message: 'Leak detected! Original owner identified.'
+      });
+
+    } catch (error) {
+      console.error('❌ NODE ERROR:', error);
+      console.log('='.repeat(60) + '\\n');
+
+      // Cleanup on error
+      if (req.file) {
+        try {
+          fs.unlinkSync(req.file.path);
+        } catch (cleanupErr) {
+          console.warn('⚠️  Could not delete uploaded file:', cleanupErr);
+        }
+      }
+
+      return res.status(500).json({
+        error: error.message,
+        details: error.response?.data
+      });
+    }
+  });
+});
+
+// Audio leak detection endpoint
+server.post(PROXY + '/api/check-audio-leak', async (req, res) => {
+  console.log('\\n' + '='.repeat(60));
+  console.log('🔍 NODE: Audio leak check request received');
+  console.log('='.repeat(60));
+
+  // Setup multer for this endpoint if not already configured
+  const upload = multer({
+    dest: 'uploads/',
+    limits: { fileSize: 50 * 1024 * 1024 }, // 50MB limit for audio files
+    fileFilter: (req, file, cb) => {
+      if (file.mimetype.startsWith('audio/')) {
+        cb(null, true);
+      } else {
+        cb(new Error('Only audio files are allowed'));
+      }
+    }
+  });
+
+  upload.single('file')(req, res, async (err) => {
+    if (err) {
+      console.error('❌ NODE ERROR: Multer error:', err);
+      return res.status(400).json({ error: err.message });
+    }
+
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: 'No file uploaded' });
+      }
+
+      const filename = req.file.filename;
+      console.log(`📤 NODE: File saved as: ${filename}`);
+
+      // Step 1: Send to Flask to extract steganographic code
+      console.log('📡 NODE: Sending to Flask for code extraction...');
+
+      const flaskResponse = await axios.post(
+        `${FLASKAPP_LINK}/extract-audio-code`,
+        {
+          input: filename
+        },
+        {
+          headers: { 'Content-Type': 'application/json' },
+          timeout: 60000 // 60 seconds for audio processing
+        }
+      );
+
+      const { extracted_code } = flaskResponse.data;
+
+      console.log(`🔑 NODE: Extracted code: ${extracted_code || 'None'}`);
+
+      if (!extracted_code) {
+        return res.json({
+          leakDetected: false,
+          extractedCode: null,
+          message: 'No steganographic code found in audio'
+        });
+      }
+
+      // Step 2: Search database for matching code
+      console.log('🔍 NODE: Searching database for matching code...');
+
+      const [rows] = await pool.query(
+        `SELECT 
+          wc.*,
+          ud.username,
+          ud.email,
+          p.id as purchase_id,
+          p.createdAt as purchase_date
+        FROM watermark_codes wc
+        LEFT JOIN userData ud ON wc.user_id = ud.id
+        LEFT JOIN purchases p ON wc.purchase_id = p.id
+        WHERE wc.code = ?`,
+        [extracted_code]
+      );
+
+      if (rows.length === 0) {
+        console.log('✅ NODE: No match found in database - audio is clean');
         return res.json({
           leakDetected: false,
           extractedCode: extracted_code,
