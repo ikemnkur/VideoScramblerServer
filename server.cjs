@@ -87,42 +87,42 @@ fs.writeFileSync(LOG_FILE, 'Server started at ' + new Date().toISOString() + '\n
  * Overrides standard console methods (log, warn, error) to capture output to a file.
  */
 function overrideConsole() {
-    const originalLog = console.log;
-    const originalWarn = console.warn;
-    const originalError = console.error;
+  const originalLog = console.log;
+  const originalWarn = console.warn;
+  const originalError = console.error;
 
-    // Helper function to format arguments and append to file
-    const appendToFile = (level, ...args) => {
-        // Use util.format to handle placeholders like %s, %d correctly
-        const message = util.format(...args);
-        const timestamp = new Date().toISOString();
-        const logEntry = `${timestamp} [${level.toUpperCase()}]: ${message}\n`;
-        
-        fs.appendFile(LOG_FILE, logEntry, (err) => {
-            if (err) {
-                // If file writing fails, use the original error console method
-                originalError('Failed to write to log file:', err);
-            }
-        });
-    };
+  // Helper function to format arguments and append to file
+  const appendToFile = (level, ...args) => {
+    // Use util.format to handle placeholders like %s, %d correctly
+    const message = util.format(...args);
+    const timestamp = new Date().toISOString();
+    const logEntry = `${timestamp} [${level.toUpperCase()}]: ${message}\n`;
 
-    // Monkey-patch console.log
-    console.log = function(...args) {
-        appendToFile('info', ...args);
-        originalLog.apply(console, args); // Also call the original console method to display in terminal
-    };
+    fs.appendFile(LOG_FILE, logEntry, (err) => {
+      if (err) {
+        // If file writing fails, use the original error console method
+        originalError('Failed to write to log file:', err);
+      }
+    });
+  };
 
-    // Monkey-patch console.warn
-    console.warn = function(...args) {
-        appendToFile('warn', ...args);
-        originalWarn.apply(console, args);
-    };
+  // Monkey-patch console.log
+  console.log = function (...args) {
+    appendToFile('info', ...args);
+    originalLog.apply(console, args); // Also call the original console method to display in terminal
+  };
 
-    // Monkey-patch console.error
-    console.error = function(...args) {
-        appendToFile('error', ...args);
-        originalError.apply(console, args);
-    };
+  // Monkey-patch console.warn
+  console.warn = function (...args) {
+    appendToFile('warn', ...args);
+    originalWarn.apply(console, args);
+  };
+
+  // Monkey-patch console.error
+  console.error = function (...args) {
+    appendToFile('error', ...args);
+    originalError.apply(console, args);
+  };
 }
 
 // Activate the console override immediately
@@ -140,12 +140,12 @@ console.error("This is a sample error message!");
 // Endpoint to fetch and display the raw logs
 server.get('/logs', (req, res) => {
   fs.readFile(LOG_FILE, 'utf8', (err, data) => {
-      if (err) {
-          console.error('Error reading log file for endpoint:', err);
-          return res.status(500).send('Error reading logs.');
-      }
-      res.setHeader('Content-Type', 'text/plain');
-      res.send(data);
+    if (err) {
+      console.error('Error reading log file for endpoint:', err);
+      return res.status(500).send('Error reading logs.');
+    }
+    res.setHeader('Content-Type', 'text/plain');
+    res.send(data);
   });
 });
 
@@ -622,7 +622,7 @@ server.post(PROXY + '/api/wallet/balance/:username', async (req, res) => {
   try {
     // const username = req.query.username || 'user_123'; // Default for demo
     const username = req.params.username;
-    const password = req.body.password;
+    // const password = req.body.password || '';
     const email = req.body.email;
 
     if (!username) {
@@ -635,8 +635,8 @@ server.post(PROXY + '/api/wallet/balance/:username', async (req, res) => {
     // );
 
     const [users] = await pool.execute(
-      'SELECT credits FROM userData WHERE username = ?',
-      [username]
+      'SELECT credits FROM userData WHERE username = ? and email = ?',
+      [username, email]
     );
 
 
@@ -657,39 +657,6 @@ server.post(PROXY + '/api/wallet/balance/:username', async (req, res) => {
   }
 });
 
-//  const response = await fetch(`${API_URL}/api/earnings/${username}?password=${localStorage.getItem("passwordtxt")}`);
-// server.get(PROXY+'/api/earnings/:username', async (req, res) => {
-//   try {
-//     const username = req.params.username;
-//     const password = req.query.password;
-
-//     if (!username) {
-//       return res.status(400).json({ error: 'Username is required' });
-//     }
-
-//     const [users] = await pool.execute(
-//       'SELECT * FROM userData WHERE username = ?',
-//       [username]
-//     );
-//     const user = users[0];
-
-//     if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
-//       return res.status(401).json({ error: 'Invalid username or password' });
-//     }
-
-//     const [earnings] = await pool.execute(
-//       'SELECT * FROM unlocks WHERE sellerUsername = ?',
-//       [username]
-//     );
-
-//     console.log(`Earnings retrieved for user: ${username}`, earnings);
-
-//     res.json({ earnings });
-//   } catch (error) {
-//     console.error('Earnings retrieval error:', error);
-//     res.status(500).json({ error: 'Database error - earnings retrieval failed' });
-//   }
-// });
 
 // Todo: Implement spend credits functionality, replace old and borrow function unlock with spend
 
@@ -697,11 +664,11 @@ server.post(PROXY + '/api/wallet/balance/:username', async (req, res) => {
 // spend credits route
 server.post(PROXY + '/api/spend-credits/:username', async (req, res) => {
   try {
-    
+
     const { action } = req.body;
     console.log("Spend credits action:", action);
     const username = req.params.username;
-    
+
     // Basic validation
     if (!username || !action || typeof action.cost === 'undefined') {
       return res.status(400).json({ success: false, message: 'username and action (with cost) are required' });
@@ -784,402 +751,6 @@ server.post(PROXY + '/api/spend-credits/:username', async (req, res) => {
   }
 });
 
-// Custom route for seller listings
-server.get(PROXY + '/api/seller/listings/:id', async (req, res) => {
-  try {
-    const id = req.params.id;
-
-    const [keys] = await pool.execute(
-      'SELECT * FROM createdKeys WHERE id = ?',
-      [parseInt(id)]
-    );
-
-    const key = keys[0];
-
-    if (key) {
-      res.json(key);
-    } else {
-      res.status(404).json({ error: 'Listing not found' });
-    }
-  } catch (error) {
-    console.error('Seller listing error:', error);
-    res.status(500).json({ error: 'Database error - seller listing retrieval failed' });
-  }
-});
-
-
-// Custom route for user-specific listings
-server.get(PROXY + '/api/listings/:username', async (req, res) => {
-  try {
-    const username = req.params.username;
-    const [listings] = await pool.execute(
-      'SELECT * FROM createdKeys WHERE username = ? ORDER BY creationDate DESC',
-      [username]
-    );
-    res.json(listings);
-  } catch (error) {
-    console.error('User listings error:', error);
-    res.status(500).json({ error: 'Database error - user listings retrieval failed' });
-  }
-});
-
-// Custom route for editing a key listing
-server.put(PROXY + '/api/listings/:id', async (req, res) => {
-  try {
-    const listingId = req.params.id;
-    const {
-      keyTitle,
-      description,
-      price,
-      tags,
-      expirationDate,
-      isActive
-    } = req.body;
-
-    // First, verify the listing exists and get current data
-    const [currentListing] = await pool.execute(
-      'SELECT * FROM createdKeys WHERE id = ?',
-      [listingId]
-    );
-
-    if (currentListing.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'Listing not found'
-      });
-    }
-
-    const listing = currentListing[0];
-
-    // Prepare update data (only update provided fields)
-    const updateData = {};
-    const updateFields = [];
-    const updateValues = [];
-
-    if (keyTitle !== undefined) {
-      updateData.keyTitle = keyTitle;
-      updateFields.push('keyTitle = ?');
-      updateValues.push(keyTitle);
-    }
-
-    if (description !== undefined) {
-      updateData.description = description;
-      updateFields.push('description = ?');
-      updateValues.push(description);
-    }
-
-    if (price !== undefined) {
-      updateData.price = parseInt(price);
-      updateFields.push('price = ?');
-      updateValues.push(parseInt(price));
-    }
-
-    if (tags !== undefined) {
-      const processedTags = Array.isArray(tags) ? tags :
-        (typeof tags === 'string' ? tags.split(',').map(tag => tag.trim()).filter(tag => tag) : []);
-      updateData.tags = JSON.stringify(processedTags);
-      updateFields.push('tags = ?');
-      updateValues.push(JSON.stringify(processedTags));
-    }
-
-    if (expirationDate !== undefined) {
-      updateData.expirationDate = expirationDate;
-      updateFields.push('expirationDate = ?');
-      updateValues.push(expirationDate);
-    }
-
-    if (isActive !== undefined) {
-      updateData.isActive = isActive;
-      updateFields.push('isActive = ?');
-      updateValues.push(isActive);
-    }
-
-    if (updateFields.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'No valid fields provided for update'
-      });
-    }
-
-    // Add updatedAt timestamp
-    updateFields.push('updatedAt = ?');
-    updateValues.push(Date.now());
-
-    // Build and execute update query
-    const updateQuery = `UPDATE createdKeys SET ${updateFields.join(', ')} WHERE id = ?`;
-    updateValues.push(listingId);
-
-    await pool.execute(updateQuery, updateValues);
-
-    // Get updated listing
-    const [updatedListing] = await pool.execute(
-      'SELECT * FROM createdKeys WHERE id = ?',
-      [listingId]
-    );
-
-    res.json({
-      success: true,
-      listing: updatedListing[0],
-      message: 'Listing updated successfully'
-    });
-
-  } catch (error) {
-    console.error('Update listing error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Database error occurred while updating listing'
-    });
-  }
-});
-
-// Custom route for deleting a key listing
-server.delete(PROXY + '/api/listings/:id', async (req, res) => {
-  try {
-    const listingId = req.params.id;
-    const { username } = req.body; // For security, verify ownership
-
-    // First, verify the listing exists and check ownership
-    const [listing] = await pool.execute(
-      'SELECT * FROM createdKeys WHERE id = ?',
-      [listingId]
-    );
-
-    if (listing.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'Listing not found'
-      });
-    }
-
-    // Verify ownership (optional security check)
-    if (username && listing[0].username !== username) {
-      return res.status(403).json({
-        success: false,
-        message: 'You can only delete your own listings'
-      });
-    }
-
-    // Check if any keys have been sold
-    if (listing[0].sold > 0) {
-      // If keys have been sold, just deactivate instead of deleting
-      await pool.execute(
-        'UPDATE createdKeys SET isActive = false WHERE id = ?',
-        [listingId]
-      );
-
-      res.json({
-        success: true,
-        message: 'Listing deactivated successfully (some keys were already sold)'
-      });
-    } else {
-      // If no keys sold, completely delete the listing
-      await pool.execute(
-        'DELETE FROM createdKeys WHERE id = ?',
-        [listingId]
-      );
-
-      res.json({
-        success: true,
-        message: 'Listing deleted successfully'
-      });
-    }
-
-  } catch (error) {
-    console.error('Delete listing error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Database error occurred while deleting key listing'
-    });
-  }
-});
-
-
-
-// const fd = new FormData();
-//     fd.append('title', title);
-//     fd.append('price_credits', price);
-//     fd.append('username', userData?.username || 'user_123');
-//     fd.append('email', userData?.email || '');
-//     fd.append('keys_available', keysAvailable);
-//     if (expirationDays) fd.append('expiration_days', expirationDays);
-//     if (description) fd.append('description', description);
-
-//     if (uploadMethod === 'text' && keyText.trim()) {
-//       const blob = new Blob([keyText], { type: 'text/plain' });
-//       const textFile = new File([blob], 'keys.txt', { type: 'text/plain' });
-//       fd.append('file', textFile);
-//     } else if (file) {
-//       fd.append('file', file);
-//     }
-// const { data } = await api.post(PROXY+'/api/create-key', fd);
-
-
-server.get(PROXY + '/api/createdKey/:id', async (req, res) => {
-  try {
-    const id = req.params.id;
-    const [keys] = await pool.execute(
-      'SELECT * FROM createdKeys WHERE id = ?',
-      [id]
-    );
-    // obscure the key value for security
-
-    // get profilepic of the seller from userData table
-    const [userData] = await pool.execute(
-      'SELECT profilePicture FROM userData WHERE username = ?',
-      [keys[0].username]
-    );
-
-    let key = keys[0];
-    // key.profilePic = userData.length > 0 ? userData[0].profilePicture : null;
-    key.profilePic = userData[0].profilePicture;
-    console.log("Seller profile pic:", key.profilePic);
-
-    key.keyValue = JSON.stringify(["****-****-****-****"]);
-
-    res.json({
-      success: true,
-      key
-    });
-  } catch (error) {
-    console.error('Error fetching key:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error fetching key'
-    });
-  }
-});
-
-// Custom route for create key
-server.post(PROXY + '/api/create-key', async (req, res) => {
-  try {
-    const {
-      title,
-      price_credits,
-      email,
-      username,
-      file,
-      description,
-      tags,
-      encryptionKey,
-      keys_available,
-      expiration_days
-    } = req.body;
-
-    console.log('Creating key with data:', {
-      title,
-      price_credits,
-      email,
-      username,
-      file,
-      description,
-      tags,
-      encryptionKey,
-      keys_available,
-      expiration_days
-    });
-
-    // Validate required fields
-    if (!title || !price_credits || !file) {
-      return res.status(400).json({
-        success: false,
-        message: 'Title, price, and keys are required'
-      });
-    }
-
-    // Process the keys from file content
-    const keysArray = file.split('\n')
-      .map(key => key.trim())
-      .filter(key => key.length > 0);
-
-    if (keysArray.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'No valid keys found in the provided content'
-      });
-    }
-
-    const quantity = keys_available || keysArray.length;
-
-    // Calculate expiration date if provided
-    let expirationDate = null;
-    if (expiration_days && expiration_days > 0) {
-      const expDate = new Date();
-      expDate.setDate(expDate.getDate() + Number(expiration_days));
-      expirationDate = expDate.toISOString().slice(0, 19).replace('T', ' ');
-    } else {
-      expirationDate = null;
-    }
-
-    // Simulate file processing with a short delay
-    // setTimeout(async () => {
-    try {
-      const keyId = `key_${Date.now()}`;
-      // Generate a unique id for the primary key (VARCHAR(10))
-      const id = Math.random().toString(36).substring(2, 12).toUpperCase();
-
-      // Process tags
-      let processedTags = [];
-      if (Array.isArray(tags)) {
-        processedTags = tags;
-      } else if (typeof tags === 'string') {
-        processedTags = tags.split(',').map(tag => tag.trim()).filter(tag => tag);
-      }
-      await pool.execute(
-        'INSERT INTO createdKeys (id, keyId, username, email, keyTitle, keyValue, description, price, quantity, sold, available, creationDate, expirationDate, isActive, isReported, reportCount, encryptionKey, tags) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        [
-          id,
-          keyId,
-          username || 'demo_seller',
-          email || 'seller@example.com',
-          title || 'New Key Listing',
-          JSON.stringify(keysArray), // Store all keys as JSON array
-          description || 'No description provided.',
-          parseInt(price_credits) || 100,
-          quantity,
-          0,
-          quantity,
-          Date.now(),
-          expirationDate === null ? Date.now() + (24 * 60 * 60 * 1000 * expiration_days) : expirationDate,
-          true,
-          false,
-          0,
-          encryptionKey || `enc_key_${Date.now()}`,
-          JSON.stringify(processedTags)
-
-        ]
-      );
-
-
-      await CreateNotification(
-        'info',
-        'New Key Listing Created',
-        `A new key listing titled "${title}" has been created.`,
-        'seller',
-        username || 'demo_seller'
-      );
-
-      res.json({
-        success: true,
-        uploadId: keyId,
-        keysProcessed: keysArray.length,
-        message: `Successfully uploaded ${keysArray.length} keys`
-      });
-    } catch (error) {
-      console.error('Create key database error:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Database error occurred while creating key listing'
-      });
-    }
-    // }, 1000);
-  } catch (error) {
-    console.error('Create key outer error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error occurred while processing request'
-    });
-  }
-});
 
 // Custom route for user notifications
 server.get(PROXY + '/api/notifications/:username', async (req, res) => {
@@ -1548,13 +1119,14 @@ server.post(PROXY + '/api/purchases/:username', async (req, res) => {
 
       if (result.success) {
         const [purchases] = await pool.execute(
-          'INSERT into buyCredits (username, id, name, email, walletAddress, transactionHash, blockExplorerLink, currency, amount, cryptoAmount, rate, date, time, session_id, orderLoggingEnabled, userAgent, ip, credits) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          'INSERT into buyCredits (username, id, name, email, walletAddress, transactionHash, transactionId, blockExplorerLink, currency, amount, cryptoAmount, rate, date, time, session_id, orderLoggingEnabled, userAgent, ip, credits) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
           [
             username,
             Math.random().toString(36).substring(2, 10),
             name,
             email,
             walletAddress,
+            transactionId,
             transactionId,
             blockExplorerLink,
             currency,
@@ -1573,8 +1145,8 @@ server.post(PROXY + '/api/purchases/:username', async (req, res) => {
 
         await CreateNotification(
           'credits_purchased',
-          'Credits Purchase Logged',
-          `A new purchase has been logged for user ${username}.`,
+          'Credits Purchased',
+          `You have purchased $${amount} credits for ${dollars}.`,
           'purchase',
           username || 'anonymous'
         );
@@ -2491,6 +2063,7 @@ const walletAddressMap = {
 // create cron job to fetch the most recent transactions for all wallet addresses every 15 minutes
 const cron = require('node-cron');
 const { time } = require('console');
+const { Server } = require('http');
 
 cron.schedule('*/30 * * * *', async () => {
 
@@ -3456,7 +3029,7 @@ server.post(PROXY + '/api/unscramble-photo', upload.single('file'), async (req, 
 });
 
 
-server.post(PROXY+ "/api/upload", async (req, res) => {
+server.post(PROXY + "/api/upload", async (req, res) => {
 
 });
 
@@ -4329,11 +3902,6 @@ server.get('/download/:filename', (req, res) => {
 // const FRONTEND_URL = 'http://localhost:5174';
 const FRONTEND_URL = process.env.FLASKAPP_LINK || 'http://localhost:5174';
 
-// Initialize Stripe
-// const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY || 'sk_test_your_key_here');
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
-
-
 server.post('/create-checkout-session', async (req, res) => {
   const amount = req.body.amount
   const priceId = req.body.priceId; // Replace with your actual Price ID
@@ -4802,6 +4370,273 @@ server.post(PROXY + '/api/subscription/webhook', express.raw({ type: 'applicatio
   res.json({ received: true });
 });
 
+
+
+// ----------------------------
+// HELPER FUNCTIONS
+// ----------------------------
+
+/**
+ * Retrieve the latest details of a PaymentIntent from Stripe
+ */
+async function getPaymentDetails(paymentIntentId) {
+  try {
+    const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+    return {
+      id: paymentIntent.id,
+      status: paymentIntent.status,
+      amount: paymentIntent.amount,
+      currency: paymentIntent.currency,
+      description: paymentIntent.description,
+    };
+  } catch (error) {
+    const errorMessage = error.message || String(error);
+    console.error('[ERROR] Stripe API error:', errorMessage);
+    return { error: errorMessage, status: 'api_error' };
+  }
+}
+
+/**
+ * Retrieve customer details from Stripe
+ */
+async function getCustomerDetails(customerId) {
+  if (!customerId) {
+    return null;
+  }
+
+  try {
+    const customer = await stripe.customers.retrieve(customerId);
+    return {
+      id: customer.id,
+      email: customer.email,
+      name: customer.name,
+      phone: customer.phone,
+      metadata: customer.metadata
+    };
+  } catch (error) {
+    console.warn(`[WARN] Could not fetch customer ${customerId}:`, error.message);
+    return null;
+  }
+}
+
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+
+/**
+ * Retrieve the most recent PaymentIntents from Stripe with optional customer details
+ */
+async function getRecentPayments(limit = 10, includeCustomerDetails = true) {
+  try {
+    const paymentIntents = await stripe.paymentIntents.list({ limit });
+    const results = [];
+
+    for (const pi of paymentIntents.data) {
+      const paymentData = {
+        id: pi.id,
+        status: pi.status,
+        amount: pi.amount,
+        currency: pi.currency,
+        description: pi.description,
+        created: pi.created,
+        customer_id: pi.customer,
+        metadata: pi.metadata  // Payment metadata (custom fields from checkout)
+      };
+
+      // Fetch customer details if requested and customer ID exists
+      if (includeCustomerDetails && pi.customer) {
+        const customerDetails = await getCustomerDetails(pi.customer);
+        if (customerDetails) {
+          paymentData.customer = customerDetails;
+        } else {
+          paymentData.customer = null;
+        }
+      }
+
+      results.push(paymentData);
+    }
+
+    console.log(`[DEBUG] Fetched ${results.length} payment intents`);
+    // console.log(results);
+    // console.log('='.repeat(60));
+    return { success: true, count: results.length, payments: results };
+  } catch (error) {
+    const errorMessage = error.message || String(error);
+    console.error('[ERROR] Stripe API error:', errorMessage);
+    return { error: errorMessage, status: 'api_error' };
+  }
+}
+
+// Sent from the client: timeRange, user, packageData from buy Credits page
+server.post(PROXY + '/api/verify-stripe-payment', async (req, res) => {
+
+  const { timeRange, user, packageData } = req.body;
+
+  const paymentData = {
+    timeRange,
+    package: packageData,
+    user
+  };
+
+  try {
+    // post to a local flask server for verification
+    // const flaskResponse = await axios.post('http://0.0.0.0:5005/verify-payment-data', paymentData, async (req, res) => {
+    //   return paymentData;
+    // }, {
+    //   headers: { 'Content-Type': 'application/json' },
+    //   timeout: 30000
+    // });
+
+    const { package: pkg, timeRange, user } = paymentData;
+
+    if (!pkg || !timeRange || !user) {
+      return res.status(400).json({
+        error: 'Missing required fields: package, timeRange, and user are required',
+        status: 'invalid_input'
+      });
+    }
+
+    console.log(`[INFO] Verifying payment data for package: ${JSON.stringify(pkg)}, timeRange: ${JSON.stringify(timeRange)}, user: ${JSON.stringify(user)}`);
+
+    const timeRangeStart = timeRange.start;
+    const timeRangeEnd = timeRange.end;
+
+
+
+    // Fetch recent payments to search through
+    const details = await getRecentPayments(20, true);
+
+    // console.log("Recent payments fetched:", details.payments);
+
+    if (details.error) {
+      console.error('[ERROR] Could not fetch recent payments:', details.error);
+      const statusCode = details.status === 'server_error' ? 500 : 404;
+      return res.status(statusCode).json(details);
+    }
+
+
+
+    let possiblePaymentFound = false;
+    const possibleMatchingPayments = [];
+
+    console.log(`[INFO] Searching through ${details.payments.length} recent payments for matches.`);
+
+    // Verify creation time and amount
+    for (const payment of details.payments || []) {
+      const created = payment.created * 1000; // convert to ms
+
+      console.log(`[DEBUG] Checking payment ${payment.id}: created=${created}, amount=${payment.amount}`);
+
+      // Check time range
+      if (timeRangeStart && created < timeRangeStart) {
+        continue;
+      }
+      if (timeRangeEnd && created > timeRangeEnd) {
+        continue;
+      }
+
+      // Check payment amount
+      if (payment.amount !== pkg.amount) {
+        continue;
+      }
+
+      console.log(`[DEBUG] Possible matching payment found: ${payment.id}`);
+
+      possiblePaymentFound = true;
+      possibleMatchingPayments.push(payment);
+    }
+
+
+    console.log(' Is there a possibleMatchingPayment?: ', possiblePaymentFound);
+    if (!possiblePaymentFound) {
+      console.log('[INFO] No possible matching payments found in the specified time range.');
+      return res.status(404).json({
+        error: 'No PaymentIntent found in the specified time range',
+        status: 'not_found'
+      });
+    }
+
+    let potentialVerifiedPayment = null;
+
+    // If multiple possible payments found, verify customer details
+    if (possibleMatchingPayments.length > 1) {
+      for (const payment of possibleMatchingPayments) {
+        const customerData = payment.customer || {};
+        const email = customerData.email || '';
+        const name = customerData.name || '';
+        const phone = customerData.phone || '';
+
+        if (email !== user.email) {
+          continue;
+        }
+        if (name !== user.name) {
+          continue;
+        }
+        if (phone !== user.phone) {
+          continue;
+        }
+
+        potentialVerifiedPayment = payment;
+        break;
+      }
+    } else {
+      potentialVerifiedPayment = possibleMatchingPayments[0];
+    }
+
+    if (!potentialVerifiedPayment) {
+      return res.status(404).json({
+        error: 'No matching PaymentIntent found after verification',
+        status: 'not_found'
+      });
+    }
+
+    console.log(`[INFO] Verified PaymentIntent: ${potentialVerifiedPayment.id}`);
+
+    // res.json({
+    //     success: true,
+    //     message: 'PaymentIntent verified successfully',
+    //     details: potentialVerifiedPayment
+    // });
+
+    // const verificationResult = flaskResponse.data;
+    // console.log('Payment verification result:', verificationResult.details);
+    // console.log('Payment verification message:', verificationResult.message);
+    // res.json(verificationResult);
+
+    if (potentialVerifiedPayment.status == 'succeeded') {
+      // Log the purchase in the database
+      const data = {
+        username: user.username,
+        userId: user.id,
+        name: user.name,
+        email: user.email,
+        walletAddress: "Stripe",
+        transactionId: potentialVerifiedPayment.id,
+        blockExplorerLink: 'Stripe Payment',
+        currency: 'USD',
+        amount: potentialVerifiedPayment.amount,
+        cryptoAmount: packageData.dollars,
+        rate: null,
+        session_id: user.id, // this is a useless metric here but i am keep it for reference and to maintain similar data structure
+        orderLoggingEnabled: false,
+        userAgent: user.userAgent,
+        ip: user.ip,
+        dollars: packageData.dollars,
+        credits: packageData.credits
+
+      }
+
+      await stripeBuycredits(data);
+    }
+
+    console.log('Payment verification completed successfully.');
+
+    return res.json(potentialVerifiedPayment);
+
+  } catch (error) {
+    console.error('Payment verification error:', error.message);
+    res.status(500).json({ error: 'Payment verification failed' });
+  }
+});
+
 // async function fetchEth({
 async function stripeBuycredits(data) {
 
@@ -4821,11 +4656,16 @@ async function stripeBuycredits(data) {
       session_id,
       orderLoggingEnabled,
       userAgent,
-      ip
+      ip,
+      dollars,
+      credits
     } = data;
-    // = req.body.data;  // <-- Changed from req.body to req.body.data
 
-    console.log('Logging purchase data:', req.body);
+    console.log('💰 Logging Stripe purchase for user:', username);
+
+
+    // console.log("data: ", data)
+
 
     // check for duplicate transactionId
     if (transactionId) {
@@ -4838,7 +4678,8 @@ async function stripeBuycredits(data) {
         [transactionId]
       );
       if (existing.length > 0) {
-        return res.status(400).json({ error: 'Duplicate transaction ID' });
+        console.log('⚠️  Duplicate transaction ID detected:', transactionId);
+        return ({ error: 'Duplicate transaction ID' });
       }
     }
 
@@ -4846,12 +4687,14 @@ async function stripeBuycredits(data) {
     // Basic validation
     try {
 
-      const crypto = currency
-      const txHash = transactionId;
-      const senderAddress = walletAddress;
 
+
+      // upload payment details to sql backend
 
       // if (result.success) {
+
+      console.log('✅ Logging purchase for user:', username);
+
       const [purchases] = await pool.execute(
         'INSERT into buyCredits (username, id, name, email, walletAddress, transactionHash, blockExplorerLink, currency, amount, cryptoAmount, rate, date, time, session_id, orderLoggingEnabled, userAgent, ip, credits) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         [
@@ -4878,20 +4721,319 @@ async function stripeBuycredits(data) {
 
       await CreateNotification(
         'credits_purchased',
-        'Credits Purchase Logged',
-        `A new purchase has been logged for user ${username}.`,
+        'Credits Purchased',
+        `You have purchased $${amount} credits for ${dollars}.`,
         'purchase',
         username || 'anonymous'
       );
 
-      res.json(purchases);
+      // Update user credits
+      if (amount !== undefined && amount !== null && amount > 0) {
+        await pool.execute(
+          'UPDATE userData SET credits = credits + ? WHERE username = ?',
+          [Math.floor(credits), username]
+        );
+      }
+
+      return ({ success: true, purchases });
       // } else {
       //   // invladid transaction
       //   return res.status(400).json({ error: 'Transaction verification failed: ' + result.error });
       // }
     } catch (error) {
       console.error('Transaction verification error:', error);
-      return res.status(400).json({ error: 'Transaction verification failed: ' + error.message });
+      return ({ error: 'Transaction verification failed: ' + error.message });
+    }
+
+    // Insert credits into USERDATA records
+
+
+
+
+
+
+  } catch (error) {
+    console.error('Purchases error:', error);
+    return ({ error: 'Database error - purchase logging failed' });
+  }
+
+}
+
+
+/////////////////////////////////////////////////////////
+//  Subscription Purchase Logging
+/////////////////////////////////////////////////////////
+
+
+
+// Sent from the client: timeRange, user, packageData from buy Credits page
+server.post(PROXY + '/api/verify-stripe-subscription', async (req, res) => {
+
+  const { timeRange, user, packageData } = req.body;
+
+  const paymentData = {
+    timeRange,
+    package: packageData,
+    user
+  };
+
+  try {
+    // post to a local flask server for verification
+    // const flaskResponse = await axios.post('http://0.0.0.0:5005/verify-payment-data', paymentData, async (req, res) => {
+    //   return paymentData;
+    // }, {
+    //   headers: { 'Content-Type': 'application/json' },
+    //   timeout: 30000
+    // });
+
+    const { package: pkg, timeRange, user } = paymentData;
+
+    if (!pkg || !timeRange || !user) {
+      return res.status(400).json({
+        error: 'Missing required fields: package, timeRange, and user are required',
+        status: 'invalid_input'
+      });
+    }
+
+    console.log(`[INFO] Verifying payment data for package: ${JSON.stringify(pkg)}, timeRange: ${JSON.stringify(timeRange)}, user: ${JSON.stringify(user)}`);
+
+    const timeRangeStart = timeRange.start;
+    const timeRangeEnd = timeRange.end;
+
+
+
+    // Fetch recent payments to search through
+    const details = await getRecentPayments(20, true);
+
+    // console.log("Recent payments fetched:", details.payments);
+
+    if (details.error) {
+      console.error('[ERROR] Could not fetch recent payments:', details.error);
+      const statusCode = details.status === 'server_error' ? 500 : 404;
+      return res.status(statusCode).json(details);
+    }
+
+
+
+    let possiblePaymentFound = false;
+    const possibleMatchingPayments = [];
+
+    console.log(`[INFO] Searching through ${details.payments.length} recent payments for matches.`);
+
+    // Verify creation time and amount
+    for (const payment of details.payments || []) {
+      const created = payment.created * 1000; // convert to ms
+
+      // console.log(`[DEBUG] Checking payment ${payment.id}: created=${created}, amount=${payment.amount}`);
+
+      // Check time range
+      if (timeRangeStart && created < timeRangeStart) {
+        continue;
+      }
+      if (timeRangeEnd && created > timeRangeEnd) {
+        continue;
+      }
+
+      // Check payment amount
+      if (payment.amount !== pkg.amount) {
+        continue;
+      }
+
+      console.log(`[DEBUG] Possible matching payment found: ${payment.id}`);
+
+      possiblePaymentFound = true;
+      possibleMatchingPayments.push(payment);
+    }
+
+
+    console.log(' Is there a possibleMatchingPayment?: ', possiblePaymentFound);
+    if (!possiblePaymentFound) {
+      console.log('[INFO] No possible matching payments found in the specified time range.');
+      return res.status(404).json({
+        error: 'No PaymentIntent found in the specified time range',
+        status: 'not_found'
+      });
+    }
+
+    let potentialVerifiedPayment = null;
+
+    // If multiple possible payments found, verify customer details
+    if (possibleMatchingPayments.length > 1) {
+      for (const payment of possibleMatchingPayments) {
+        const customerData = payment.customer || {};
+        const email = customerData.email || '';
+        const name = customerData.name || '';
+        const phone = customerData.phone || '';
+
+        if (email !== user.email) {
+          continue;
+        }
+        if (name !== user.name) {
+          continue;
+        }
+        if (phone !== user.phone) {
+          continue;
+        }
+
+        potentialVerifiedPayment = payment;
+        break;
+      }
+    } else {
+      potentialVerifiedPayment = possibleMatchingPayments[0];
+    }
+
+    if (!potentialVerifiedPayment) {
+      return res.status(404).json({
+        error: 'No matching PaymentIntent found after verification',
+        status: 'not_found'
+      });
+    }
+
+    console.log(`[INFO] Verified PaymentIntent: ${potentialVerifiedPayment.id}`);
+
+    // res.json({
+    //     success: true,
+    //     message: 'PaymentIntent verified successfully',
+    //     details: potentialVerifiedPayment
+    // });
+
+    // const verificationResult = flaskResponse.data;
+    // console.log('Payment verification result:', verificationResult.details);
+    // console.log('Payment verification message:', verificationResult.message);
+    // res.json(verificationResult);
+
+    if (potentialVerifiedPayment.status == 'succeeded') {
+      // Log the purchase in the database
+      const data = {
+        username: user.username,
+        userId: user.id,
+        name: user.name,
+        email: user.email,
+        walletAddress: "Stripe",
+        transactionId: potentialVerifiedPayment.id,
+        blockExplorerLink: 'Stripe Payment',
+        currency: 'USD',
+        amount: potentialVerifiedPayment.amount,
+        cryptoAmount: packageData.dollars,
+        rate: null,
+        session_id: user.id, // this is a useless metric here but i am keep it for reference and to maintain similar data structure
+        orderLoggingEnabled: false,
+        userAgent: user.userAgent,
+        ip: user.ip,
+        dollars: packageData.dollars
+
+      }
+
+      await stripeBuycredits(data);
+    }
+
+    console.log('Payment verification completed successfully.');
+
+    return res.json(potentialVerifiedPayment);
+
+  } catch (error) {
+    console.error('Payment verification error:', error.message);
+    res.status(500).json({ error: 'Payment verification failed' });
+  }
+});
+
+// async function fetchEth({
+async function stripeBuySubscription(data) {
+
+  try {
+    const {
+      username,
+      userId,
+      name,
+      email,
+      walletAddress,
+      transactionId,
+      blockExplorerLink,
+      currency,
+      amount,
+      cryptoAmount,
+      rate,
+      session_id,
+      orderLoggingEnabled,
+      userAgent,
+      ip,
+      dollars
+    } = data;
+
+    console.log('💰 Logging Stripe purchase for user:', username);
+
+
+    console.log("data: ", data)
+
+
+    // check for duplicate transactionId
+    if (transactionId) {
+      // const [existing] = await pool.execute(
+      //   'SELECT * FROM buyCredits WHERE transactionHash = ?',
+      //   [transactionId]
+      // );
+      const [existing] = await pool.execute(
+        'SELECT * FROM buyCredits WHERE transactionId = ?',
+        [transactionId]
+      );
+      if (existing.length > 0) {
+        console.log('⚠️  Duplicate transaction ID detected:', transactionId);
+        return ({ error: 'Duplicate transaction ID' });
+      }
+    }
+
+
+    // Basic validation
+    try {
+
+
+
+      // upload payment details to sql backend
+
+      // if (result.success) {
+
+      console.log('✅ Logging purchase for user:', username);
+
+      const [purchases] = await pool.execute(
+        'INSERT into buyCredits (username, id, name, email, walletAddress, transactionHash, blockExplorerLink, currency, amount, cryptoAmount, rate, date, time, session_id, orderLoggingEnabled, userAgent, ip, credits) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [
+          username,
+          Math.random().toString(36).substring(2, 10),
+          name,
+          email,
+          walletAddress,
+          transactionId,
+          "Stripe",
+          currency,
+          amount,
+          cryptoAmount,
+          rate,
+          Date.now(),
+          new Date().toISOString(),
+          session_id,
+          orderLoggingEnabled,
+          userAgent,
+          ip,
+          amount !== undefined && amount !== null ? Math.floor(amount) : 0
+        ]
+      );
+
+      await CreateNotification(
+        'credits_purchased',
+        'Credits Purchased',
+        `You have purchased $${amount} credits for ${dollars}.`,
+        'purchase',
+        username || 'anonymous'
+      );
+
+      return ({ success: true, purchases });
+      // } else {
+      //   // invladid transaction
+      //   return res.status(400).json({ error: 'Transaction verification failed: ' + result.error });
+      // }
+    } catch (error) {
+      console.error('Transaction verification error:', error);
+      return ({ error: 'Transaction verification failed: ' + error.message });
     }
 
     // Insert credits into USERDATA records
@@ -4909,11 +5051,10 @@ async function stripeBuycredits(data) {
 
   } catch (error) {
     console.error('Purchases error:', error);
-    res.status(500).json({ error: 'Database error - purchase logging failed' });
+    return ({ error: 'Database error - purchase logging failed' });
   }
 
 }
-
 
 
 // Global error handler
