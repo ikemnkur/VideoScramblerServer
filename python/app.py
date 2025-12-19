@@ -39,17 +39,122 @@ def index():
     <html>
     <head>
         <title>Media Upload/Download Server</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }
+            body {
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                min-height: 100vh;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                padding: 20px;
+            }
+            .container {
+                background: white;
+                border-radius: 20px;
+                box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+                max-width: 600px;
+                width: 100%;
+                padding: 40px;
+            }
+            h1 {
+                color: #667eea;
+                text-align: center;
+                margin-bottom: 10px;
+                font-size: 2em;
+            }
+            h2 {
+                color: #764ba2;
+                margin-top: 30px;
+                margin-bottom: 15px;
+                font-size: 1.3em;
+                border-bottom: 2px solid #667eea;
+                padding-bottom: 10px;
+            }
+            form {
+                margin: 20px 0;
+            }
+            input[type="file"] {
+                width: 100%;
+                padding: 15px;
+                border: 2px dashed #667eea;
+                border-radius: 10px;
+                margin-bottom: 15px;
+                cursor: pointer;
+                transition: all 0.3s ease;
+            }
+            input[type="file"]:hover {
+                background: #f0f0f0;
+                border-color: #764ba2;
+            }
+            input[type="submit"] {
+                width: 100%;
+                padding: 15px;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white;
+                border: none;
+                border-radius: 10px;
+                font-size: 1.1em;
+                font-weight: bold;
+                cursor: pointer;
+                transition: transform 0.2s ease;
+            }
+            input[type="submit"]:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+            }
+            .info-box {
+                background: #f8f9fa;
+                border-left: 4px solid #667eea;
+                padding: 15px;
+                margin: 15px 0;
+                border-radius: 5px;
+            }
+            code {
+                background: #e9ecef;
+                padding: 3px 8px;
+                border-radius: 4px;
+                font-family: 'Courier New', monospace;
+                color: #764ba2;
+            }
+            a {
+                color: #667eea;
+                text-decoration: none;
+                font-weight: 500;
+            }
+            a:hover {
+                text-decoration: underline;
+            }
+            .subtitle {
+                text-align: center;
+                color: #666;
+                margin-bottom: 30px;
+            }
+        </style>
     </head>
     <body>
-        <h1>Media Upload/Download Server</h1>
-        <h2>Upload File</h2>
-        <form method="POST" action="/upload" enctype="multipart/form-data">
-            <input type="file" name="file" accept=".png,.jpg,.jpeg,.gif,.bmp,.mp4,.avi,.mov,.mkv,.webm" required>
-            <input type="submit" value="Upload">
-        </form>
-        <h2>Download Files</h2>
-        <p>Access files via: <code>/download/&lt;filename&gt;</code></p>
-        <p>Example: <a href="/download/mine.png">/download/mine.png</a></p>
+        <div class="container">
+            <h1>🎬 Media Server</h1>
+            <p class="subtitle">Upload and Download Media Files</p>
+            
+            <h2>📤 Upload File</h2>
+            <form method="POST" action="/upload" enctype="multipart/form-data">
+                <input type="file" name="file" accept=".png,.jpg,.jpeg,.gif,.bmp,.mp4,.avi,.mov,.mkv,.webm" required>
+                <input type="submit" value="Upload File">
+            </form>
+            
+            <h2>📥 Download Files</h2>
+            <div class="info-box">
+                <p><strong>Access files via:</strong> <code>/download/&lt;filename&gt;</code></p>
+                <p style="margin-top: 10px;"><strong>Example:</strong> <a href="/download/mine.png">/download/mine.png</a></p>
+            </div>
+        </div>
     </body>
     </html>
     '''
