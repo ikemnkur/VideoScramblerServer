@@ -1,0 +1,45 @@
+name: Deploy VideoScramblerServer (Node + Python)
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+   
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+   
+    - name: Deploy to Digital Ocean
+      env:
+        SSH_PRIVATE_KEY: ${{ secrets.DO_SSH_KEY }}
+        HOST: ${{ secrets.DO_HOST }}
+        USER: ${{ secrets.DO_USER }}
+      run: |
+        echo "🔧 Setting up SSH connection..."
+        mkdir -p ~/.ssh
+        echo "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
+        chmod 600 ~/.ssh/deploy_key
+        ssh-keyscan -H $HOST >> ~/.ssh/known_hosts
+       
+        echo "🚀 Deploying to Digital Ocean ($HOST)..."
+        echo "=================================================="
+       
+        ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no $USER@$HOST \
+          'bash /root/VideoScramblerServer/deploy.sh'
+       
+    - name: Deployment Summary
+      run: |
+        echo "=================================================="
+        echo "✅ Deployment completed successfully!"
+        echo "=================================================="
+        echo ""
+        echo "🌐 Application URLs:"
+        echo "   Node.js: http://142.93.82.161"
+        echo "   Python:  http://142.93.82.161/api (or your route)"
+        echo ""
+        echo "📊 Check PM2 status: ssh root@142.93.82.161 'pm2 status'"
+        echo "📝 View logs: ssh root@142.93.82.161 'pm2 logs'"
