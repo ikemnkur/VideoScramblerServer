@@ -8,6 +8,7 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    environment: Staging
    
     steps:
     - name: Checkout code
@@ -16,13 +17,12 @@ jobs:
     - name: Deploy to Digital Ocean
       env:
         SSH_PRIVATE_KEY: ${{ secrets.DO_SSH_KEY }}
-        HOST: ${{ secrets.DO_HOST }}
-        USER: ${{ secrets.DO_USER }}
+        DO_HOST: ${{ secrets.DO_HOST }}
+        DO_USER: ${{ secrets.DO_USER }}
       run: |
         mkdir -p ~/.ssh
         echo "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
         chmod 600 ~/.ssh/deploy_key
-        ssh-keyscan -H $HOST >> ~/.ssh/known_hosts
-       
-        ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no $USER@$HOST \
+        ssh-keyscan -H $DO_HOST >> ~/.ssh/known_hosts
+        ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no $DO_USER@$DO_HOST \
           'bash /root/VideoScramblerServer/deploy.sh'
