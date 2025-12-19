@@ -731,7 +731,7 @@ server.post(PROXY + '/api/spend-credits/:username', async (req, res) => {
     await CreateNotification(
       'credits_spent',
       `Credits Spent: ${action.description || 'Purchase Successful'}`,
-      `User ${username} has spent ${cost} credits to: ${action.description || 'purchase'}.`,
+      `You have spent ${cost} credits for: ${action.description || 'purchase'}.`,
       action.type,
       username || 'anonymous'
     );
@@ -1146,7 +1146,7 @@ server.post(PROXY + '/api/purchases/:username', async (req, res) => {
         await CreateNotification(
           'credits_purchased',
           'Credits Purchased',
-          `You have purchased $${amount} credits for ${dollars}.`,
+          `You have purchased ${amount} credits for $${dollars}.`,
           'purchase',
           username || 'anonymous'
         );
@@ -3895,6 +3895,54 @@ server.get('/download/:filename', (req, res) => {
   });
 });
 
+// code from FRONTEND_URL
+
+//  if (!response.ok) {
+
+//         // TODO: Refund credits if applicable
+//         const response = await fetch(`${API_URL}/api/refund-credits`, {
+//           method: 'POST',
+//           // headers: {
+//           //   'Content-Type': 'application/json'
+//           // },
+
+//           body: {
+//             username: userData.username,
+//             email: userData.email,
+//             password: localStorage.getItem('passwordtxt'),
+//             cost: SCRAMBLE_COST,
+//             params: params,
+//           }
+          
+//         });
+//         throw new Error(data.error || data.message || 'Scrambling failed');
+//       }
+// Handle refunding credits
+server.post(PROXY + '/api/refund-credits', async (req, res) => {
+  const { userId, credits, username, params, password } = req.body;
+  
+  try {
+    if (!userId || !credits) {
+      return res.status(400).json({ success: false, message: 'Missing userId or credits' });
+    }
+
+    // Refund credits to user
+    const [result] = await pool.execute(
+      'UPDATE userData SET credits = credits + ? WHERE id = ?',
+      [credits, userId]
+    );
+
+    console.log(`✅ Refunded ${credits} credits to user ${username} (ID: ${userId})`);
+
+    res.json({ success: true, message: 'Credits refunded successfully' });
+  } catch (error) {
+    console.error('❌ Refund credits error:', error);
+    res.status(500).json({ success: false, message: 'Failed to refund credits' });
+  }
+});
+
+
+
 // ========================================
 // Stripe Subscription Endpoints
 // ========================================
@@ -4372,6 +4420,83 @@ server.post(PROXY + '/api/subscription/webhook', express.raw({ type: 'applicatio
 
 
 
+// GET /stripe/success?session_id=...
+server.get('/stripe/success', async (req, res) => {
+  const sessionId = req.query.session_id;
+
+  try {
+    const session = await stripe.checkout.sessions.retrieve(sessionId, {
+      expand: ['payment_intent', 'customer'],
+    });
+
+    if (session.payment_status !== 'paid') {
+      return res.status(400).json({ error: 'Payment not completed' });
+    }
+
+    // 1) Your own “who is this” identifier (if you used client_reference_id)
+    const myUserOrOrderId = session.client_reference_id;
+
+    // 2) “Username” custom field from the Payment Link
+    let username = null;
+    if (Array.isArray(session.custom_fields)) {
+      const usernameField = session.custom_fields.find(
+        f => f.key === 'username' // or whatever key Stripe uses
+      );
+      username = usernameField?.text?.value ?? null;
+    }
+
+    // 3) PaymentIntent details
+    const paymentIntent = session.payment_intent;
+    const paymentData = {
+      id: paymentIntent.id,
+      status: paymentIntent.status,
+      amount: paymentIntent.amount,
+      currency: paymentIntent.currency,
+      description: paymentIntent.description,
+      created: paymentIntent.created,
+      customer_id: paymentIntent.customer,
+    };
+
+    // TODO: update your DB: mark sale as paid for `myUserOrOrderId` or `username`
+    // e.g. await Orders.markPaid({ userId: myUserOrOrderId, stripePaymentIntentId: paymentIntent.id });
+
+    const data = {
+        username: user.username,
+        userId: user.id,
+        name: user.name,
+        email: user.email,
+        walletAddress: "Stripe",
+        transactionId: paymentIntent.id,
+        blockExplorerLink: 'Stripe Payment',
+        currency: 'USD',
+        amount: paymentIntent.amount,
+        cryptoAmount: packageData.dollars,
+        rate: null,
+        session_id: user.id, // this is a useless metric here but i am keep it for reference and to maintain similar data structure
+        orderLoggingEnabled: false,
+        userAgent: user.userAgent,
+        ip: user.ip,
+        dollars: packageData.dollars,
+        credits: packageData.credits
+
+      }
+
+    await stripeBuycredits(data);
+
+    // For now just show something
+    res.json({
+      success: true,
+      userOrOrderId: myUserOrOrderId,
+      username,
+      payment: paymentData,
+    });
+  } catch (err) {
+    console.error('Error retrieving session', err);
+    res.status(500).json({ error: 'Failed to validate payment' });
+  }
+});
+
+
 // ----------------------------
 // HELPER FUNCTIONS
 // ----------------------------
@@ -4722,7 +4847,7 @@ async function stripeBuycredits(data) {
       await CreateNotification(
         'credits_purchased',
         'Credits Purchased',
-        `You have purchased $${amount} credits for ${dollars}.`,
+        `You have purchased ${amount} credits for $${dollars}.`,
         'purchase',
         username || 'anonymous'
       );
@@ -4982,12 +5107,8 @@ async function stripeBuySubscription(data) {
       }
     }
 
-
     // Basic validation
     try {
-
-
-
       // upload payment details to sql backend
 
       // if (result.success) {
@@ -5021,10 +5142,20 @@ async function stripeBuySubscription(data) {
       await CreateNotification(
         'credits_purchased',
         'Credits Purchased',
-        `You have purchased $${amount} credits for ${dollars}.`,
+        `You have purchased ${amount} credits for $${dollars}.`,
         'purchase',
         username || 'anonymous'
       );
+
+      // Insert credits into USERDATA records
+
+      // Update user credits
+      if (amount !== undefined && amount !== null && amount > 0) {
+        await pool.execute(
+          'UPDATE userData SET credits = credits + ? WHERE username = ?',
+          [Math.floor(amount), username]
+        );
+      }
 
       return ({ success: true, purchases });
       // } else {
@@ -5036,15 +5167,7 @@ async function stripeBuySubscription(data) {
       return ({ error: 'Transaction verification failed: ' + error.message });
     }
 
-    // Insert credits into USERDATA records
-
-    // Update user credits
-    if (amount !== undefined && amount !== null && amount > 0) {
-      await pool.execute(
-        'UPDATE userData SET credits = credits + ? WHERE username = ?',
-        [Math.floor(amount), username]
-      );
-    }
+    
 
 
 
