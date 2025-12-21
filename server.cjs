@@ -2188,9 +2188,21 @@ server.post(PROXY + '/api/fingerprint/save', async (req, res) => {
       });
     }
 
-    // Call stored procedure to save or update fingerprint
-    const [result] = await pool.execute(
-      'CALL save_device_fingerprint(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    // Insert or update fingerprint using INSERT ... ON DUPLICATE KEY UPDATE
+    await pool.execute(
+      `INSERT INTO device_fingerprints 
+        (user_id, fingerprint_hash, short_hash, device_type, browser, os, 
+         screen_resolution, timezone, language, ip_address, full_fingerprint, 
+         compact_fingerprint, user_agent, first_seen, last_seen, login_count)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 1)
+       ON DUPLICATE KEY UPDATE
+         last_seen = CURRENT_TIMESTAMP,
+         login_count = login_count + 1,
+         ip_address = VALUES(ip_address),
+         full_fingerprint = VALUES(full_fingerprint),
+         compact_fingerprint = VALUES(compact_fingerprint),
+         user_agent = VALUES(user_agent),
+         updated_at = CURRENT_TIMESTAMP`,
       [
         userId,
         fingerprintHash,
@@ -2208,8 +2220,12 @@ server.post(PROXY + '/api/fingerprint/save', async (req, res) => {
       ]
     );
 
-    // The stored procedure returns the saved/updated record
-    const savedFingerprint = result[0][0];
+    // Fetch the saved/updated record
+    const [savedRows] = await pool.execute(
+      'SELECT * FROM device_fingerprints WHERE user_id = ? AND fingerprint_hash = ?',
+      [userId, fingerprintHash]
+    );
+    const savedFingerprint = savedRows[0];
 
     console.log(`✅ Fingerprint saved for user ${userId}: ${shortHash || fingerprintHash.substring(0, 16)}`);
 
@@ -2558,110 +2574,6 @@ server.get(PROXY + '/api/flask-python/download', (req, res) => {
       res.status(500).json({ error: 'Failed to upload file to Python service' });
     });
 });
-
-
-// @app.route('/download/<path:filename>')
-// def download_file(filename):
-//     # Construct the absolute path to the upload folder for security
-//     # send_from_directory ensures the requested filename is within this directory
-//     # protecting against directory traversal attacks.
-//     directory = os.path.join(current_app.root_path, app.config['UPLOAD_FOLDER'])
-//     return send_from_directory(
-//         directory, 
-//         filename, 
-//         as_attachment=True # Forces the browser to download the file
-//     )
-
-
-
-
-// @app.route('/files')
-// def list_files():
-//     """List all available files for download"""
-//     try:
-//         files = os.listdir(app.config['UPLOAD_FOLDER'])
-//         files = [f for f in files if os.path.isfile(os.path.join(app.config['UPLOAD_FOLDER'], f))]
-//         return jsonify({'files': files}), 200
-//     except Exception as e:
-//         return jsonify({'error': str(e)}), 500
-
-
-
-// server.post(PROXY+'/api/scramble-photo', (req, res) => {
-
-
-//   // Proxy the request to the Flask app
-//   const axios = require('axios');
-
-
-//   const FormData = require('form-data');
-//   const form = new FormData();
-
-//   // this may not work as req.files may be undefined
-//   // form.append('file', req.files.file.data, req.files.file.name);
-
-//   const parameters = req.body.params;
-//   console.log("Parameters received for scrambling:", parameters);
-
-//   const formData = req.body.formData;
-
-//   // There is a image file stored in this formData under 'file' key
-//   form.append('file', formData.file.data, formData.file.name);
-
-//   for (const [key, value] of Object.entries(formData)) {
-//     form.append(key, value);
-//   }
-
-//   // if the user has enough credits, proceed to upload
-//   if (userHasEnoughCredits(req.user, formData)) {
-//     // no nothing here for now
-//   }
-
-//   // Use multer to save image locally first
-//   const upload = multer({ dest: 'python/inputs' });
-
-
-//   // Store image in the 'python/inputs' folder
-//   let localFilePath = '';
-//   let localFileName = '';
-
-//   upload.single('file')(req, res, (err) => {
-//     if (err) {
-//       return res.status(500).json({ error: 'Failed to save file locally' });
-//     }
-
-//     console.log("File saved locally:", req.file);
-
-//     localFilePath = req.file.path;
-//     localFileName = req.file.filename;
-
-//     // form.append('file', fs.createReadStream(localFilePath), localFileName); 
-
-//   });
-
-
-//   // Proceed to scramble
-
-//   axios.post(`${FLASKAPP_LINK}/scramble-photo`, {
-//     localFileName: localFileName,
-//     localFilePath: localFilePath,
-//     params: parameters,
-//   })
-
-//   // it should return a successful response from Flask app with scrambled photos name and path'
-//     .then(response => {
-//       res.json(response.data);
-//       console.log("Scramble photo response:", response.data);
-//       // the scrambled image/photo link should be in response.data, it is publicly accessible so the front end can use it directly download the modified image
-//     })
-//     .catch(error => {
-//       console.error('Error scrambling photo in Flask app:', error);
-//       res.status(500).json({ error: 'Failed to scramble photo in Python service' });
-//     });
-
-
-// });
-
 
 // Flask/Python service URL
 
@@ -3193,19 +3105,18 @@ server.post(PROXY + '/api/unscramble-video', upload.single('file'), async (req, 
     console.log('🔄 Sending normalized payload to Flask:', flaskPayload);
     console.log('🔄 Sending to Flask service:', FLASKAPP_LINK + '/unscramble-video');
 
-    // Send request to Flask/Python service
+     // 4) Call Flask /unscramble-video as JSON
     const flaskResponse = await axios.post(
       `${FLASKAPP_LINK}/unscramble-video`,
       flaskPayload,
       {
-        timeout: 30000, // 30 second timeout
-        headers: {
-          'Content-Type': 'application/json'
-        }
+        timeout: 60000,
+        headers: { 'Content-Type': 'application/json' }
       }
     );
 
     console.log('✅ Flask response received:', flaskResponse.data);
+
 
     // Return Flask response to frontend
     res.json({
@@ -3219,15 +3130,15 @@ server.post(PROXY + '/api/unscramble-video', upload.single('file'), async (req, 
   } catch (error) {
     console.error('❌ Error in /api/unscramble-video endpoint:', error.message);
 
-    // Clean up uploaded file if processing failed
-    if (req.file && fs.existsSync(req.file.path)) {
-      try {
-        fs.unlinkSync(req.file.path);
-        console.log('🗑️  Cleaned up failed upload:', req.file.filename);
-      } catch (unlinkError) {
-        console.error('Failed to delete file:', unlinkError);
-      }
-    }
+    // // Clean up uploaded file if processing failed
+    // if (req.file && fs.existsSync(req.file.path)) {
+    //   try {
+    //     fs.unlinkSync(req.file.path);
+    //     console.log('🗑️  Cleaned up failed upload:', req.file.filename);
+    //   } catch (unlinkError) {
+    //     console.error('Failed to delete file:', unlinkError);
+    //   }
+    // }
 
     if (error.code === 'ECONNREFUSED') {
       return res.status(503).json({

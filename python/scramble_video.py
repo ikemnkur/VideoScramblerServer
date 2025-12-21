@@ -96,6 +96,26 @@ def auto_grid_for_aspect(w: int, h: int) -> GridDims:
     return GridDims(n=best_n, m=best_m)
 
 
+def get_fourcc_for_output(output_path: str):
+    """
+    Get appropriate fourcc codec based on output file extension.
+    Returns fourcc code and whether it's compatible.
+    """
+    ext = os.path.splitext(output_path)[1].lower()
+    
+    if ext == '.webm':
+        # WebM requires VP8 or VP9 codec
+        return cv2.VideoWriter_fourcc(*"VP80"), True
+    elif ext == '.mp4':
+        # MP4 works with mp4v, H264, or avc1
+        return cv2.VideoWriter_fourcc(*"mp4v"), True
+    elif ext == '.avi':
+        # AVI works with many codecs
+        return cv2.VideoWriter_fourcc(*"XVID"), True
+    else:
+        # Default fallback
+        return cv2.VideoWriter_fourcc(*"mp4v"), True
+
 def params_to_json(seed: int, n: int, m: int, perm_dest_to_src_0: List[int]) -> Dict[str, Any]:
     """
     Convert scramble parameters to JSON-like dict for export/saving.
@@ -314,8 +334,8 @@ def process_video(input_path: str,
     else:
         raise ValueError("algorithm must be 'spatial' or 'color'")
 
-    # Prepare writer
-    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    # Prepare writer with appropriate codec for output format
+    fourcc, _ = get_fourcc_for_output(output_path)
     out = cv2.VideoWriter(output_path, fourcc, float(fps), (width, height))
     if not out.isOpened():
         cap.release()
@@ -489,8 +509,8 @@ def process_video_by_percentage(input_path: str,
     src_rects = cell_rects(width, height, n, m)
     dest_rects = cell_rects(width, height, n, m)
 
-    # Prepare video writer
-    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    # Prepare video writer with appropriate codec for output format
+    fourcc, _ = get_fourcc_for_output(output_path)
     out = cv2.VideoWriter(output_path, fourcc, float(fps), (width, height))
     if not out.isOpened():
         cap.release()

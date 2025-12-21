@@ -6,7 +6,7 @@ from time import time
 from flask import Flask, send_from_directory, current_app, request, jsonify, redirect, url_for
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
-from config import UPLOAD_FOLDER
+from config import UPLOAD_FOLDER, OUTPUTS_FOLDER
 import secrets
 from dataclasses import dataclass
 from typing import List, Dict, Any, Tuple
@@ -20,6 +20,7 @@ CORS(app)  # Enable CORS for all routes
 
 # Configure the upload folder location
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+app.config['OUTPUTS_FOLDER'] = OUTPUTS_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
 
 # Allowed file extensions
@@ -161,22 +162,25 @@ def index():
 
 @app.route('/download/<path:filename>')
 def download_file(filename):
-    # Construct the absolute path to the upload folder for security
-    # send_from_directory ensures the requested filename is within this directory
-    # protecting against directory traversal attacks.
-    directory = os.path.join(current_app.root_path, app.config['UPLOAD_FOLDER'])
-    return send_from_directory(
-        directory, 
-        filename, 
-        as_attachment=True # Forces the browser to download the file
-    )
+    # Check outputs folder first (for processed files), then inputs folder
+    outputs_dir = os.path.join(current_app.root_path, app.config['OUTPUTS_FOLDER'])
+    inputs_dir = os.path.join(current_app.root_path, app.config['UPLOAD_FOLDER'])
+    
+    # Try outputs folder first
+    if os.path.exists(os.path.join(outputs_dir, filename)):
+        return send_from_directory(outputs_dir, filename, as_attachment=True)
+    # Fall back to inputs folder
+    elif os.path.exists(os.path.join(inputs_dir, filename)):
+        return send_from_directory(inputs_dir, filename, as_attachment=True)
+    else:
+        return jsonify({'error': f'File {filename} not found'}), 404
 
 @app.route('/files')
 def list_files():
     """List all available files for download"""
     try:
-        files = os.listdir(app.config['UPLOAD_FOLDER'])
-        files = [f for f in files if os.path.isfile(os.path.join(app.config['UPLOAD_FOLDER'], f))]
+        files = os.listdir(app.config['OUTPUTS_FOLDER'])
+        files = [f for f in files if os.path.isfile(os.path.join(app.config['OUTPUTS_FOLDER'], f))]
         return jsonify({'files': files}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -238,7 +242,7 @@ def scramble_photo_old():
 
         # Build file paths
         input_path = os.path.join(app.config['UPLOAD_FOLDER'], input_file)
-        output_path = os.path.join(app.config['UPLOAD_FOLDER'], output_file)
+        output_path = os.path.join(app.config['OUTPUTS_FOLDER'], output_file)
 
         if not os.path.exists(input_path):
             return jsonify({'error': f'Input file {input_file} not found'}), 404
@@ -391,12 +395,13 @@ def scramble_photo():
 
         # Build file paths
         input_path = os.path.join(app.config['UPLOAD_FOLDER'], input_file)
-        output_path = os.path.join(app.config['UPLOAD_FOLDER'], output_file)
+        output_path = os.path.join(app.config['OUTPUTS_FOLDER'], output_file)
 
         print(f"\n📁 FLASK: File paths:")
         print(f"  - Input path: {input_path}")
         print(f"  - Output path: {output_path}")
         print(f"  - Upload folder: {app.config['UPLOAD_FOLDER']}")
+        print(f"  - Outputs folder: {app.config['OUTPUTS_FOLDER']}")
 
         if not os.path.exists(input_path):
             print(f"❌ FLASK ERROR: Input file not found at: {input_path}")
@@ -576,7 +581,8 @@ def unscramble_photo():
         if 'localFileName' in data or 'localFilePath' in data:
             print("🔄 FLASK: Normalizing Node.js backend payload format")
             params = data.get('params', {}) or {}
-            input_name = params.get('input') or data.get('localFileName') or os.path.basename(data.get('localFilePath', ''))
+            # Use localFileName first (actual saved filename with timestamp), not params.input
+            input_name = data.get('localFileName') or os.path.basename(data.get('localFilePath', ''))
             output_name = params.get('output') or f"unscrambled_{input_name}"
             
             normalized = {
@@ -656,12 +662,13 @@ def scramble_video():
 
         # Build file paths
         input_path = os.path.join(app.config['UPLOAD_FOLDER'], input_file)
-        output_path = os.path.join(app.config['UPLOAD_FOLDER'], output_file)
+        output_path = os.path.join(app.config['OUTPUTS_FOLDER'], output_file)
 
         print(f"\n📁 FLASK: File paths:")
         print(f"  - Input path: {input_path}")
         print(f"  - Output path: {output_path}")
         print(f"  - Upload folder: {app.config['UPLOAD_FOLDER']}")
+        print(f"  - Outputs folder: {app.config['OUTPUTS_FOLDER']}")
 
         if not os.path.exists(input_path):
             print(f"❌ FLASK ERROR: Input file not found at: {input_path}")
@@ -861,7 +868,11 @@ def unscramble_video():
         if 'localFileName' in data or 'localFilePath' in data:
             print("🔄 FLASK: Normalizing Node.js backend payload format")
             params = data.get('params', {}) or {}
-            input_name = params.get('input') or data.get('localFileName') or os.path.basename(data.get('localFilePath', ''))
+            # Use localFileName first (actual saved filename with timestamp), not params.input
+            input_name = data.get('localFileName') or os.path.basename(data.get('localFilePath', ''))
+            print(f"🐛 DEBUG: input_name after extraction = {input_name}")
+            print(f"🐛 DEBUG: data.get('localFileName') = {data.get('localFileName')}")
+            print(f"🐛 DEBUG: params.get('input') = {params.get('input')}")
             output_name = params.get('output') or f"unscrambled_{input_name}"
             
             normalized = {
@@ -909,6 +920,11 @@ def cleanup_uploads():
         file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         if os.path.isfile(file_path) and os.path.getmtime(file_path) < cutoff:
             os.remove(file_path)
+    
+    for filename in os.listdir(app.config['OUTPUTS_FOLDER']):
+        file_path = os.path.join(app.config['OUTPUTS_FOLDER'], filename)
+        if os.path.isfile(file_path) and os.path.getmtime(file_path) < cutoff:
+            os.remove(file_path)    
     return jsonify({'message': 'Old uploaded files cleaned up'}), 200
 
 
