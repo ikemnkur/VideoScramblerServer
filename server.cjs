@@ -288,6 +288,8 @@ server.post(PROXY + '/api/auth/login', async (req, res) => {
   }
 });
 
+
+
 // Custom fetch account details route
 server.post(PROXY + '/api/user', async (req, res) => {
   console.log("Fetching user details...");
@@ -308,31 +310,13 @@ server.post(PROXY + '/api/user', async (req, res) => {
     );
 
     const user = users[0];
-    let earnings = [];
-    let unlocks = [];
-
-    // if (user.accountType == 'seller') {
-    //   const [earnings_db] = await pool.execute(
-    //     'SELECT * FROM earnings WHERE username = ?',
-    //     [username]
-    //   );
-    //   earnings = earnings_db;
-    // } else {
-    // const [unlocks_db] = await pool.execute(
-    //   'SELECT * FROM unlocks WHERE email = ?',
-    //   [email]
-    // );
-    // unlocks = unlocks_db;
 
     const [action_db] = await pool.execute(
       'SELECT * FROM actions WHERE email = ?',
       [email]
     );
+
     actions = action_db;
-    // }
-
-
-    // const unlock = unlocks[0];
 
     if (!user) {
       return res.status(401).json({
@@ -382,6 +366,9 @@ server.post(PROXY + '/api/user', async (req, res) => {
         success: true,
         user: userData,
         unlocks: actions,
+        dayPassExpiry: user.dayPassExpiry,
+        dayPassMode: user.dayPassMode,
+        planExpiry: user.planExpiry,
         // token: token,
         message: 'Login successful'
       });
@@ -401,6 +388,8 @@ server.post(PROXY + '/api/user', async (req, res) => {
     });
   }
 });
+
+
 
 // Custom registration route
 server.post(PROXY + '/api/auth/register', async (req, res) => {
@@ -658,6 +647,139 @@ server.post(PROXY + '/api/wallet/balance/:username', async (req, res) => {
 });
 
 
+
+const handlePurchasePass = async () => {
+  const cost = modeCredits[selectedMode];
+
+  if (balance < cost) {
+    error(`Insufficient credits. You need ${cost} credits but only have ${balance}.`);
+    setShowModeModal(false);
+    return;
+  }
+
+  try {
+    // Placeholder API call - will be connected to backend later
+    const response = await api.post('/api/purchase-mode-pass', {
+      username: userData.username,
+      mode: selectedMode,
+      cost: cost,
+      timestamp: new Date().toISOString()
+    });
+
+    if (response.data.success) {
+      setBalance(balance - cost);
+      setServiceMode(selectedMode);
+      setShowModeModal(false);
+      success(`🎉 ${selectedMode.charAt(0).toUpperCase() + selectedMode.slice(1)} pass activated! ${cost} credits deducted.`);
+    }
+  } catch (err) {
+    console.error('Mode pass purchase error:', err);
+    error('Failed to purchase mode pass. Please try again.');
+  }
+};
+
+
+// Custom route for purchasing mode pass 24 hours
+server.post(PROXY + '/api/purchase-mode-pass', async (req, res) => {
+
+  try {
+    const { username, mode, cost, timestamp } = req.body;
+    console.log("Purchase mode pass request:", req.body);
+
+
+    // Basic validation
+    if (!username) {
+      return res.status(400).json({ success: false, message: 'username and action (with cost) are required' });
+    }
+
+    // const cost = Number(cost);
+    if (Number.isNaN(cost) || cost <= 0) {
+      return res.status(400).json({ success: false, message: 'Invalid action cost' });
+    }
+
+    const [users] = await pool.execute(
+      'SELECT * FROM userData WHERE username = ?',
+      [username]
+    );
+
+    const user = users[0];
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    console.log(`User ${username} is attempting to spend ${cost} credits.`);
+
+    if (user.credits < cost) {
+      return res.status(400).json({ success: false, message: 'Insufficient credits' });
+    }
+
+    // Deduct buyer credits
+    await pool.execute(
+      'UPDATE userData SET credits = credits - ? WHERE email = ?',
+      [cost, user.email]
+    );
+
+    // set the value of the day pass expiry for the buyer to now + 24 hours
+    await pool.execute(
+      'UPDATE userData SET dayPassExpiry = DATE_ADD(NOW(), INTERVAL 1 DAY) WHERE email = ?',
+      [user.email]
+    );
+
+    // Get updated credits
+    const [updatedRows] = await pool.execute(
+      'SELECT credits FROM userData WHERE email = ?',
+      [user.email]
+    );
+
+    const updatedCredits = updatedRows[0] ? updatedRows[0].credits : (user.credits - cost);
+
+    // Create credit spend record
+    const transactionId = uuidv4();
+
+    await pool.execute(
+      'INSERT INTO actions (id, transactionId, username, email, date, time, credits, action_type, action_cost, action_description) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [
+        uuidv4(),
+        transactionId,
+        user.username, // Demo user
+        user.email,
+        Date.now(),
+        new Date().toLocaleTimeString(),
+        updatedCredits,
+        "purchase_mode_pass",
+        cost,
+        "Purchased " + mode + " mode pass"
+      ]
+    );
+
+    await CreateNotification(
+      'credits_spent',
+      `Credits Spent: Purchased ${mode} mode pass`,
+      `You have spent ${cost} credits to purchase a ${mode} mode pass (24 hours).`,
+      "purchase_mode_pass",
+      username || 'anonymous'
+    );
+
+    res.json({
+      success: true,
+      transactionId: transactionId,
+      credits: updatedCredits,
+      dayPassMode: mode,
+      dayPassExpiry: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      message: 'Credits spent successfully'
+    });
+
+    console.log(`User ${username} successfully spent ${cost} credits to purchase a ${mode} mode pass (24 hours).`);
+
+
+  } catch (error) {
+    console.error('Purchase mode pass error:', error);
+    res.status(500).json({ success: false, message: 'Database error - mode pass purchase failed' });
+  }
+});
+
+
 // Todo: Implement spend credits functionality, replace old and borrow function unlock with spend
 
 // Custom unlock key route
@@ -713,7 +835,7 @@ server.post(PROXY + '/api/spend-credits/:username', async (req, res) => {
     const transactionId = uuidv4();
 
     await pool.execute(
-      'INSERT INTO actions (id, transactionId, username, email, date, time, credits, action_type, action_cost, action_description) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO actions (id, transactionId, username, email, date, time, credits, action_type, action_cost, action_description, action_details) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [
         uuidv4(),
         transactionId,
@@ -724,7 +846,8 @@ server.post(PROXY + '/api/spend-credits/:username', async (req, res) => {
         updatedCredits,
         action.type || null,
         cost,
-        action.description || ''
+        action.description || '',
+        action.details || ''
       ]
     );
 
@@ -1063,6 +1186,70 @@ async function checkTransaction(crypto, txHash, walletAddress, amount) {
     return { success: false, error: error.message };
   }
 }
+
+// Get actions for a specific user
+server.get(PROXY + '/api/actions/:username', async (req, res) => {
+  try {
+    const { username } = req.params;
+
+    const [actions] = await pool.execute(
+      'SELECT * FROM actions WHERE username = ? ORDER BY date DESC',
+      [username]
+    );
+
+    res.json(actions);
+  } catch (error) {
+    console.error('Get actions error:', error);
+    res.status(500).json({ error: 'Database error - actions retrieval failed' });
+  }
+});
+
+// Get all actions (admin/debug use)
+server.get(PROXY + '/api/actions', async (req, res) => {
+  try {
+    const [actions] = await pool.execute(
+      'SELECT * FROM actions ORDER BY date DESC'
+    );
+
+    res.json(actions);
+  } catch (error) {
+    console.error('Get all actions error:', error);
+    res.status(500).json({ error: 'Database error - actions retrieval failed' });
+  }
+});
+
+// Get credit purchases for a specific user
+server.get(PROXY + '/api/buyCredits/:username', async (req, res) => {
+  try {
+    const { username } = req.params;
+
+    const [purchases] = await pool.execute(
+      'SELECT * FROM buyCredits WHERE username = ? ORDER BY date DESC',
+      [username]
+    );
+
+    res.json(purchases);
+  } catch (error) {
+    console.error('Get buyCredits error:', error);
+    res.status(500).json({ error: 'Database error - credit purchases retrieval failed' });
+  }
+});
+
+// Get all credit purchases (admin/debug use)
+server.get(PROXY + '/api/buyCredits', async (req, res) => {
+  try {
+    const [purchases] = await pool.execute(
+      'SELECT * FROM buyCredits ORDER BY date DESC'
+    );
+
+    res.json(purchases);
+  } catch (error) {
+    console.error('Get all buyCredits error:', error);
+    res.status(500).json({ error: 'Database error - credit purchases retrieval failed' });
+  }
+});
+
+
 
 server.post(PROXY + '/api/purchases/:username', async (req, res) => {
   try {
@@ -1905,76 +2092,6 @@ server.post(PROXY + '/api/profile-picture/:username', async (req, res) => {
   req.pipe(busboy);
 });
 
-// // Custom route for user redemptions
-// server.post(PROXY+'/api/redemptions/:username', async (req, res) => {
-//   try {
-//     const username = req.params.username;
-//     [walletAddress, currency, credits] = req.body;
-
-//     const [users] = await pool.execute(
-//       'SELECT * FROM userData WHERE username = ?',
-//       [username]
-//     );
-
-//     const user = users[0];
-
-//     // const [wallets] = await pool.execute(
-//     //   'SELECT * FROM wallet WHERE username = ?',
-//     //   [username]
-//     // );
-
-
-//     // const wallet = wallets[0];
-
-//     // Update availability
-//     await pool.execute(
-//       'UPDATE wallet SET available = available - ? WHERE username = ?',
-//       [credits, username]
-//     );
-
-//     const [usersCredits] = await pool.execute(
-//       'SELECT credits FROM userData WHERE username = ?',
-//       [username]
-//     );
-
-//     const userCredits = usersCredits[0];
-
-//     const [redemptions] = await pool.execute(
-//       'SELECT * FROM redeemCredits WHERE username = ? ORDER BY date DESC',
-//       [username]
-//     );
-
-//     const [redemption] = await pool.execute(
-//       'INSERT INTO redemption (transactionId, username, email, date, time, credits, currency, walletAddress, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-//       [
-//         transactionId,
-//         user.username, // Demo user
-//         user.email,
-//         Date.now(),
-//         new Date().toLocaleTimeString(),
-//         credits,
-//         currency,
-//         walletAddress,
-//         'Pending'
-//       ]
-//     );
-
-//     await CreateNotification(
-//       'redemption_status',
-//       'Credits Redemption Requested',
-//       `User ${username} has requested a redemption of ${credits} credits.`,
-//       'redemption',
-//       username || 'anonymous'
-//     );
-
-//     res.json(redemption);
-//   } catch (error) {
-//     console.error('Redemptions error:', error);
-//     res.status(500).json({ error: 'Database error' });
-//   }
-// });
-
-
 
 // Basic RESTful routes for all tables
 server.get(PROXY + '/api/:table', async (req, res) => {
@@ -2474,87 +2591,6 @@ server.get(PROXY + '/api/fingerprint/stats', async (req, res) => {
 const FLASKAPP_LINK = process.env.FLASKAPP_LINK || 'http://localhost:5000';
 
 
-// server.post(PROXY+'/api/flask-python/upload', (req, res) => {
-//   // Proxy the request to the Flask app
-//   const axios = require('axios');
-//   const FormData = require('form-data');
-//   const form = new FormData();
-
-//   form.append('file', req.files.file.data, req.files.file.name);
-
-
-
-//   // if the user has enough credits, proceed to upload
-//   // 
-//   // Use multer to save image locally first
-
-
-//   const upload = multer({ dest: 'python/inputs' });
-
-
-
-//   upload.single('file')(req, res, (err) => {
-//     if (err) {
-//       return res.status(500).json({ error: 'Failed to save file locally' });
-//     }
-
-//     // send the filename to the Flask app
-//     const localFilePath = req.file.path;
-//     const localFileName = req.file.filename;
-
-//     form.append('file', fs.createReadStream(localFilePath), localFileName);
-
-//     axios.post(`${FLASKAPP_LINK}/scramble-photo`, form, {
-//       headers: form.getHeaders()
-//     })
-//       .then(response => {
-//         res.json(response.data);
-//       })
-//       .catch(error => {
-//         console.error('Error uploading to Flask app:', error);
-//         res.status(500).json({ error: 'Failed to upload file to Python service' });
-//       });
-//   });
-
-//     .then(response => {
-//       res.json(response.data);
-//     })
-
-//     .catch(error => {
-//       console.error('Error uploading to Flask app:', error);
-//       res.status(500).json({ error: 'Failed to upload file to Python service' });
-//     });
-// });
-
-// Below is the Python Flask app code (for reference, not part of server.cjs)
-
-// from flask import Flask, request, send_from_directory, jsonify, current_app
-// from werkzeug.utils import secure_filename
-// import os
-// import subprocess
-
-// @app.route('/upload', methods=['POST'])
-// def upload_file():
-//     if 'file' not in request.files:
-//         return jsonify({'error': 'No file part'}), 400
-
-//     file = request.files['file']
-//     if file.filename == '':
-//         return jsonify({'error': 'No selected file'}), 400
-
-//     if file and allowed_file(file.filename):
-//         filename = secure_filename(file.filename)
-//         file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-//         file.save(file_path)
-//         return jsonify({
-//             'message': 'File uploaded successfully',
-//             'filename': filename,
-//             'download_url': f'/download/{filename}'
-//         }), 200
-//     else:
-//         return jsonify({'error': 'File type not allowed'}), 400
-
-
 server.get(PROXY + '/api/flask-python/download', (req, res) => {
   // Proxy the request to the Flask app
   const axios = require('axios');
@@ -2610,118 +2646,6 @@ const upload = multer({
   }
 });
 
-// =============================
-// SCRAMBLE PHOTO ENDPOINT
-// =============================
-// server.post(PROXY+'/api/scramble-photo', upload.single('file'), async (req, res) => {
-//   console.log('📸 Scramble photo request received');
-
-//   try {
-//     // Check if file was uploaded
-//     if (!req.file) {
-//       return res.status(400).json({ error: 'No image file provided' });
-//     }
-
-//     console.log('✅ File uploaded:', req.file.filename);
-//     console.log('📁 File path:', req.file.path);
-
-//     // Parse parameters from request body
-//     let params;
-//     try {
-//       params = typeof req.body.params === 'string' 
-//         ? JSON.parse(req.body.params) 
-//         : req.body.params;
-//     } catch (parseError) {
-//       console.error('❌ Failed to parse parameters:', parseError);
-//       return res.status(400).json({ error: 'Invalid parameters format' });
-//     }
-
-//     console.log('📋 Scrambling parameters:', params);
-
-//     // Optional: Check user credits (if authentication is implemented)
-//     // if (req.user) {
-//     //   const [users] = await pool.execute(
-//     //     'SELECT credits FROM userData WHERE id = ?',
-//     //     [req.user.id]
-//     //   );
-//     //   if (users[0] && users[0].credits < 1) {
-//     //     return res.status(403).json({ error: 'Insufficient credits' });
-//     //   }
-//     // }
-
-//     // Prepare data to send to Flask
-//     const flaskPayload = {
-//       localFileName: req.file.filename,
-//       localFilePath: req.file.path,
-//       params: params
-//     };
-
-//     console.log('🔄 Sending to Flask service:', FLASKAPP_LINK + '/scramble-photo');
-
-//     // Send request to Flask/Python service
-//     const flaskResponse = await axios.post(
-//       `${FLASKAPP_LINK}/scramble-photo`,
-//       flaskPayload,
-//       {
-//         timeout: 30000, // 30 second timeout
-//         headers: {
-//           'Content-Type': 'application/json'
-//         }
-//       }
-//     );
-
-//     console.log('✅ Flask response received:', flaskResponse.data);
-
-//     // Optional: Deduct credits after successful scrambling
-//     // if (req.user) {
-//     //   await pool.execute(
-//     //     'UPDATE userData SET credits = credits - 1 WHERE id = ?',
-//     //     [req.user.id]
-//     //   );
-//     // }
-
-//     // Return Flask response to frontend
-//     res.json({
-//       success: true,
-//       output_file: flaskResponse.data.output_file || flaskResponse.data.scrambledFileName,
-//       scrambledImageUrl: flaskResponse.data.scrambledImageUrl,
-//       message: 'Image scrambled successfully',
-//       ...flaskResponse.data
-//     });
-
-//   } catch (error) {
-//     console.error('❌ Error in scramble-photo endpoint:', error);
-
-//     // Clean up uploaded file if processing failed
-//     if (req.file && fs.existsSync(req.file.path)) {
-//       try {
-//         fs.unlinkSync(req.file.path);
-//         console.log('🗑️  Cleaned up failed upload:', req.file.filename);
-//       } catch (unlinkError) {
-//         console.error('Failed to delete file:', unlinkError);
-//       }
-//     }
-
-//     if (error.code === 'ECONNREFUSED') {
-//       return res.status(503).json({ 
-//         error: 'Python/Flask service is not running. Please start the Flask server on port 5000.' 
-//       });
-//     }
-
-//     if (error.response) {
-//       // Flask returned an error
-//       return res.status(error.response.status || 500).json({ 
-//         error: error.response.data?.error || 'Scrambling failed in Python service',
-//         details: error.response.data
-//       });
-//     }
-
-//     res.status(500).json({ 
-//       error: 'Failed to scramble photo',
-//       message: error.message 
-//     });
-//   }
-// });
 
 // =============================
 // SCRAMBLE PHOTO ENDPOINT
@@ -3105,7 +3029,7 @@ server.post(PROXY + '/api/unscramble-video', upload.single('file'), async (req, 
     console.log('🔄 Sending normalized payload to Flask:', flaskPayload);
     console.log('🔄 Sending to Flask service:', FLASKAPP_LINK + '/unscramble-video');
 
-     // 4) Call Flask /unscramble-video as JSON
+    // 4) Call Flask /unscramble-video as JSON
     const flaskResponse = await axios.post(
       `${FLASKAPP_LINK}/unscramble-video`,
       flaskPayload,
@@ -3824,26 +3748,50 @@ server.get('/download/:filename', (req, res) => {
 //             cost: SCRAMBLE_COST,
 //             params: params,
 //           }
-          
+
 //         });
 //         throw new Error(data.error || data.message || 'Scrambling failed');
 //       }
 // Handle refunding credits
 server.post(PROXY + '/api/refund-credits', async (req, res) => {
-  const { userId, credits, username, params, password } = req.body;
-  
+  const { userId, credits, username, email, currentCredits } = req.body;
+
   try {
     if (!userId || !credits) {
       return res.status(400).json({ success: false, message: 'Missing userId or credits' });
     }
 
     // Refund credits to user
-    const [result] = await pool.execute(
+    await pool.execute(
       'UPDATE userData SET credits = credits + ? WHERE id = ?',
       [credits, userId]
     );
 
     console.log(`✅ Refunded ${credits} credits to user ${username} (ID: ${userId})`);
+
+    await CreateNotification(
+      'credits_refunded',
+      'Credits Refunded',
+      `You have been refunded ${credits} credits.`,
+      'refund',
+      username || 'anonymous'
+    );
+
+    await pool.execute(
+      'INSERT INTO actions (id, transactionId, username, email, date, time, credits, action_type, action_cost, action_description) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [
+        uuidv4(),
+        uuidv4(),
+        username, // Demo user
+        email,
+        Date.now(),
+        new Date().toLocaleTimeString(),
+        currentCredits,
+        "refunded_credits",
+        credits,
+        "Credits refunded due to failed operation"
+      ]
+    );
 
     res.json({ success: true, message: 'Credits refunded successfully' });
   } catch (error) {
@@ -4214,120 +4162,120 @@ server.post(PROXY + '/api/subscription/cancel', async (req, res) => {
 
 
 
-// Webhook handler for asynchronous events.
-server.post("/webhook", async (req, res) => {
-  let data;
-  let eventType;
-  // Check if webhook signing is configured.
-  if (process.env.STRIPE_WEBHOOK_SECRET) {
-    // Retrieve the event by verifying the signature using the raw body and secret.
-    let event;
-    let signature = req.headers["stripe-signature"];
+// // Webhook handler for asynchronous events.
+// server.post("/webhook", async (req, res) => {
+//   let data;
+//   let eventType;
+//   // Check if webhook signing is configured.
+//   if (process.env.STRIPE_WEBHOOK_SECRET) {
+//     // Retrieve the event by verifying the signature using the raw body and secret.
+//     let event;
+//     let signature = req.headers["stripe-signature"];
 
-    try {
-      event = stripe.webhooks.constructEvent(
-        req.rawBody,
-        signature,
-        process.env.STRIPE_WEBHOOK_SECRET
-      );
-    } catch (err) {
-      console.log(`⚠️  Webhook signature verification failed.`);
-      return res.sendStatus(400);
-    }
-    // Extract the object from the event.
-    data = event.data;
-    eventType = event.type;
-  } else {
-    // Webhook signing is recommended, but if the secret is not configured in `config.js`,
-    // retrieve the event data directly from the request body.
-    data = req.body.data;
-    eventType = req.body.type;
-  }
+//     try {
+//       event = stripe.webhooks.constructEvent(
+//         req.rawBody,
+//         signature,
+//         process.env.STRIPE_WEBHOOK_SECRET
+//       );
+//     } catch (err) {
+//       console.log(`⚠️  Webhook signature verification failed.`);
+//       return res.sendStatus(400);
+//     }
+//     // Extract the object from the event.
+//     data = event.data;
+//     eventType = event.type;
+//   } else {
+//     // Webhook signing is recommended, but if the secret is not configured in `config.js`,
+//     // retrieve the event data directly from the request body.
+//     data = req.body.data;
+//     eventType = req.body.type;
+//   }
 
-  if (eventType === "checkout.session.completed") {
-    console.log(`🔔  Payment received!`);
-  }
+//   if (eventType === "checkout.session.completed") {
+//     console.log(`🔔  Payment received!`);
+//   }
 
-  res.sendStatus(200);
-});
+//   res.sendStatus(200);
+// });
 
-// Stripe webhook handler
-server.post(PROXY + '/api/subscription/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
-  const sig = req.headers['stripe-signature'];
-  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+// // Stripe webhook handler
+// server.post(PROXY + '/api/subscription/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+//   const sig = req.headers['stripe-signature'];
+//   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
-  let event;
+//   let event;
 
-  try {
-    event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
-  } catch (err) {
-    console.error('Webhook signature verification failed:', err.message);
-    return res.status(400).send(`Webhook Error: ${err.message}`);
-  }
+//   try {
+//     event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
+//   } catch (err) {
+//     console.error('Webhook signature verification failed:', err.message);
+//     return res.status(400).send(`Webhook Error: ${err.message}`);
+//   }
 
-  // Handle the event
-  switch (event.type) {
-    case 'customer.subscription.updated':
-      console.log('Subscription updated event received.');
-      const updatedSubscription = event.data.object;
-      await pool.execute(
-        `UPDATE subscriptions 
-         SET status = ?, current_period_start = ?, current_period_end = ? 
-         WHERE stripe_subscription_id = ?`,
-        [
-          updatedSubscription.status,
-          new Date(updatedSubscription.current_period_start * 1000),
-          new Date(updatedSubscription.current_period_end * 1000),
-          updatedSubscription.id
-        ]
-      );
-      console.log(`✅ Subscription updated: ${updatedSubscription.id}`);
-      break;
-    case 'customer.subscription.created':
-      console.log('Subscription created event received.');
-      const subscription = event.data.object;
-      await pool.execute(
-        `UPDATE subscriptions 
-         SET status = ?, current_period_start = ?, current_period_end = ? 
-         WHERE stripe_subscription_id = ?`,
-        [
-          subscription.status,
-          new Date(subscription.current_period_start * 1000),
-          new Date(subscription.current_period_end * 1000),
-          subscription.id
-        ]
-      );
+//   // Handle the event
+//   switch (event.type) {
+//     case 'customer.subscription.updated':
+//       console.log('Subscription updated event received.');
+//       const updatedSubscription = event.data.object;
+//       await pool.execute(
+//         `UPDATE subscriptions 
+//          SET status = ?, current_period_start = ?, current_period_end = ? 
+//          WHERE stripe_subscription_id = ?`,
+//         [
+//           updatedSubscription.status,
+//           new Date(updatedSubscription.current_period_start * 1000),
+//           new Date(updatedSubscription.current_period_end * 1000),
+//           updatedSubscription.id
+//         ]
+//       );
+//       console.log(`✅ Subscription updated: ${updatedSubscription.id}`);
+//       break;
+//     case 'customer.subscription.created':
+//       console.log('Subscription created event received.');
+//       const subscription = event.data.object;
+//       await pool.execute(
+//         `UPDATE subscriptions 
+//          SET status = ?, current_period_start = ?, current_period_end = ? 
+//          WHERE stripe_subscription_id = ?`,
+//         [
+//           subscription.status,
+//           new Date(subscription.current_period_start * 1000),
+//           new Date(subscription.current_period_end * 1000),
+//           subscription.id
+//         ]
+//       );
 
-      let data = {
-        "subscription_type": subtype,
-        "subscription_cost": subcost,
-        "username": username,
-        "userId": userId,
-        "name": name,
-        "email": email,
-        "transactionId": transactionId,
-      };
+//       let data = {
+//         "subscription_type": subtype,
+//         "subscription_cost": subcost,
+//         "username": username,
+//         "userId": userId,
+//         "name": name,
+//         "email": email,
+//         "transactionId": transactionId,
+//       };
 
-      stripeBuycredits(data);
-      console.log(`✅ Subscription created: ${subscription.id}`);
-      break;
+//       stripeBuycredits(data);
+//       console.log(`✅ Subscription created: ${subscription.id}`);
+//       break;
 
-    case 'customer.subscription.deleted':
-      console.log('Subscription deleted event received.');
-      const deletedSub = event.data.object;
-      await pool.execute(
-        'UPDATE subscriptions SET status = ? WHERE stripe_subscription_id = ?',
-        ['canceled', deletedSub.id]
-      );
-      console.log(`✅ Subscription cancelled: ${deletedSub.id}`);
-      break;
+//     case 'customer.subscription.deleted':
+//       console.log('Subscription deleted event received.');
+//       const deletedSub = event.data.object;
+//       await pool.execute(
+//         'UPDATE subscriptions SET status = ? WHERE stripe_subscription_id = ?',
+//         ['canceled', deletedSub.id]
+//       );
+//       console.log(`✅ Subscription cancelled: ${deletedSub.id}`);
+//       break;
 
-    default:
-      console.log(`Unhandled event type ${event.type}`);
-  }
+//     default:
+//       console.log(`Unhandled event type ${event.type}`);
+//   }
 
-  res.json({ received: true });
-});
+//   res.json({ received: true });
+// });
 
 
 
@@ -4368,29 +4316,38 @@ server.get('/stripe/success', async (req, res) => {
       customer_id: paymentIntent.customer,
     };
 
+    const PACKAGES = [
+      { credits: 2500, dollars: 2.5, label: "$2.50", color: '#4caf50', priceId: 'price_1SR9nNEViYxfJNd2pijdhiBM' },
+      { credits: 5250, dollars: 5, label: "$5.00", color: '#2196f3', priceId: 'price_1SR9lZEViYxfJNd20x2uwukQ' },
+      { credits: 11200, dollars: 10, label: "$10.00", color: '#9c27b0', popular: true, priceId: 'price_1SR9kzEViYxfJNd27aLA7kFW' },
+      { credits: 26000, dollars: 20, label: "$20.00", color: '#f57c00', priceId: 'price_1SR9mrEViYxfJNd2dD5NHFoL' },
+    ];
+
+    const packageData = PACKAGES.find(pkg => pkg.dollars === potentialVerifiedPayment.amount / 100);
+
     // TODO: update your DB: mark sale as paid for `myUserOrOrderId` or `username`
     // e.g. await Orders.markPaid({ userId: myUserOrOrderId, stripePaymentIntentId: paymentIntent.id });
 
     const data = {
-        username: user.username,
-        userId: user.id,
-        name: user.name,
-        email: user.email,
-        walletAddress: "Stripe",
-        transactionId: paymentIntent.id,
-        blockExplorerLink: 'Stripe Payment',
-        currency: 'USD',
-        amount: paymentIntent.amount,
-        cryptoAmount: packageData.dollars,
-        rate: null,
-        session_id: user.id, // this is a useless metric here but i am keep it for reference and to maintain similar data structure
-        orderLoggingEnabled: false,
-        userAgent: user.userAgent,
-        ip: user.ip,
-        dollars: packageData.dollars,
-        credits: packageData.credits
+      username: user.username,
+      userId: user.id,
+      name: user.name,
+      email: user.email,
+      walletAddress: "Stripe",
+      transactionId: paymentIntent.id,
+      blockExplorerLink: 'Stripe Payment',
+      currency: 'USD',
+      amount: paymentIntent.amount,
+      cryptoAmount: packageData.dollars,
+      rate: null,
+      session_id: user.id, // this is a useless metric here but i am keep it for reference and to maintain similar data structure
+      orderLoggingEnabled: false,
+      userAgent: user.userAgent,
+      ip: user.ip,
+      dollars: packageData.dollars,
+      credits: packageData.credits
 
-      }
+    }
 
     await stripeBuycredits(data);
 
@@ -4626,16 +4583,15 @@ server.post(PROXY + '/api/verify-stripe-payment', async (req, res) => {
 
     console.log(`[INFO] Verified PaymentIntent: ${potentialVerifiedPayment.id}`);
 
-    // res.json({
-    //     success: true,
-    //     message: 'PaymentIntent verified successfully',
-    //     details: potentialVerifiedPayment
-    // });
+    const PACKAGES = [
+      { credits: 2500, dollars: 2.5, label: "$2.50", color: '#4caf50', priceId: 'price_1SR9nNEViYxfJNd2pijdhiBM' },
+      { credits: 5250, dollars: 5, label: "$5.00", color: '#2196f3', priceId: 'price_1SR9lZEViYxfJNd20x2uwukQ' },
+      { credits: 11200, dollars: 10, label: "$10.00", color: '#9c27b0', popular: true, priceId: 'price_1SR9kzEViYxfJNd27aLA7kFW' },
+      { credits: 26000, dollars: 20, label: "$20.00", color: '#f57c00', priceId: 'price_1SR9mrEViYxfJNd2dD5NHFoL' },
+    ];
 
-    // const verificationResult = flaskResponse.data;
-    // console.log('Payment verification result:', verificationResult.details);
-    // console.log('Payment verification message:', verificationResult.message);
-    // res.json(verificationResult);
+    const packageData = PACKAGES.find(pkg => pkg.dollars === potentialVerifiedPayment.amount / 100);
+
 
     if (potentialVerifiedPayment.status == 'succeeded') {
       // Log the purchase in the database
@@ -4705,10 +4661,6 @@ async function stripeBuycredits(data) {
 
     // check for duplicate transactionId
     if (transactionId) {
-      // const [existing] = await pool.execute(
-      //   'SELECT * FROM buyCredits WHERE transactionHash = ?',
-      //   [transactionId]
-      // );
       const [existing] = await pool.execute(
         'SELECT * FROM buyCredits WHERE transactionId = ?',
         [transactionId]
@@ -4723,16 +4675,19 @@ async function stripeBuycredits(data) {
     // Basic validation
     try {
 
-
-
-      // upload payment details to sql backend
-
-      // if (result.success) {
-
       console.log('✅ Logging purchase for user:', username);
 
+      const PACKAGES = [
+        { credits: 2500, dollars: 2.5, label: "$2.50 Package", color: '#4caf50', priceId: 'price_1SR9nNEViYxfJNd2pijdhiBM' },
+        { credits: 5250, dollars: 5, label: "$5.00 Package", color: '#2196f3', priceId: 'price_1SR9lZEViYxfJNd20x2uwukQ' },
+        { credits: 11200, dollars: 10, label: "$10.00 Package", color: '#9c27b0', popular: true, priceId: 'price_1SR9kzEViYxfJNd27aLA7kFW' },
+        { credits: 26000, dollars: 20, label: "$20.00 Package", color: '#f57c00', priceId: 'price_1SR9mrEViYxfJNd2dD5NHFoL' },
+      ];
+
+      const packageData = PACKAGES.find(pkg => pkg.dollars === amount / 100);
+
       const [purchases] = await pool.execute(
-        'INSERT into buyCredits (username, id, name, email, walletAddress, transactionHash, blockExplorerLink, currency, amount, cryptoAmount, rate, date, time, session_id, orderLoggingEnabled, userAgent, ip, credits) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'INSERT into buyCredits (username, id, name, email, walletAddress, transactionHash, blockExplorerLink, currency, amount, cryptoAmount, package, rate, date, time, session_id, orderLoggingEnabled, userAgent, ip, credits, paymentMethod) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         [
           username,
           Math.random().toString(36).substring(2, 10),
@@ -4740,10 +4695,11 @@ async function stripeBuycredits(data) {
           email,
           walletAddress,
           transactionId,
-          "Stripe",
+          "www.stripe.com",
           currency,
           amount,
           cryptoAmount,
+          packageData.label,
           rate,
           Date.now(),
           new Date().toISOString(),
@@ -4751,7 +4707,8 @@ async function stripeBuycredits(data) {
           orderLoggingEnabled,
           userAgent,
           ip,
-          amount !== undefined && amount !== null ? Math.floor(amount) : 0
+          packageData.credits,
+          'stripe'
         ]
       );
 
@@ -4782,11 +4739,6 @@ async function stripeBuycredits(data) {
     }
 
     // Insert credits into USERDATA records
-
-
-
-
-
 
   } catch (error) {
     console.error('Purchases error:', error);
@@ -4927,16 +4879,14 @@ server.post(PROXY + '/api/verify-stripe-subscription', async (req, res) => {
 
     console.log(`[INFO] Verified PaymentIntent: ${potentialVerifiedPayment.id}`);
 
-    // res.json({
-    //     success: true,
-    //     message: 'PaymentIntent verified successfully',
-    //     details: potentialVerifiedPayment
-    // });
+    const PACKAGES = [
+      { credits: 2500, dollars: 2.5, label: "$2.50", color: '#4caf50', priceId: 'price_1SR9nNEViYxfJNd2pijdhiBM' },
+      { credits: 5250, dollars: 5, label: "$5.00", color: '#2196f3', priceId: 'price_1SR9lZEViYxfJNd20x2uwukQ' },
+      { credits: 11200, dollars: 10, label: "$10.00", color: '#9c27b0', popular: true, priceId: 'price_1SR9kzEViYxfJNd27aLA7kFW' },
+      { credits: 26000, dollars: 20, label: "$20.00", color: '#f57c00', priceId: 'price_1SR9mrEViYxfJNd2dD5NHFoL' },
+    ];
 
-    // const verificationResult = flaskResponse.data;
-    // console.log('Payment verification result:', verificationResult.details);
-    // console.log('Payment verification message:', verificationResult.message);
-    // res.json(verificationResult);
+    const packageData = PACKAGES.find(pkg => pkg.dollars === potentialVerifiedPayment.amount / 100);
 
     if (potentialVerifiedPayment.status == 'succeeded') {
       // Log the purchase in the database
@@ -4956,7 +4906,8 @@ server.post(PROXY + '/api/verify-stripe-subscription', async (req, res) => {
         orderLoggingEnabled: false,
         userAgent: user.userAgent,
         ip: user.ip,
-        dollars: packageData.dollars
+        dollars: packageData.dollars,
+        credits: packageData.credits
 
       }
 
@@ -5069,19 +5020,11 @@ async function stripeBuySubscription(data) {
       }
 
       return ({ success: true, purchases });
-      // } else {
-      //   // invladid transaction
-      //   return res.status(400).json({ error: 'Transaction verification failed: ' + result.error });
-      // }
+
     } catch (error) {
       console.error('Transaction verification error:', error);
       return ({ error: 'Transaction verification failed: ' + error.message });
     }
-
-    
-
-
-
 
   } catch (error) {
     console.error('Purchases error:', error);
