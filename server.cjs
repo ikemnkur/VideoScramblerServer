@@ -158,11 +158,11 @@ server.get('/generate-activity', (req, res) => {
 
 // ###########################################################
 
-server.use(express.json({ limit: '10mb' }));
-server.use(express.urlencoded({ extended: true, limit: '10mb' }));
+server.use(express.json({ limit: '250mb' }));
+server.use(express.urlencoded({ extended: true, limit: '250mb' }));
 
 // Admin Dashboard Page
-// // Data storage for admin page
+
 // let pageVisits = [];
 // let recentRequests = [];
 // const startTime = Date.now();
@@ -726,11 +726,19 @@ server.post(PROXY + '/api/purchase-mode-pass', async (req, res) => {
       [user.email]
     );
 
+    // set the value of the day pass expiry for the buyer to now + 24 hours
+    await pool.execute(
+      'UPDATE userData SET dayPassMode = ? WHERE email = ?',
+      [mode, user.email]
+    );
+
     // Get updated credits
     const [updatedRows] = await pool.execute(
       'SELECT credits FROM userData WHERE email = ?',
       [user.email]
     );
+
+
 
     const updatedCredits = updatedRows[0] ? updatedRows[0].credits : (user.credits - cost);
 
@@ -892,6 +900,24 @@ server.get(PROXY + '/api/notifications/:username', async (req, res) => {
   }
 
 });
+
+// Custom route for deleting user notifications
+server.delete(PROXY + '/api/notifications/delete/:id', async (req, res) => {
+  try {
+    const notificationId = req.params.id;
+
+    await pool.execute(
+      'DELETE FROM notifications WHERE id = ?',
+      [notificationId]
+    );
+
+    res.json({ success: true, message: 'Notification deleted successfully' });
+  } catch (error) {
+    console.error('Delete notification error:', error);
+    res.status(500).json({ error: 'Database error - notification deletion failed' });
+  }
+});
+
 
 // CREATE TABLE
 //   `notifications` (
@@ -2636,7 +2662,7 @@ const py_storage = multer.diskStorage({
 const upload = multer({
   storage: py_storage,
   dest: 'python/inputs',
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
+  limits: { fileSize: 250 * 1024 * 1024 }, // 10MB limit
   fileFilter: function (req, file, cb) {
     // Accept images and videos only
     if (!file.mimetype.startsWith('image/') && !file.mimetype.startsWith('video/')) {
@@ -3054,15 +3080,7 @@ server.post(PROXY + '/api/unscramble-video', upload.single('file'), async (req, 
   } catch (error) {
     console.error('❌ Error in /api/unscramble-video endpoint:', error.message);
 
-    // // Clean up uploaded file if processing failed
-    // if (req.file && fs.existsSync(req.file.path)) {
-    //   try {
-    //     fs.unlinkSync(req.file.path);
-    //     console.log('🗑️  Cleaned up failed upload:', req.file.filename);
-    //   } catch (unlinkError) {
-    //     console.error('Failed to delete file:', unlinkError);
-    //   }
-    // }
+
 
     if (error.code === 'ECONNREFUSED') {
       return res.status(503).json({

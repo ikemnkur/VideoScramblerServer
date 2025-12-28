@@ -1,6 +1,7 @@
 import json
 import math
 import os
+import shutil
 import subprocess
 from time import time
 from flask import Flask, send_from_directory, current_app, request, jsonify, redirect, url_for
@@ -14,14 +15,22 @@ from flask import g
 from PIL import Image
 import numpy as np
 import hashlib
+import threading
+import atexit
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
 
+# Track last request time for auto-cleanup
+last_request_time = time()
+cleanup_lock = threading.Lock()
+cleanup_thread = None
+cleanup_running = False
+
 # Configure the upload folder location
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['OUTPUTS_FOLDER'] = OUTPUTS_FOLDER
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
+app.config['MAX_CONTENT_LENGTH'] = 250 * 1024 * 1024  # 250MB max file size
 
 # Allowed file extensions
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'bmp', 'mp4', 'avi', 'mov', 'mkv', 'webm'}
@@ -32,6 +41,86 @@ def allowed_file(filename):
 
 # Ensure the upload folder exists
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+os.makedirs(app.config['OUTPUTS_FOLDER'], exist_ok=True)
+
+# Auto-cleanup function
+def cleanup_old_files(cutoff_minutes=10):
+    """Clean up files older than cutoff_minutes"""
+    try:
+        cutoff_time = time() - (cutoff_minutes * 60)
+        deleted_count = 0
+        
+        # Clean inputs folder
+        if os.path.exists(app.config['UPLOAD_FOLDER']):
+            for filename in os.listdir(app.config['UPLOAD_FOLDER']):
+                file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                if os.path.isfile(file_path) and os.path.getmtime(file_path) < cutoff_time:
+                    os.remove(file_path)
+                    deleted_count += 1
+                    print(f"🗑️  Auto-cleanup: Deleted {filename} from inputs")
+        
+        # Clean outputs folder
+        if os.path.exists(app.config['OUTPUTS_FOLDER']):
+            for filename in os.listdir(app.config['OUTPUTS_FOLDER']):
+                file_path = os.path.join(app.config['OUTPUTS_FOLDER'], filename)
+                if os.path.isfile(file_path) and os.path.getmtime(file_path) < cutoff_time:
+                    os.remove(file_path)
+                    deleted_count += 1
+                    print(f"🗑️  Auto-cleanup: Deleted {filename} from outputs")
+        
+        if deleted_count > 0:
+            print(f"✅ Auto-cleanup completed: {deleted_count} files deleted")
+    except Exception as e:
+        print(f"❌ Auto-cleanup error: {e}")
+
+def auto_cleanup_worker():
+    """Background worker that cleans up files after 10 minutes of inactivity"""
+    global cleanup_running
+    INACTIVITY_THRESHOLD = 10 * 60  # 10 minutes in seconds
+    CHECK_INTERVAL = 60  # Check every 60 seconds
+    
+    print("🔄 Auto-cleanup worker started")
+    
+    while cleanup_running:
+        try:
+            import time as time_module
+            time_module.sleep(CHECK_INTERVAL)
+            
+            with cleanup_lock:
+                time_since_last_request = time() - last_request_time
+                
+                # If it's been more than 10 minutes since last request, run cleanup
+                if time_since_last_request >= INACTIVITY_THRESHOLD:
+                    print(f"⏰ {int(time_since_last_request/60)} minutes of inactivity, running cleanup...")
+                    cleanup_old_files(cutoff_minutes=10)
+        except Exception as e:
+            print(f"❌ Auto-cleanup worker error: {e}")
+
+def start_cleanup_worker():
+    """Start the auto-cleanup background thread"""
+    global cleanup_thread, cleanup_running
+    
+    if cleanup_thread is None or not cleanup_thread.is_alive():
+        cleanup_running = True
+        cleanup_thread = threading.Thread(target=auto_cleanup_worker, daemon=True)
+        cleanup_thread.start()
+        print("✅ Auto-cleanup worker thread started")
+
+def stop_cleanup_worker():
+    """Stop the auto-cleanup background thread"""
+    global cleanup_running
+    cleanup_running = False
+    print("🛑 Auto-cleanup worker stopped")
+
+# Middleware to track requests
+@app.before_request
+def track_request():
+    global last_request_time
+    with cleanup_lock:
+        last_request_time = time()
+
+# Register cleanup on exit
+atexit.register(stop_cleanup_worker)
 
 @app.route('/')
 def index():
@@ -1142,5 +1231,11 @@ def extract_video_code():
 
 
 if __name__ == '__main__':
+    # Start auto-cleanup worker
+    start_cleanup_worker()
+    
     # Use the development server only for testing, not production on a VPS
     app.run(host='0.0.0.0', port=5000)
+
+    # Clean up uploads folder on exit
+    shutil.rmtree(app.config['UPLOAD_FOLDER'], ignore_errors=True)
