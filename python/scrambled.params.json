@@ -1,0 +1,11 @@
+{
+  "v": 1,
+  "mode": "add_mod256_tile",
+  "prng": "mulberry32",
+  "w": 1024,
+  "h": 1024,
+  "tile": 1024,
+  "seed": 12345,
+  "intensity": 64,
+  "note": "Keep these params with the noisy image to reverse it."
+}

@@ -325,6 +325,10 @@ def scramble_photo_old():
         mode = data.get('mode', 'scramble')
         algorithm = data.get('algorithm', 'position')
         percentage = data.get('percentage', 100)
+        noise_seed = data.get('noise_seed')
+        noise_intensity = data.get('noise_intensity')
+        noise_mode = data.get('noise_mode')
+        noise_prng = data.get('noise_prng')
 
         if not input_file or not output_file:
             return jsonify({'error': 'input and output filenames required'}), 400
@@ -351,7 +355,11 @@ def scramble_photo_old():
                 '--rows', str(rows),
                 '--cols', str(cols),
                 '--mode', mode,
-                '--percentage', str(percentage)
+                '--percentage', str(percentage),
+                '--noise-seed', str(noise_seed),
+                '--noise-intensity', str(noise_intensity),
+                '--noise-mode', str(noise_mode),
+                '--noise-prng', str(noise_prng)
             ]
         
         elif algorithm == 'color':
@@ -365,7 +373,11 @@ def scramble_photo_old():
                 '--max-hue-shift', str(max_hue_shift),
                 '--seed', str(seed),
                 '--mode', mode,
-                '--percentage', str(percentage)
+                '--percentage', str(percentage),
+                '--noise-seed', str(noise_seed),
+                '--noise-intensity', str(noise_intensity),
+                '--noise-mode', str(noise_mode),
+                '--noise-prng', str(noise_prng)
             ]
         
         elif algorithm == 'rotation':
@@ -381,7 +393,11 @@ def scramble_photo_old():
                 '--cols', str(cols),
                 '--mode', mode,
                 '--algorithm', 'rotation',
-                '--percentage', str(percentage)
+                '--percentage', str(percentage),
+                '--noise-seed', str(noise_seed),
+                '--noise-intensity', str(noise_intensity),
+                '--noise-mode', str(noise_mode),
+                '--noise-prng', str(noise_prng)
             ]
         
         elif algorithm == 'mirror':
@@ -397,7 +413,11 @@ def scramble_photo_old():
                 '--cols', str(cols),
                 '--mode', mode,
                 '--algorithm', 'mirror',
-                '--percentage', str(percentage)
+                '--percentage', str(percentage),
+                '--noise-seed', str(noise_seed),
+                '--noise-intensity', str(noise_intensity),
+                '--noise-mode', str(noise_mode),
+                '--noise-prng', str(noise_prng)
             ]
         
         elif algorithm == 'intensity':
@@ -411,7 +431,11 @@ def scramble_photo_old():
                 '--max-intensity-shift', str(max_intensity_shift),
                 '--seed', str(seed),
                 '--mode', mode,
-                '--percentage', str(percentage)
+                '--percentage', str(percentage),
+                '--noise-seed', str(noise_seed),
+                '--noise-intensity', str(noise_intensity),
+                '--noise-mode', str(noise_mode),
+                '--noise-prng', str(noise_prng)
             ]
         
         else:
@@ -469,6 +493,10 @@ def scramble_photo():
         mode = data.get('mode', 'scramble')
         algorithm = data.get('algorithm', 'position')
         percentage = data.get('percentage', 100)
+        noise_seed = data.get('noise_seed')
+        noise_intensity = data.get('noise_intensity')
+        noise_mode = data.get('noise_mode')
+        noise_prng = data.get('noise_prng')
         
         print(f"\n📝 FLASK: Extracted parameters:")
         print(f"  - Input file: {input_file}")
@@ -521,7 +549,11 @@ def scramble_photo():
                 '--rows', str(rows),
                 '--cols', str(cols),
                 '--mode', mode,
-                '--percentage', str(percentage)
+                '--percentage', str(percentage),
+                '--noise-seed', str(noise_seed),
+                '--noise-intensity', str(noise_intensity),
+                '--noise-mode', str(noise_mode),
+                '--noise-prng', str(noise_prng)
             ]
         
         elif algorithm == 'color':
@@ -536,7 +568,11 @@ def scramble_photo():
                 '--max-hue-shift', str(max_hue_shift),
                 '--seed', str(seed),
                 '--mode', mode,
-                '--percentage', str(percentage)
+                '--percentage', str(percentage),
+                '--noise-seed', str(noise_seed),
+                '--noise-intensity', str(noise_intensity),
+                '--noise-mode', str(noise_mode),
+                '--noise-prng', str(noise_prng)
             ]
         
         elif algorithm == 'rotation':
@@ -553,7 +589,11 @@ def scramble_photo():
                 '--cols', str(cols),
                 '--mode', mode,
                 '--algorithm', 'rotation',
-                '--percentage', str(percentage)
+                '--percentage', str(percentage),
+                '--noise-seed', str(noise_seed),
+                '--noise-intensity', str(noise_intensity),
+                '--noise-mode', str(noise_mode),
+                '--noise-prng', str(noise_prng)
             ]
         
         elif algorithm == 'mirror':
@@ -570,7 +610,11 @@ def scramble_photo():
                 '--cols', str(cols),
                 '--mode', mode,
                 '--algorithm', 'mirror',
-                '--percentage', str(percentage)
+                '--percentage', str(percentage),
+                '--noise-seed', str(noise_seed),
+                '--noise-intensity', str(noise_intensity),
+                '--noise-mode', str(noise_mode),
+                '--noise-prng', str(noise_prng)
             ]
         
         elif algorithm == 'intensity':
@@ -585,7 +629,11 @@ def scramble_photo():
                 '--max-intensity-shift', str(max_intensity_shift),
                 '--seed', str(seed),
                 '--mode', mode,
-                '--percentage', str(percentage)
+                '--percentage', str(percentage),
+                '--noise-seed', str(noise_seed),
+                '--noise-intensity', str(noise_intensity),
+                '--noise-mode', str(noise_mode),
+                '--noise-prng', str(noise_prng)
             ]
         
         else:
@@ -684,8 +732,13 @@ def unscramble_photo():
                 'rows': params.get('rows'),
                 'cols': params.get('cols'),
                 'max_hue_shift': params.get('max_hue_shift'),
-                'max_intensity_shift': params.get('max_intensity_shift')
+                'max_intensity_shift': params.get('max_intensity_shift'),
+                'noise_seed': params.get('noise_seed'),
+                'noise_intensity': params.get('noise_intensity'),
+                'noise_mode': params.get('noise_mode'),
+                'noise_prng': params.get('noise_prng')
             }
+
             # Remove None values
             normalized = {k: v for k, v in normalized.items() if v is not None}
             

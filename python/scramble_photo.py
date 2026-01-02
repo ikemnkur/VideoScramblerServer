@@ -110,6 +110,134 @@ def params_to_json(seed: int, n: int, m: int, perm_dest_to_src_0: List[int]) -> 
     }
 
 
+# ============================================================================
+# Noise Functions (converted from JavaScript)
+# ============================================================================
+
+def gcd(a: int, b: int) -> int:
+    """Greatest common divisor"""
+    a = abs(int(a))
+    b = abs(int(b))
+    while b != 0:
+        t = a % b
+        a = b
+        b = t
+    return a
+
+
+def mod(n: int, m: int) -> int:
+    """True mathematical modulo for negatives"""
+    return ((n % m) + m) % m
+
+
+def clamp_int(n: float, lo: int, hi: int) -> int:
+    """Clamp a number to integer range [lo, hi]"""
+    if not math.isfinite(n):
+        n = lo
+    return max(lo, min(hi, round(n)))
+
+
+def clamp(v: float, min_val: float, max_val: float) -> float:
+    """Clamp a value to range [min_val, max_val]"""
+    return max(min_val, min(max_val, v))
+
+
+def generate_noise_tile_offsets(tile_size: int, seed: int, intensity: int) -> np.ndarray:
+    """
+    Generate tileable noise offsets for image scrambling.
+    Returns array of shape (tile_size * tile_size, 3) with integer offsets in [-intensity, +intensity]
+    
+    Args:
+        tile_size: Size of the square tile
+        seed: Random seed for deterministic generation
+        intensity: Maximum absolute offset value
+    
+    Returns:
+        numpy array of int16 offsets for RGB channels
+    """
+    rand = mulberry32(seed & 0xFFFFFFFF)
+    px_count = tile_size * tile_size
+    
+    # Store offsets per pixel per channel (RGB)
+    offsets = np.zeros(px_count * 3, dtype=np.int16)
+    
+    for p in range(px_count):
+        base = p * 3
+        # Uniform integer in [-intensity, +intensity]
+        offsets[base + 0] = round((rand() * 2 - 1) * intensity)
+        offsets[base + 1] = round((rand() * 2 - 1) * intensity)
+        offsets[base + 2] = round((rand() * 2 - 1) * intensity)
+    
+    return offsets
+
+
+def apply_noise_add_mod256(frame: np.ndarray, tile_offsets: np.ndarray, tile_size: int) -> np.ndarray:
+    """
+    Add tileable noise to an image (for scrambling).
+    Applies modulo 256 arithmetic to handle overflow.
+    
+    Args:
+        frame: Input image (H, W, C) where C >= 3
+        tile_offsets: Noise offsets from generate_noise_tile_offsets
+        tile_size: Size of the tile pattern
+    
+    Returns:
+        Image with noise added
+    """
+    h, w, c = frame.shape
+    out = frame.copy()
+    
+    for y in range(h):
+        ty = y % tile_size
+        for x in range(w):
+            tx = x % tile_size
+            tile_index = (ty * tile_size + tx) * 3
+            
+            # Apply noise with modulo 256 (prevents overflow)
+            out[y, x, 0] = mod(int(frame[y, x, 0]) + int(tile_offsets[tile_index + 0]), 256)
+            out[y, x, 1] = mod(int(frame[y, x, 1]) + int(tile_offsets[tile_index + 1]), 256)
+            out[y, x, 2] = mod(int(frame[y, x, 2]) + int(tile_offsets[tile_index + 2]), 256)
+            # Alpha channel (if exists) unchanged
+    
+    return out
+
+
+def apply_noise_sub_mod256(frame: np.ndarray, tile_offsets: np.ndarray, tile_size: int) -> np.ndarray:
+    """
+    Remove tileable noise from an image (for unscrambling).
+    Applies modulo 256 arithmetic to handle underflow.
+    
+    Args:
+        frame: Input image (H, W, C) where C >= 3
+        tile_offsets: Same noise offsets used in apply_noise_add_mod256
+        tile_size: Size of the tile pattern
+    
+    Returns:
+        Image with noise removed
+    """
+    h, w, c = frame.shape
+    out = frame.copy()
+    
+    for y in range(h):
+        ty = y % tile_size
+        for x in range(w):
+            tx = x % tile_size
+            tile_index = (ty * tile_size + tx) * 3
+            
+            # Subtract noise with modulo 256 (prevents underflow)
+            out[y, x, 0] = mod(int(frame[y, x, 0]) - int(tile_offsets[tile_index + 0]), 256)
+            out[y, x, 1] = mod(int(frame[y, x, 1]) - int(tile_offsets[tile_index + 1]), 256)
+            out[y, x, 2] = mod(int(frame[y, x, 2]) - int(tile_offsets[tile_index + 2]), 256)
+            # Alpha channel (if exists) unchanged
+    
+    return out
+
+
+# ============================================================================
+# End of Noise Functions
+# ============================================================================
+
+
 @dataclass
 class ScrambleParams:
     n: int
@@ -261,10 +389,16 @@ def process_photo(input_path: str,
                   rows: Optional[int] = None,
                   cols: Optional[int] = None,
                   mode: str = "scramble",
-                  percentage: Optional[int] = 100) -> str:
+                  percentage: Optional[int] = 100,
+                  noise_intensity: Optional[int] = 0,
+                  noise_tile_size: Optional[int] = 16) -> str:
     """
     Process a photo: scramble or unscramble according to mode.
     Returns path to params JSON (for scramble mode).
+    
+    Args:
+        noise_intensity: If > 0, adds tileable noise before scrambling (0 = no noise)
+        noise_tile_size: Size of noise tile pattern (default 16x16)
     """
 
     if not os.path.isfile(input_path):
@@ -279,6 +413,14 @@ def process_photo(input_path: str,
 
     if width <= 0 or height <= 0:
         raise RuntimeError("Invalid photo dimensions")
+    
+    # Generate noise offsets if noise is enabled
+    noise_offsets = None
+    if noise_intensity > 0:
+        # Use a different seed for noise (seed + 999) to keep it separate from scrambling
+        noise_seed = (seed if seed is not None else gen_random_seed()) + 999
+        noise_offsets = generate_noise_tile_offsets(noise_tile_size, noise_seed, noise_intensity)
+        print(f"Noise enabled: intensity={noise_intensity}, tile_size={noise_tile_size}")
 
     # If rows/cols missing, choose them based on aspect ratio
     if rows is None or cols is None:
@@ -310,9 +452,18 @@ def process_photo(input_path: str,
 
     # Process the single frame
     if mode == "scramble":
+        # Apply noise BEFORE scrambling
+        if noise_offsets is not None:
+            frame = apply_noise_add_mod256(frame, noise_offsets, noise_tile_size)
+        
         processed = scramble_frame(frame, n, m, perm_dest_to_src_0, src_rects, dest_rects)
     else:
+        # Unscramble first
         processed = unscramble_frame(frame, n, m, perm_dest_to_src_0, src_rects, dest_rects)
+        
+        # Remove noise AFTER unscrambling
+        if noise_offsets is not None:
+            processed = apply_noise_sub_mod256(processed, noise_offsets, noise_tile_size)
 
     # Write the output image
     cv2.imwrite(output_path, processed)
@@ -321,6 +472,9 @@ def process_photo(input_path: str,
     params_path = ""
     if mode == "scramble":
         params = params_to_json(seed, n, m, perm_dest_to_src_0)
+        if noise_intensity > 0:
+            params["noise_intensity"] = noise_intensity
+            params["noise_tile_size"] = noise_tile_size
         base, ext = os.path.splitext(output_path)
         params_path = base + ".params.json"
         with open(params_path, "w", encoding="utf-8") as f:
@@ -334,11 +488,17 @@ def process_photo_by_percentage(input_path: str,
                   rows: Optional[int] = None,
                   cols: Optional[int] = None,
                   mode: str = "scramble",
-                  percentage: Optional[int] = 100) -> str:
+                  percentage: Optional[int] = 100,
+                  noise_intensity: Optional[int] = 0,
+                  noise_tile_size: Optional[int] = 16) -> str:
     """
     Process a photo: scramble or unscramble according to mode.
     Only scrambles a certain percentage of tiles based on the percentage parameter.
     Returns path to params JSON (for scramble mode).
+    
+    Args:
+        noise_intensity: If > 0, adds tileable noise before scrambling (0 = no noise)
+        noise_tile_size: Size of noise tile pattern (default 16x16)
     """
 
     if not os.path.isfile(input_path):
@@ -353,6 +513,14 @@ def process_photo_by_percentage(input_path: str,
 
     if width <= 0 or height <= 0:
         raise RuntimeError("Invalid photo dimensions")
+    
+    # Generate noise offsets if noise is enabled
+    noise_offsets = None
+    if noise_intensity > 0:
+        # Use a different seed for noise (seed + 999) to keep it separate from scrambling
+        noise_seed = (seed if seed is not None else gen_random_seed()) + 999
+        noise_offsets = generate_noise_tile_offsets(noise_tile_size, noise_seed, noise_intensity)
+        print(f"Noise enabled: intensity={noise_intensity}, tile_size={noise_tile_size}")
 
     # If rows/cols missing, choose them based on aspect ratio
     if rows is None or cols is None:
@@ -453,9 +621,18 @@ def process_photo_by_percentage(input_path: str,
 
     # Process the single frame
     if mode == "scramble":
+        # Apply noise BEFORE scrambling
+        if noise_offsets is not None:
+            frame = apply_noise_add_mod256(frame, noise_offsets, noise_tile_size)
+        
         processed = scramble_frame(frame, n, m, perm_dest_to_src_0, src_rects, dest_rects)
     else:
+        # Unscramble first
         processed = unscramble_frame(frame, n, m, perm_dest_to_src_0, src_rects, dest_rects)
+        
+        # Remove noise AFTER unscrambling
+        if noise_offsets is not None:
+            processed = apply_noise_sub_mod256(processed, noise_offsets, noise_tile_size)
 
     # Write the output image
     cv2.imwrite(output_path, processed)
@@ -468,6 +645,9 @@ def process_photo_by_percentage(input_path: str,
         params["percentage"] = percentage
         params["tiles_scrambled"] = tiles_to_scramble
         params["total_tiles"] = N
+        if noise_intensity > 0:
+            params["noise_intensity"] = noise_intensity
+            params["noise_tile_size"] = noise_tile_size
         
         base, ext = os.path.splitext(output_path)
         params_path = base + ".params.json"
@@ -487,6 +667,10 @@ def main():
     parser.add_argument("--percentage", type=int, default=100, help="Percentage of tiles to scramble (default: 100).")
     parser.add_argument("--mode", choices=["scramble", "unscramble"], default="scramble",
                         help="Operation mode (default: scramble). Unscramble assumes same seed/n/m.")
+    parser.add_argument("--noise-intensity", type=int, default=0,
+                        help="Noise intensity (0-128). 0 = no noise, 64 = moderate. Adds tileable noise before scrambling.")
+    parser.add_argument("--noise-tile-size", type=int, default=16,
+                        help="Size of noise tile pattern in pixels (default: 16).")
 
     args = parser.parse_args()
 
@@ -501,6 +685,8 @@ def main():
                 cols=args.cols,
                 percentage=args.percentage,
                 mode=args.mode,
+                noise_intensity=args.noise_intensity,
+                noise_tile_size=args.noise_tile_size,
             )
         else:
             # Use the standard photo processing function for 100% scrambling
@@ -511,6 +697,8 @@ def main():
                 rows=args.rows,
                 cols=args.cols,
                 mode=args.mode,
+                noise_intensity=args.noise_intensity,
+                noise_tile_size=args.noise_tile_size,
             )
         
         print(f"Done. Output photo: {args.output}")

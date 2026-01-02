@@ -345,23 +345,10 @@ server.post(PROXY + '/api/user', async (req, res) => {
       // Update last login with proper MySQL datetime format
       // const currentDateTime = new Date().toISOString().slice(0, 19).replace('T', ' ');
 
-      // await pool.execute(
-      //   'UPDATE userData SET loginStatus = true, lastLogin = ? WHERE email = ?',
-      //   [currentDateTime, email]
-      // );
-
       // Generate a proper JWT-like token (in production, use actual JWT)
-      // const token = Buffer.from(`${user.id}_${Date.now()}_${Math.random()}`).toString('base64');
+      const token = Buffer.from(`${user.id}_${Date.now()}_${Math.random()}`).toString('base64');
 
-      // if (user.accountType === 'seller') {
-      //   res.json({
-      //     success: true,
-      //     user: userData,
-      //     earnings: earnings,
-      //     // token: token,
-      //     message: 'Login successful'
-      //   });
-      // } else {
+    
       res.json({
         success: true,
         user: userData,
@@ -369,7 +356,7 @@ server.post(PROXY + '/api/user', async (req, res) => {
         dayPassExpiry: user.dayPassExpiry,
         dayPassMode: user.dayPassMode,
         planExpiry: user.planExpiry,
-        // token: token,
+        token: token,
         message: 'Login successful'
       });
       // }
@@ -2794,10 +2781,184 @@ server.post(PROXY + '/api/scramble-photo', upload.single('file'), async (req, re
   }
 });
 
+// =============================
+// SCRAMBLE PHOTO ENDPOINT - UPDATED VERSION
+// Handles both old flat format and new nested format with noise parameters
+// =============================
+
+server.post(PROXY + '/api/scramble-photo', upload.single('file'), async (req, res) => {
+  console.log('📸 Scramble photo request received');
+
+  try {
+    // 1) Make sure a file came in
+    if (!req.file) {
+      return res.status(400).json({ error: 'No image file provided' });
+    }
+
+    console.log('✅ File uploaded:', req.file.filename);
+    console.log('📁 File path:', req.file.path);
+
+    // 2) Parse params from multipart/form-data
+    let params;
+    try {
+      params = typeof req.body.params === 'string'
+        ? JSON.parse(req.body.params)
+        : (req.body.params || {});
+    } catch (parseError) {
+      console.error('❌ Failed to parse parameters:', parseError);
+      return res.status(400).json({ error: 'Invalid parameters format' });
+    }
+
+    console.log('📋 Scrambling parameters (from frontend):', params);
+
+    // 3) Normalize for Flask
+    //
+    // IMPORTANT:
+    // - Ignore params.input from the client and instead use the actual stored filename.
+    // - Optionally reuse params.output, but better to tie it to the stored filename.
+    // - Handle both old flat format and new nested format (with scramble/noise objects)
+    const inputFile = req.file.filename; // file as saved by multer
+    const outputFile = `scrambled_${inputFile}`;
+
+    // Check if params has nested structure (new format) or flat structure (old format)
+    let scrambleParams = params;
+    let noiseParams = null;
+    let metadata = null;
+
+    if (params.scramble) {
+      // New nested format
+      scrambleParams = params.scramble;
+      noiseParams = params.noise;
+      metadata = params.metadata;
+      console.log('🆕 Detected new nested parameter format');
+    } else {
+      // Old flat format - for backwards compatibility
+      console.log('📦 Using legacy flat parameter format');
+    }
+
+    // Build the payload in the exact shape Flask expects
+    const flaskPayload = {
+      input: inputFile,
+      output: outputFile,
+      seed: scrambleParams.seed ?? params.seed ?? 123456,
+      mode: scrambleParams.mode || params.mode || 'scramble',
+      algorithm: scrambleParams.algorithm || params.algorithm || 'position',
+      percentage: scrambleParams.percentage ?? params.percentage ?? 100,
+      // Algorithm-specific params (check both nested and flat structure)
+      rows: scrambleParams.rows ?? params.rows,
+      cols: scrambleParams.cols ?? params.cols,
+      max_hue_shift: scrambleParams.max_hue_shift ?? scrambleParams.maxHueShift ?? params.max_hue_shift ?? params.maxHueShift,
+      max_intensity_shift: scrambleParams.max_intensity_shift ?? scrambleParams.maxIntensityShift ?? params.max_intensity_shift ?? params.maxIntensityShift,
+      // Noise parameters (if present)
+      noise_seed: noiseParams?.seed,
+      noise_intensity: noiseParams?.intensity,
+      noise_mode: noiseParams?.mode,
+      noise_prng: noiseParams?.prng
+    };
+
+    // Remove undefined keys so Flask doesn't see them at all
+    Object.keys(flaskPayload).forEach((key) => {
+      if (flaskPayload[key] === undefined) delete flaskPayload[key];
+    });
+
+    // Log noise parameters if present
+    if (noiseParams) {
+      console.log('🔊 Noise parameters:', {
+        seed: noiseParams.seed,
+        intensity: noiseParams.intensity,
+        mode: noiseParams.mode
+      });
+    }
+
+    console.log('🔄 Sending normalized payload to Flask:', flaskPayload);
+    console.log('📡 Flask URL:', `${FLASKAPP_LINK}/scramble-photo`);
+
+    // 4) Call Flask /scramble-photo as JSON
+    const flaskResponse = await axios.post(
+      `${FLASKAPP_LINK}/scramble-photo`,
+      flaskPayload,
+      {
+        timeout: 60000,
+        headers: { 'Content-Type': 'application/json' }
+      }
+    );
+
+    console.log('✅ Flask response received:', flaskResponse.data);
+
+    // Flask returns: { message, output_file, algorithm, seed, download_url, ... }
+    const data = flaskResponse.data;
+
+    // 5) Send a clean response back to the React frontend
+    res.json({
+      success: true,
+      output_file: data.output_file,
+      algorithm: data.algorithm,
+      seed: data.seed,
+      download_url: data.download_url,
+      message: data.message || 'Image scrambled successfully',
+      // Include noise parameters if they were used
+      noise: noiseParams ? {
+        seed: noiseParams.seed,
+        intensity: noiseParams.intensity,
+        mode: noiseParams.mode,
+        prng: noiseParams.prng
+      } : undefined,
+      // Include metadata if present
+      metadata: metadata,
+      // Include everything else from Flask, just in case
+      ...data
+    });
+
+  } catch (error) {
+    console.error('❌ Error in /api/scramble-photo endpoint:', error.message);
+
+    // Cleanup uploaded file if something failed
+    if (req.file && fs.existsSync(req.file.path)) {
+      try {
+        fs.unlinkSync(req.file.path);
+        console.log('🗑️  Cleaned up failed upload:', req.file.filename);
+      } catch (unlinkError) {
+        console.error('Failed to delete file:', unlinkError);
+      }
+    }
+
+    if (error.code === 'ECONNREFUSED') {
+      return res.status(503).json({
+        error: 'Python/Flask service is not running. Please start the Flask server on port 5000.'
+      });
+    }
+
+    if (error.response) {
+      // Flask returned an HTTP error
+      return res.status(error.response.status || 500).json({
+        error: error.response.data?.error || 'Scrambling failed in Python service',
+        details: error.response.data
+      });
+    }
+
+    res.status(500).json({
+      error: 'Failed to scramble photo',
+      message: error.message
+    });
+  }
+});
 
 // =============================
-// UNSCRAMBLE PHOTO ENDPOINT
+// KEY CHANGES SUMMARY:
 // =============================
+// 1. Added detection for nested parameter format (params.scramble, params.noise, params.metadata)
+// 2. Maintains backward compatibility with old flat format
+// 3. Extracts noise parameters if present: seed, intensity, mode, prng
+// 4. Passes noise parameters to Flask (as noise_seed, noise_intensity, etc.)
+// 5. Includes noise parameters in response back to frontend
+// 6. Handles both camelCase (maxHueShift) and snake_case (max_hue_shift) for flexibility
+// 7. Logs noise parameters when present for debugging
+
+// =============================
+// UNSCRAMBLE PHOTO ENDPOINT - UPDATED VERSION
+// Handles both old flat format and new nested format with noise parameters
+// =============================
+
 server.post(PROXY + '/api/unscramble-photo', upload.single('file'), async (req, res) => {
   console.log('🔓 Unscramble photo request received');
 
@@ -2821,14 +2982,57 @@ server.post(PROXY + '/api/unscramble-photo', upload.single('file'), async (req, 
       return res.status(400).json({ error: 'Invalid parameters format' });
     }
 
-    console.log('📋 Unscrambling parameters:', params);
+    console.log('📋 Unscrambling parameters (from frontend):', params);
+
+    // Check if params has nested structure (new format) or flat structure (old format)
+    let scrambleParams = params;
+    let noiseParams = null;
+    let metadata = null;
+
+    if (params.scramble) {
+      // New nested format
+      scrambleParams = params.scramble;
+      noiseParams = params.noise;
+      metadata = params.metadata;
+      console.log('🆕 Detected new nested parameter format');
+    } else {
+      // Old flat format - for backwards compatibility
+      console.log('📦 Using legacy flat parameter format');
+    }
 
     // Prepare data to send to Flask
     const flaskPayload = {
-      localFileName: req.file.filename,
-      localFilePath: req.file.path,
-      params: params
+      input: req.file.filename,
+      output: `unscrambled_${req.file.filename}`,
+      seed: scrambleParams.seed ?? params.seed,
+      mode: 'unscramble',
+      algorithm: scrambleParams.algorithm ?? params.algorithm,
+      percentage: scrambleParams.percentage ?? params.percentage ?? 100,
+      // Algorithm-specific params (check both nested and flat structure)
+      rows: scrambleParams.rows ?? params.rows,
+      cols: scrambleParams.cols ?? params.cols,
+      max_hue_shift: scrambleParams.max_hue_shift ?? scrambleParams.maxHueShift ?? params.max_hue_shift ?? params.maxHueShift,
+      max_intensity_shift: scrambleParams.max_intensity_shift ?? scrambleParams.maxIntensityShift ?? params.max_intensity_shift ?? params.maxIntensityShift,
+      // Noise parameters (if present)
+      noise_seed: noiseParams?.seed,
+      noise_intensity: noiseParams?.intensity,
+      noise_mode: noiseParams?.mode,
+      noise_prng: noiseParams?.prng
     };
+
+    // Remove undefined keys so Flask doesn't see them at all
+    Object.keys(flaskPayload).forEach((key) => {
+      if (flaskPayload[key] === undefined) delete flaskPayload[key];
+    });
+
+    // Log noise parameters if present
+    if (noiseParams) {
+      console.log('🔊 Noise parameters detected:', {
+        seed: noiseParams.seed,
+        intensity: noiseParams.intensity,
+        mode: noiseParams.mode
+      });
+    }
 
     console.log('🔄 Sending normalized payload to Flask:', flaskPayload);
     console.log('🔄 Sending to Flask service:', FLASKAPP_LINK + '/unscramble-photo');
@@ -2847,12 +3051,21 @@ server.post(PROXY + '/api/unscramble-photo', upload.single('file'), async (req, 
 
     console.log('✅ Flask response received:', flaskResponse.data);
 
-    // Return Flask response to frontend
+    // Return Flask response to frontend with noise parameters included
     res.json({
       success: true,
       output_file: flaskResponse.data.output_file || flaskResponse.data.unscrambledFileName,
       unscrambledImageUrl: flaskResponse.data.unscrambledImageUrl,
       message: 'Image unscrambled successfully',
+      // Include noise parameters so frontend knows to remove noise
+      noise: noiseParams ? {
+        seed: noiseParams.seed,
+        intensity: noiseParams.intensity,
+        mode: noiseParams.mode,
+        prng: noiseParams.prng
+      } : undefined,
+      // Include metadata if present
+      metadata: metadata,
       ...flaskResponse.data
     });
 
@@ -2889,6 +3102,116 @@ server.post(PROXY + '/api/unscramble-photo', upload.single('file'), async (req, 
     });
   }
 });
+
+// =============================
+// KEY CHANGES SUMMARY:
+// =============================
+// 1. Added detection for nested parameter format (params.scramble, params.noise, params.metadata)
+// 2. Maintains backward compatibility with old flat format
+// 3. Extracts noise parameters if present: seed, intensity, mode, prng
+// 4. Passes noise parameters to Flask (as noise_seed, noise_intensity, etc.)
+// 5. Includes noise parameters in response back to frontend for client-side noise removal
+// 6. Handles both camelCase (maxHueShift) and snake_case (max_hue_shift) for flexibility
+// 7. Logs noise parameters when present for debugging
+// 
+// IMPORTANT: The frontend must remove noise from the unscrambled image after receiving it
+// from the backend, as the noise was applied BEFORE scrambling in the Pro version.
+
+
+// // =============================
+// // UNSCRAMBLE PHOTO ENDPOINT
+// // =============================
+// server.post(PROXY + '/api/unscramble-photo', upload.single('file'), async (req, res) => {
+//   console.log('🔓 Unscramble photo request received');
+
+//   try {
+//     // Check if file was uploaded
+//     if (!req.file) {
+//       return res.status(400).json({ error: 'No image file provided' });
+//     }
+
+//     console.log('✅ File uploaded:', req.file.filename);
+//     console.log('📁 File path:', req.file.path);
+
+//     // Parse parameters from request body
+//     let params;
+//     try {
+//       params = typeof req.body.params === 'string'
+//         ? JSON.parse(req.body.params)
+//         : req.body.params;
+//     } catch (parseError) {
+//       console.error('❌ Failed to parse parameters:', parseError);
+//       return res.status(400).json({ error: 'Invalid parameters format' });
+//     }
+
+//     console.log('📋 Unscrambling parameters:', params);
+
+//     // Prepare data to send to Flask
+//     const flaskPayload = {
+//       localFileName: req.file.filename,
+//       localFilePath: req.file.path,
+//       params: params
+//     };
+
+//     console.log('🔄 Sending normalized payload to Flask:', flaskPayload);
+//     console.log('🔄 Sending to Flask service:', FLASKAPP_LINK + '/unscramble-photo');
+
+//     // Send request to Flask/Python service
+//     const flaskResponse = await axios.post(
+//       `${FLASKAPP_LINK}/unscramble-photo`,
+//       flaskPayload,
+//       {
+//         timeout: 30000, // 30 second timeout
+//         headers: {
+//           'Content-Type': 'application/json'
+//         }
+//       }
+//     );
+
+//     console.log('✅ Flask response received:', flaskResponse.data);
+
+//     // Return Flask response to frontend
+//     res.json({
+//       success: true,
+//       output_file: flaskResponse.data.output_file || flaskResponse.data.unscrambledFileName,
+//       unscrambledImageUrl: flaskResponse.data.unscrambledImageUrl,
+//       message: 'Image unscrambled successfully',
+//       ...flaskResponse.data
+//     });
+
+//   } catch (error) {
+//     console.error('❌ Error in unscramble-photo endpoint:', error.message);
+
+//     // Clean up uploaded file if processing failed
+//     if (req.file && fs.existsSync(req.file.path)) {
+//       try {
+//         fs.unlinkSync(req.file.path);
+//         console.log('🗑️  Cleaned up failed upload:', req.file.filename);
+//       } catch (unlinkError) {
+//         console.error('Failed to delete file:', unlinkError);
+//       }
+//     }
+
+//     if (error.code === 'ECONNREFUSED') {
+//       return res.status(503).json({
+//         error: 'Python/Flask service is not running. Please start the Flask server on port 5000.'
+//       });
+//     }
+
+//     if (error.response) {
+//       // Flask returned an error
+//       return res.status(error.response.status || 500).json({
+//         error: error.response.data?.error || 'Unscrambling failed in Python service',
+//         details: error.response.data
+//       });
+//     }
+
+//     res.status(500).json({
+//       error: 'Failed to unscramble photo',
+//       message: error.message
+//     });
+//   }
+// });
 
 
 server.post(PROXY + "/api/upload", async (req, res) => {
@@ -3268,20 +3591,20 @@ server.get(PROXY + '/api/download/:filename', (req, res) => {
 
 
 
-server.post(PROXY + '/api/unscramble-photo', (req, res) => {
-  // Proxy the request to the Flask app
-  const axios = require('axios');
-  const FormData = require('form-data');
-  const form = new FormData();
-  axios.post(`${FLASKAPP_LINK}/unscramble-photo`, req.body)
-    .then(response => {
-      res.json(response.data);
-    })
-    .catch(error => {
-      console.error('Error unscrambling photo in Flask app:', error);
-      res.status(500).json({ error: 'Failed to unscramble photo in Python service' });
-    });
-});
+// server.post(PROXY + '/api/unscramble-photo', (req, res) => {
+//   // Proxy the request to the Flask app
+//   const axios = require('axios');
+//   const FormData = require('form-data');
+//   const form = new FormData();
+//   axios.post(`${FLASKAPP_LINK}/unscramble-photo`, req.body)
+//     .then(response => {
+//       res.json(response.data);
+//     })
+//     .catch(error => {
+//       console.error('Error unscrambling photo in Flask app:', error);
+//       res.status(500).json({ error: 'Failed to unscramble photo in Python service' });
+//     });
+// });
 
 // @app.route('/unscramble-photo', methods=['POST'])
 // def unscramble_photo():
