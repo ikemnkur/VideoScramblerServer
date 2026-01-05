@@ -348,7 +348,7 @@ server.post(PROXY + '/api/user', async (req, res) => {
       // Generate a proper JWT-like token (in production, use actual JWT)
       const token = Buffer.from(`${user.id}_${Date.now()}_${Math.random()}`).toString('base64');
 
-    
+
       res.json({
         success: true,
         user: userData,
@@ -610,6 +610,8 @@ server.post(PROXY + '/api/wallet/balance/:username', async (req, res) => {
     //   [username]
     // );
 
+    console.log("Fetching wallet balance for user:", username, +" : " + email);
+
     const [users] = await pool.execute(
       'SELECT credits FROM userData WHERE username = ? and email = ?',
       [username, email]
@@ -725,6 +727,43 @@ server.post(PROXY + '/api/purchase-mode-pass', async (req, res) => {
       [user.email]
     );
 
+    // CREATE TABLE
+    // `dayPasses` (
+    //   `id` bigint NOT NULL AUTO_INCREMENT,
+    //   `user_id` bigint NOT NULL,
+    //   `pass_id` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+    //   `pass_type` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+    //   `status` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+    //   `begins_at` timestamp NULL DEFAULT NULL,
+    //   `expires_at` timestamp NULL DEFAULT NULL,
+    //   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+    //   `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    //   `email` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+    //   `username` varchar(30) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+    //   PRIMARY KEY (`id`),
+    //   KEY `idx_user_id` (`user_id`),
+    //   KEY `idx_status` (`status`),
+    //   KEY `idx_user_status` (`user_id`, `status`)
+    // ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci
+
+    // Insert day pass record into database
+    const passId = uuidv4();
+    const beginsAt = new Date();
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+    await pool.execute(
+      'INSERT INTO dayPasses (user_id, pass_id, pass_type, status, begins_at, expires_at, email, username) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [
+        user.id,
+        passId,
+        mode,
+        'active',
+        beginsAt.toISOString().slice(0, 19).replace('T', ' '),
+        expiresAt.toISOString().slice(0, 19).replace('T', ' '),
+        user.email,
+        user.username
+      ]
+    );
 
 
     const updatedCredits = updatedRows[0] ? updatedRows[0].credits : (user.credits - cost);
@@ -2194,6 +2233,7 @@ const walletAddressMap = {
 const cron = require('node-cron');
 const { time } = require('console');
 const { Server } = require('http');
+const { json } = require('stream/consumers');
 
 cron.schedule('*/30 * * * *', async () => {
 
@@ -2659,128 +2699,6 @@ const upload = multer({
   }
 });
 
-
-// =============================
-// SCRAMBLE PHOTO ENDPOINT
-// =============================
-
-server.post(PROXY + '/api/scramble-photo', upload.single('file'), async (req, res) => {
-  console.log('📸 Scramble photo request received');
-
-  try {
-    // 1) Make sure a file came in
-    if (!req.file) {
-      return res.status(400).json({ error: 'No image file provided' });
-    }
-
-    console.log('✅ File uploaded:', req.file.filename);
-    console.log('📁 File path:', req.file.path);
-
-    // 2) Parse params from multipart/form-data
-    let params;
-    try {
-      params = typeof req.body.params === 'string'
-        ? JSON.parse(req.body.params)
-        : (req.body.params || {});
-    } catch (parseError) {
-      console.error('❌ Failed to parse parameters:', parseError);
-      return res.status(400).json({ error: 'Invalid parameters format' });
-    }
-
-    console.log('📋 Scrambling parameters (from frontend):', params);
-
-    // 3) Normalize for Flask
-    //
-    // IMPORTANT:
-    // - Ignore params.input from the client and instead use the actual stored filename.
-    // - Optionally reuse params.output, but better to tie it to the stored filename.
-    const inputFile = req.file.filename; // file as saved by multer
-    const outputFile = `scrambled_${inputFile}`;
-
-    // Build the payload in the exact shape Flask expects
-    const flaskPayload = {
-      input: inputFile,
-      output: outputFile,
-      seed: params.seed ?? 123456,
-      mode: params.mode || 'scramble',
-      algorithm: params.algorithm || 'position',
-      percentage: params.percentage ?? 100,
-      // Algorithm-specific params
-      rows: params.rows,
-      cols: params.cols,
-      max_hue_shift: params.max_hue_shift,
-      max_intensity_shift: params.max_intensity_shift
-    };
-
-    // Remove undefined keys so Flask doesn’t see them at all
-    Object.keys(flaskPayload).forEach((key) => {
-      if (flaskPayload[key] === undefined) delete flaskPayload[key];
-    });
-
-    console.log('🔄 Sending normalized payload to Flask:', flaskPayload);
-    console.log('📡 Flask URL:', `${FLASKAPP_LINK}/scramble-photo`);
-
-    // 4) Call Flask /scramble-photo as JSON
-    const flaskResponse = await axios.post(
-      `${FLASKAPP_LINK}/scramble-photo`,
-      flaskPayload,
-      {
-        timeout: 60000,
-        headers: { 'Content-Type': 'application/json' }
-      }
-    );
-
-    console.log('✅ Flask response received:', flaskResponse.data);
-
-    // Flask returns: { message, output_file, algorithm, seed, download_url, ... }
-    const data = flaskResponse.data;
-
-    // 5) Send a clean response back to the React frontend
-    res.json({
-      success: true,
-      output_file: data.output_file,
-      algorithm: data.algorithm,
-      seed: data.seed,
-      download_url: data.download_url,
-      message: data.message || 'Image scrambled successfully',
-      // Include everything else from Flask, just in case
-      ...data
-    });
-
-  } catch (error) {
-    console.error('❌ Error in /api/scramble-photo endpoint:', error.message);
-
-    // Cleanup uploaded file if something failed
-    if (req.file && fs.existsSync(req.file.path)) {
-      try {
-        fs.unlinkSync(req.file.path);
-        console.log('🗑️  Cleaned up failed upload:', req.file.filename);
-      } catch (unlinkError) {
-        console.error('Failed to delete file:', unlinkError);
-      }
-    }
-
-    if (error.code === 'ECONNREFUSED') {
-      return res.status(503).json({
-        error: 'Python/Flask service is not running. Please start the Flask server on port 5000.'
-      });
-    }
-
-    if (error.response) {
-      // Flask returned an HTTP error
-      return res.status(error.response.status || 500).json({
-        error: error.response.data?.error || 'Scrambling failed in Python service',
-        details: error.response.data
-      });
-    }
-
-    res.status(500).json({
-      error: 'Failed to scramble photo',
-      message: error.message
-    });
-  }
-});
-
 // =============================
 // SCRAMBLE PHOTO ENDPOINT - UPDATED VERSION
 // Handles both old flat format and new nested format with noise parameters
@@ -2850,10 +2768,11 @@ server.post(PROXY + '/api/scramble-photo', upload.single('file'), async (req, re
       max_hue_shift: scrambleParams.max_hue_shift ?? scrambleParams.maxHueShift ?? params.max_hue_shift ?? params.maxHueShift,
       max_intensity_shift: scrambleParams.max_intensity_shift ?? scrambleParams.maxIntensityShift ?? params.max_intensity_shift ?? params.maxIntensityShift,
       // Noise parameters (if present)
-      noise_seed: noiseParams?.seed,
-      noise_intensity: noiseParams?.intensity,
-      noise_mode: noiseParams?.mode,
-      noise_prng: noiseParams?.prng
+      noise_seed: params.noise_seed ?? noiseParams?.seed,
+      noise_intensity: params.noise_intensity ?? noiseParams?.intensity,
+      noise_mode: params.noise_mode ?? noiseParams?.mode,
+      noise_prng: params.noise_prng ?? noiseParams?.prng,
+      noise_tile_size: params.noise_tile_size ?? noiseParams?.tile_size ?? noiseParams?.tileSize
     };
 
     // Remove undefined keys so Flask doesn't see them at all
@@ -3014,10 +2933,11 @@ server.post(PROXY + '/api/unscramble-photo', upload.single('file'), async (req, 
       max_hue_shift: scrambleParams.max_hue_shift ?? scrambleParams.maxHueShift ?? params.max_hue_shift ?? params.maxHueShift,
       max_intensity_shift: scrambleParams.max_intensity_shift ?? scrambleParams.maxIntensityShift ?? params.max_intensity_shift ?? params.maxIntensityShift,
       // Noise parameters (if present)
-      noise_seed: noiseParams?.seed,
-      noise_intensity: noiseParams?.intensity,
-      noise_mode: noiseParams?.mode,
-      noise_prng: noiseParams?.prng
+       noise_seed: params.noise_seed ?? noiseParams?.seed,
+      noise_intensity: params.noise_intensity ?? noiseParams?.intensity,
+      noise_mode: params.noise_mode ?? noiseParams?.mode,
+      noise_prng: params.noise_prng ?? noiseParams?.prng,
+      noise_tile_size: params.noise_tile_size ?? noiseParams?.tile_size ?? noiseParams?.tileSize
     };
 
     // Remove undefined keys so Flask doesn't see them at all
@@ -3103,115 +3023,6 @@ server.post(PROXY + '/api/unscramble-photo', upload.single('file'), async (req, 
   }
 });
 
-// =============================
-// KEY CHANGES SUMMARY:
-// =============================
-// 1. Added detection for nested parameter format (params.scramble, params.noise, params.metadata)
-// 2. Maintains backward compatibility with old flat format
-// 3. Extracts noise parameters if present: seed, intensity, mode, prng
-// 4. Passes noise parameters to Flask (as noise_seed, noise_intensity, etc.)
-// 5. Includes noise parameters in response back to frontend for client-side noise removal
-// 6. Handles both camelCase (maxHueShift) and snake_case (max_hue_shift) for flexibility
-// 7. Logs noise parameters when present for debugging
-// 
-// IMPORTANT: The frontend must remove noise from the unscrambled image after receiving it
-// from the backend, as the noise was applied BEFORE scrambling in the Pro version.
-
-
-// // =============================
-// // UNSCRAMBLE PHOTO ENDPOINT
-// // =============================
-// server.post(PROXY + '/api/unscramble-photo', upload.single('file'), async (req, res) => {
-//   console.log('🔓 Unscramble photo request received');
-
-//   try {
-//     // Check if file was uploaded
-//     if (!req.file) {
-//       return res.status(400).json({ error: 'No image file provided' });
-//     }
-
-//     console.log('✅ File uploaded:', req.file.filename);
-//     console.log('📁 File path:', req.file.path);
-
-//     // Parse parameters from request body
-//     let params;
-//     try {
-//       params = typeof req.body.params === 'string'
-//         ? JSON.parse(req.body.params)
-//         : req.body.params;
-//     } catch (parseError) {
-//       console.error('❌ Failed to parse parameters:', parseError);
-//       return res.status(400).json({ error: 'Invalid parameters format' });
-//     }
-
-//     console.log('📋 Unscrambling parameters:', params);
-
-//     // Prepare data to send to Flask
-//     const flaskPayload = {
-//       localFileName: req.file.filename,
-//       localFilePath: req.file.path,
-//       params: params
-//     };
-
-//     console.log('🔄 Sending normalized payload to Flask:', flaskPayload);
-//     console.log('🔄 Sending to Flask service:', FLASKAPP_LINK + '/unscramble-photo');
-
-//     // Send request to Flask/Python service
-//     const flaskResponse = await axios.post(
-//       `${FLASKAPP_LINK}/unscramble-photo`,
-//       flaskPayload,
-//       {
-//         timeout: 30000, // 30 second timeout
-//         headers: {
-//           'Content-Type': 'application/json'
-//         }
-//       }
-//     );
-
-//     console.log('✅ Flask response received:', flaskResponse.data);
-
-//     // Return Flask response to frontend
-//     res.json({
-//       success: true,
-//       output_file: flaskResponse.data.output_file || flaskResponse.data.unscrambledFileName,
-//       unscrambledImageUrl: flaskResponse.data.unscrambledImageUrl,
-//       message: 'Image unscrambled successfully',
-//       ...flaskResponse.data
-//     });
-
-//   } catch (error) {
-//     console.error('❌ Error in unscramble-photo endpoint:', error.message);
-
-//     // Clean up uploaded file if processing failed
-//     if (req.file && fs.existsSync(req.file.path)) {
-//       try {
-//         fs.unlinkSync(req.file.path);
-//         console.log('🗑️  Cleaned up failed upload:', req.file.filename);
-//       } catch (unlinkError) {
-//         console.error('Failed to delete file:', unlinkError);
-//       }
-//     }
-
-//     if (error.code === 'ECONNREFUSED') {
-//       return res.status(503).json({
-//         error: 'Python/Flask service is not running. Please start the Flask server on port 5000.'
-//       });
-//     }
-
-//     if (error.response) {
-//       // Flask returned an error
-//       return res.status(error.response.status || 500).json({
-//         error: error.response.data?.error || 'Unscrambling failed in Python service',
-//         details: error.response.data
-//       });
-//     }
-
-//     res.status(500).json({
-//       error: 'Failed to unscramble photo',
-//       message: error.message
-//     });
-//   }
-// });
 
 
 server.post(PROXY + "/api/upload", async (req, res) => {
@@ -3283,7 +3094,7 @@ server.post(PROXY + '/api/scramble-video', upload.single('file'), async (req, re
       `${FLASKAPP_LINK}/scramble-video`,
       flaskPayload,
       {
-        timeout: 60000,
+        timeout: 180000, // 3 minutes for video processing + WebM conversion
         headers: { 'Content-Type': 'application/json' }
       }
     );
@@ -3383,7 +3194,7 @@ server.post(PROXY + '/api/unscramble-video', upload.single('file'), async (req, 
       `${FLASKAPP_LINK}/unscramble-video`,
       flaskPayload,
       {
-        timeout: 60000,
+        timeout: 180000, // 3 minutes for video processing + WebM conversion
         headers: { 'Content-Type': 'application/json' }
       }
     );
@@ -3452,183 +3263,6 @@ server.get(PROXY + '/api/download/:filename', (req, res) => {
     }
   });
 });
-
-// @app.route('/scramble-photo', methods=['POST'])
-// def scramble_photo():
-//     """
-//     Scramble a photo using various algorithms
-//     Expects JSON with: input, output, seed, mode, algorithm, and algorithm-specific params
-//     """
-//     try:
-//         data = request.json
-//         if not data:
-//             return jsonify({'error': 'No JSON data provided'}), 400
-
-//         # Extract common parameters
-//         input_file = data.get('input')
-//         output_file = data.get('output')
-//         seed = data.get('seed', 123456)
-//         mode = data.get('mode', 'scramble')
-//         algorithm = data.get('algorithm', 'position')
-//         percentage = data.get('percentage', 100)
-
-//         if not input_file or not output_file:
-//             return jsonify({'error': 'input and output filenames required'}), 400
-
-//         # Build file paths
-//         input_path = os.path.join(app.config['UPLOAD_FOLDER'], input_file)
-//         output_path = os.path.join(app.config['UPLOAD_FOLDER'], output_file)
-
-//         if not os.path.exists(input_path):
-//             return jsonify({'error': f'Input file {input_file} not found'}), 404
-
-//         # Build command based on algorithm
-//         cmd = []
-
-//         if algorithm == 'position':
-//             # Position scrambling (default tile shuffling)
-//             rows = data.get('rows', 6)
-//             cols = data.get('cols', 6)
-//             cmd = [
-//                 'python3', 'scramble_photo.py',
-//                 '--input', input_path,
-//                 '--output', output_path,
-//                 '--seed', str(seed),
-//                 '--rows', str(rows),
-//                 '--cols', str(cols),
-//                 '--mode', mode,
-//                 '--percentage', str(percentage)
-//             ]
-
-//         elif algorithm == 'color':
-//             # Color scrambling (hue shifting)
-//             max_hue_shift = data.get('max_hue_shift', 64)
-//             cmd = [
-//                 'python3', 'scramble_photo.py',
-//                 '--input', input_path,
-//                 '--output', output_path,
-//                 '--algorithm', 'color',
-//                 '--max-hue-shift', str(max_hue_shift),
-//                 '--seed', str(seed),
-//                 '--mode', mode,
-//                 '--percentage', str(percentage)
-//             ]
-
-//         elif algorithm == 'rotation':
-//             # Rotation scrambling
-//             rows = data.get('rows', 6)
-//             cols = data.get('cols', 6)
-//             cmd = [
-//                 'python3', 'scramble_photo_rotate.py',
-//                 '--input', input_path,
-//                 '--output', output_path,
-//                 '--seed', str(seed),
-//                 '--rows', str(rows),
-//                 '--cols', str(cols),
-//                 '--mode', mode,
-//                 '--algorithm', 'rotation',
-//                 '--percentage', str(percentage)
-//             ]
-
-//         elif algorithm == 'mirror':
-//             # Mirror scrambling
-//             rows = data.get('rows', 6)
-//             cols = data.get('cols', 6)
-//             cmd = [
-//                 'python3', 'scramble_photo_mirror.py',
-//                 '--input', input_path,
-//                 '--output', output_path,
-//                 '--seed', str(seed),
-//                 '--rows', str(rows),
-//                 '--cols', str(cols),
-//                 '--mode', mode,
-//                 '--algorithm', 'mirror',
-//                 '--percentage', str(percentage)
-//             ]
-
-//         elif algorithm == 'intensity':
-//             # Intensity scrambling
-//             max_intensity_shift = data.get('max_intensity_shift', 128)
-//             cmd = [
-//                 'python3', 'scramble_photo_intensity.py',
-//                 '--input', input_path,
-//                 '--output', output_path,
-//                 '--algorithm', 'intensity',
-//                 '--max-intensity-shift', str(max_intensity_shift),
-//                 '--seed', str(seed),
-//                 '--mode', mode,
-//                 '--percentage', str(percentage)
-//             ]
-
-//         else:
-//             return jsonify({'error': f'Unknown algorithm: {algorithm}'}), 400
-
-//         # Execute the scrambling command
-//         result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-
-//         if result.returncode != 0:
-//             return jsonify({
-//                 'error': 'Scrambling failed',
-//                 'details': result.stderr
-//             }), 500
-
-//         # Check if output file was created
-//         if not os.path.exists(output_path):
-//             return jsonify({'error': 'Output file was not created'}), 500
-
-//         return jsonify({
-//             'message': 'Photo scrambled successfully',
-//             'output_file': output_file,
-//             'algorithm': algorithm,
-//             'seed': seed,
-//             'download_url': f'/download/{output_file}'
-//         }), 200
-
-//     except subprocess.TimeoutExpired:
-//         return jsonify({'error': 'Scrambling operation timed out'}), 500
-//     except Exception as e:
-//         return jsonify({'error': str(e)}), 500
-
-
-
-// server.post(PROXY + '/api/unscramble-photo', (req, res) => {
-//   // Proxy the request to the Flask app
-//   const axios = require('axios');
-//   const FormData = require('form-data');
-//   const form = new FormData();
-//   axios.post(`${FLASKAPP_LINK}/unscramble-photo`, req.body)
-//     .then(response => {
-//       res.json(response.data);
-//     })
-//     .catch(error => {
-//       console.error('Error unscrambling photo in Flask app:', error);
-//       res.status(500).json({ error: 'Failed to unscramble photo in Python service' });
-//     });
-// });
-
-// @app.route('/unscramble-photo', methods=['POST'])
-// def unscramble_photo():
-//     """
-//     Unscramble a photo using the same algorithms
-//     Expects JSON with: input, output, seed, algorithm, and algorithm-specific params
-//     """
-//     try:
-//         data = request.json
-//         if not data:
-//             return jsonify({'error': 'No JSON data provided'}), 400
-
-//         # Set mode to unscramble
-//         data['mode'] = 'unscramble'
-
-//         # Reuse the scramble_photo logic
-//         return scramble_photo()
-
-//     except Exception as e:
-//         return jsonify({'error': str(e)}), 500
-
-// if __name__ == '__main__':
-//     # Use the development server only for testing, not production on a VPS
-//     app.run(host='0.0.0.0', port=5000)
 
 
 // Photo leak detection endpoint
@@ -4096,7 +3730,7 @@ server.get('/download/:filename', (req, res) => {
 // Handle refunding credits
 server.post(PROXY + '/api/refund-credits', async (req, res) => {
   const { userId, credits, username, email, currentCredits } = req.body;
-
+  console.log('💸 Refund credits request received for user:', username, 'Credits to refund:', credits, "userId: ", userId);
   try {
     if (!userId || !credits) {
       return res.status(400).json({ success: false, message: 'Missing userId or credits' });
@@ -5094,26 +4728,190 @@ async function stripeBuycredits(data) {
 /////////////////////////////////////////////////////////
 
 
+// Get subscription data from Stripe by subscription ID or customer ID
+server.get(PROXY + '/api/get-stripe-subscription', async (req, res) => {
+  const { subscriptionId, customerId, email } = req.query;
+
+  try {
+    let subscription = null;
+
+    // If subscription ID is provided, fetch that specific subscription
+    if (subscriptionId) {
+      console.log(`[INFO] Fetching subscription by ID: ${subscriptionId}`);
+
+      subscription = await stripe.subscriptions.retrieve(subscriptionId, {
+        expand: ['items.data.price.product', 'customer', 'latest_invoice']
+      });
+
+      return res.json({
+        success: true,
+        subscription: subscription
+      });
+    }
+
+    // If customer ID is provided, fetch all subscriptions for that customer
+    else if (customerId) {
+      console.log(`[INFO] Fetching subscriptions for customer ID: ${customerId}`);
+
+      const subscriptions = await stripe.subscriptions.list({
+        customer: customerId,
+        limit: 100,
+        expand: ['data.items.data.price.product', 'data.customer', 'data.latest_invoice']
+      });
+
+      return res.json({
+        success: true,
+        subscriptions: subscriptions.data,
+        count: subscriptions.data.length
+      });
+    }
+
+    // If email is provided, find customer by email first, then get subscriptions
+    else if (email) {
+      console.log(`[INFO] Fetching subscriptions for customer email: ${email}`);
+
+      // Search for customer by email
+      const customers = await stripe.customers.list({
+        email: email,
+        limit: 1
+      });
+
+      if (customers.data.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: 'No customer found with that email',
+          status: 'not_found'
+        });
+      }
+
+      const customer = customers.data[0];
+      console.log(`[INFO] Found customer: ${customer.id}`);
+
+      // Fetch subscriptions for this customer
+      const subscriptions = await stripe.subscriptions.list({
+        customer: customer.id,
+        limit: 100,
+        expand: ['data.items.data.price.product', 'data.customer', 'data.latest_invoice']
+      });
+
+      return res.json({
+        success: true,
+        customer: {
+          id: customer.id,
+          email: customer.email,
+          name: customer.name
+        },
+        subscriptions: subscriptions.data,
+        count: subscriptions.data.length
+      });
+    }
+
+    // No valid identifier provided
+    else {
+      return res.status(400).json({
+        success: false,
+        error: 'Must provide subscriptionId, customerId, or email as query parameter',
+        status: 'invalid_input',
+        examples: {
+          bySubscriptionId: '/api/get-stripe-subscription?subscriptionId=sub_xxxxx',
+          byCustomerId: '/api/get-stripe-subscription?customerId=cus_xxxxx',
+          byEmail: '/api/get-stripe-subscription?email=user@example.com'
+        }
+      });
+    }
+
+  } catch (error) {
+    console.error('[ERROR] Failed to fetch subscription:', error);
+
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to fetch subscription data',
+      status: 'server_error',
+      code: error.code
+    });
+  }
+});
+
+
+// Get all active subscriptions (for admin/monitoring)
+server.get(PROXY + '/api/get-stripe-subscriptions-all', async (req, res) => {
+  const { status, limit = 10, starting_after, created_since, created_hours_ago } = req.query;
+
+  try {
+    console.log(`[INFO] Fetching all subscriptions with status: ${status || 'all'}, limit: ${limit}`);
+
+    const params = {
+      limit: Math.min(parseInt(limit), 100), // Cap at 100
+      expand: ['data.items.data.price.product', 'data.customer', 'data.latest_invoice']
+    };
+
+    // Filter by status if provided (active, canceled, incomplete, etc.)
+    if (status) {
+      params.status = status;
+    }
+
+    // Filter by creation time - Unix timestamp
+    if (created_since) {
+      params.created = {
+        gte: parseInt(created_since)
+      };
+      console.log(`[INFO] Filtering subscriptions created since: ${new Date(parseInt(created_since) * 1000).toISOString()}`);
+    }
+    // Helper: filter by hours ago (e.g., created_hours_ago=24 for last 24 hours)
+    else if (created_hours_ago) {
+      const hoursAgo = parseInt(created_hours_ago);
+      const timestamp = Math.floor(Date.now() / 1000) - (hoursAgo * 3600);
+      params.created = {
+        gte: timestamp
+      };
+      console.log(`[INFO] Filtering subscriptions created in last ${hoursAgo} hours (since: ${new Date(timestamp * 1000).toISOString()})`);
+    }
+
+    // Pagination support
+    if (starting_after) {
+      params.starting_after = starting_after;
+    }
+
+    const subscriptions = await stripe.subscriptions.list(params);
+
+    return res.json({
+      success: true,
+      subscriptions: subscriptions.data,
+      count: subscriptions.data.length,
+      has_more: subscriptions.has_more,
+      // Provide next page cursor if there are more results
+      next_cursor: subscriptions.has_more ? subscriptions.data[subscriptions.data.length - 1].id : null
+    });
+
+  } catch (error) {
+    console.error('[ERROR] Failed to fetch subscriptions:', error);
+
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to fetch subscriptions',
+      status: 'server_error'
+    });
+  }
+});
+
 
 // Sent from the client: timeRange, user, packageData from buy Credits page
 server.post(PROXY + '/api/verify-stripe-subscription', async (req, res) => {
 
-  const { timeRange, user, packageData } = req.body;
+  const { timeRange, user, subscriptionData } = req.body;
+
+  // example
+  // { "timeRange": { "start": null, "end": 1767385448125 }, "subscriptionData": { "amount": 1000, "dollars": 10, "plan": "Premium", "planType": "premium" }, "user": { "id": "LCBGL8EJ7L", "email": "testman@gmail.com", "username": "testman", "phone": "", "name": " ", "ip": "108.214.170.129", "userAgent": "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:146.0) Gecko/20100101 Firefox/146.0" } }
 
   const paymentData = {
     timeRange,
-    package: packageData,
+    package: subscriptionData,
+    // plan: subscriptionData,
     user
   };
 
   try {
-    // post to a local flask server for verification
-    // const flaskResponse = await axios.post('http://0.0.0.0:5005/verify-payment-data', paymentData, async (req, res) => {
-    //   return paymentData;
-    // }, {
-    //   headers: { 'Content-Type': 'application/json' },
-    //   timeout: 30000
-    // });
+
 
     const { package: pkg, timeRange, user } = paymentData;
 
@@ -5124,12 +4922,10 @@ server.post(PROXY + '/api/verify-stripe-subscription', async (req, res) => {
       });
     }
 
-    console.log(`[INFO] Verifying payment data for package: ${JSON.stringify(pkg)}, timeRange: ${JSON.stringify(timeRange)}, user: ${JSON.stringify(user)}`);
+    console.log(`[INFO] Verifying subscription data for package: ${JSON.stringify(pkg)}, timeRange: ${JSON.stringify(timeRange)}, user: ${JSON.stringify(user)}`);
 
     const timeRangeStart = timeRange.start;
     const timeRangeEnd = timeRange.end;
-
-
 
     // Fetch recent payments to search through
     const details = await getRecentPayments(20, true);
@@ -5141,8 +4937,6 @@ server.post(PROXY + '/api/verify-stripe-subscription', async (req, res) => {
       const statusCode = details.status === 'server_error' ? 500 : 404;
       return res.status(statusCode).json(details);
     }
-
-
 
     let possiblePaymentFound = false;
     const possibleMatchingPayments = [];
@@ -5176,6 +4970,7 @@ server.post(PROXY + '/api/verify-stripe-subscription', async (req, res) => {
 
 
     console.log(' Is there a possibleMatchingPayment?: ', possiblePaymentFound);
+
     if (!possiblePaymentFound) {
       console.log('[INFO] No possible matching payments found in the specified time range.');
       return res.status(404).json({
@@ -5218,13 +5013,13 @@ server.post(PROXY + '/api/verify-stripe-subscription', async (req, res) => {
       });
     }
 
-    console.log(`[INFO] Verified PaymentIntent: ${potentialVerifiedPayment.id}`);
+    console.log(`[INFO] Verified PaymentIntent Subscription: ${JSON.stringify(potentialVerifiedPayment)}`);
 
     const PACKAGES = [
-      { credits: 2500, dollars: 2.5, label: "$2.50", color: '#4caf50', priceId: 'price_1SR9nNEViYxfJNd2pijdhiBM' },
-      { credits: 5250, dollars: 5, label: "$5.00", color: '#2196f3', priceId: 'price_1SR9lZEViYxfJNd20x2uwukQ' },
-      { credits: 11200, dollars: 10, label: "$10.00", color: '#9c27b0', popular: true, priceId: 'price_1SR9kzEViYxfJNd27aLA7kFW' },
-      { credits: 26000, dollars: 20, label: "$20.00", color: '#f57c00', priceId: 'price_1SR9mrEViYxfJNd2dD5NHFoL' },
+      { credits: 2500, dollars: 2.50, label: "Basic", color: '#4caf50', priceId: 'price_1SR08eEViYxfJNd2ihaRH9Fk' },
+      { credits: 5250, dollars: 5, label: "Standard", color: '#2196f3', priceId: 'price_1SR09uEViYxfJNd2jL3JklFl' },
+      { credits: 11200, dollars: 10, label: "Premium", color: '#9c27b0', priceId: 'price_1SR0A9EViYxfJNd258I14txA' },
+
     ];
 
     const packageData = PACKAGES.find(pkg => pkg.dollars === potentialVerifiedPayment.amount / 100);
@@ -5238,6 +5033,10 @@ server.post(PROXY + '/api/verify-stripe-subscription', async (req, res) => {
         email: user.email,
         walletAddress: "Stripe",
         transactionId: potentialVerifiedPayment.id,
+        stripe_customer_id: potentialVerifiedPayment.customer,
+        stripe_subscription_id: potentialVerifiedPayment.created, // using created time as a placeholder
+        priceId: packageData.priceId,
+        label: packageData.label,
         blockExplorerLink: 'Stripe Payment',
         currency: 'USD',
         amount: potentialVerifiedPayment.amount,
@@ -5248,11 +5047,13 @@ server.post(PROXY + '/api/verify-stripe-subscription', async (req, res) => {
         userAgent: user.userAgent,
         ip: user.ip,
         dollars: packageData.dollars,
-        credits: packageData.credits
+        credits: packageData.credits,
+        planType: packageData.label.toLowerCase(),
+        plan: packageData.label
 
       }
 
-      await stripeBuycredits(data);
+      await stripeBuySubscription(data);
     }
 
     console.log('Payment verification completed successfully.');
@@ -5276,6 +5077,10 @@ async function stripeBuySubscription(data) {
       email,
       walletAddress,
       transactionId,
+      stripe_subscription_id,
+      stripe_customer_id,
+      priceId,
+      label,
       blockExplorerLink,
       currency,
       amount,
@@ -5285,7 +5090,10 @@ async function stripeBuySubscription(data) {
       orderLoggingEnabled,
       userAgent,
       ip,
-      dollars
+      dollars,
+      planType,
+      plan,
+      credits
     } = data;
 
     console.log('💰 Logging Stripe purchase for user:', username);
@@ -5318,34 +5126,93 @@ async function stripeBuySubscription(data) {
 
       console.log('✅ Logging purchase for user:', username);
 
+      // CREATE TABLE
+      // `subscriptions` (
+      //   `id` bigint NOT NULL AUTO_INCREMENT,
+      //   `user_id` bigint NOT NULL,
+      //   `stripe_subscription_id` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+      //   `stripe_customer_id` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+      //   `plan_id` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+      //   `plan_name` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+      //   `status` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+      //   `current_period_start` timestamp NULL DEFAULT NULL,
+      //   `current_period_end` timestamp NULL DEFAULT NULL,
+      //   `cancel_at_period_end` tinyint(1) DEFAULT '0',
+      //   `canceled_at` timestamp NULL DEFAULT NULL,
+      //   `trial_start` timestamp NULL DEFAULT NULL,
+      //   `trial_end` timestamp NULL DEFAULT NULL,
+      //   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+      //   `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      //   PRIMARY KEY (`id`),
+      //   UNIQUE KEY `stripe_subscription_id` (`stripe_subscription_id`),
+      //   UNIQUE KEY `unique_user_subscription` (`user_id`, `status`),
+
+      // Helper function to convert timestamp to MySQL datetime format
+      const toMySQLDateTime = (timestamp) => {
+        return new Date(timestamp).toISOString().slice(0, 19).replace('T', ' ');
+      };
+
+      const currentTime = Date.now();
+      const periodEndTime = currentTime + 30 * 24 * 60 * 60 * 1000;
+
+      const [subscription] = await pool.execute(
+        'INSERT into subscriptions (username, user_id, stripe_subscription_id, stripe_customer_id, plan_id, plan_name, status, current_period_start, current_period_end, cancel_at_period_end, canceled_at, trial_start, trial_end, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [
+          username,
+          userId,
+          stripe_subscription_id,  // Fixed: was using transactionId
+          stripe_customer_id,
+          priceId,
+          label,
+          'active',
+          toMySQLDateTime(currentTime),
+          toMySQLDateTime(periodEndTime),
+          0,
+          null,
+          null,
+          null,
+          toMySQLDateTime(currentTime),
+          toMySQLDateTime(currentTime)
+        ]
+      );
+
+      function convertUTCtoMySQLDatetime(utcSeconds) {
+        const date = new Date(utcSeconds * 1000);
+        return date.toISOString().slice(0, 19).replace('T', ' ');
+      }
+
+
       const [purchases] = await pool.execute(
-        'INSERT into buyCredits (username, id, name, email, walletAddress, transactionHash, blockExplorerLink, currency, amount, cryptoAmount, rate, date, time, session_id, orderLoggingEnabled, userAgent, ip, credits) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'INSERT into buyCredits (username, id, name, email, walletAddress, transactionHash, blockExplorerLink, currency, amount, cryptoAmount, rate, date, time, session_id, orderLoggingEnabled, userAgent, ip, credits, created_at, paymentMethod, package) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         [
           username,
           Math.random().toString(36).substring(2, 10),
           name,
           email,
-          walletAddress,
+          " Bonus credits", //walletAddress,
           transactionId,
-          "Stripe",
+          "www.stripe.com/subscriptions",
           currency,
-          amount,
-          cryptoAmount,
-          rate,
+          Math.floor(credits) / 2, // log half the amount as credits, the other half will be bonus credits
+          cryptoAmount, // keep the same cryptoAmount for reference
+          rate,  // keep the same rate for reference 1 usd = 1000 credits
           Date.now(),
           new Date().toISOString(),
           session_id,
           orderLoggingEnabled,
           userAgent,
           ip,
-          amount !== undefined && amount !== null ? Math.floor(amount) : 0
+          credits !== undefined && credits !== null ? Math.floor(credits) / 2 : 0,
+          convertUTCtoMySQLDatetime(stripe_subscription_id),
+          "stripe_subscription",
+          dollars + "$ " + planType + '_subscription',
         ]
       );
 
       await CreateNotification(
         'credits_purchased',
         'Credits Purchased',
-        `You have purchased ${amount} credits for $${dollars}.`,
+        `You have purchased a $${plan} plan for $${dollars}, and you also have received ${Math.floor(credits) / 2} bonus credits!!!`,
         'purchase',
         username || 'anonymous'
       );
@@ -5353,14 +5220,14 @@ async function stripeBuySubscription(data) {
       // Insert credits into USERDATA records
 
       // Update user credits
-      if (amount !== undefined && amount !== null && amount > 0) {
+      if (credits !== undefined && credits !== null && credits > 0) {
         await pool.execute(
-          'UPDATE userData SET credits = credits + ? WHERE username = ?',
-          [Math.floor(amount), username]
+          'UPDATE userData SET credits = credits + ?, accountType = ? WHERE username = ?',
+          [Math.floor(credits) / 2, planType, username]
         );
       }
 
-      return ({ success: true, purchases });
+      return ({ success: true, purchases, subscription });
 
     } catch (error) {
       console.error('Transaction verification error:', error);

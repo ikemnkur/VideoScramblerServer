@@ -391,7 +391,10 @@ def process_photo(input_path: str,
                   mode: str = "scramble",
                   percentage: Optional[int] = 100,
                   noise_intensity: Optional[int] = 0,
-                  noise_tile_size: Optional[int] = 16) -> str:
+                  noise_tile_size: Optional[int] = 16,
+                  noise_seed: Optional[int] = None,
+                  noise_mode: Optional[str] = None,
+                  noise_prng: Optional[float] = None) -> str:
     """
     Process a photo: scramble or unscramble according to mode.
     Returns path to params JSON (for scramble mode).
@@ -490,7 +493,10 @@ def process_photo_by_percentage(input_path: str,
                   mode: str = "scramble",
                   percentage: Optional[int] = 100,
                   noise_intensity: Optional[int] = 0,
-                  noise_tile_size: Optional[int] = 16) -> str:
+                  noise_tile_size: Optional[int] = None,
+                  noise_seed: Optional[int] = None,
+                  noise_mode: Optional[str] = None,
+                  noise_prng: Optional[float] = None) -> str:
     """
     Process a photo: scramble or unscramble according to mode.
     Only scrambles a certain percentage of tiles based on the percentage parameter.
@@ -667,10 +673,15 @@ def main():
     parser.add_argument("--percentage", type=int, default=100, help="Percentage of tiles to scramble (default: 100).")
     parser.add_argument("--mode", choices=["scramble", "unscramble"], default="scramble",
                         help="Operation mode (default: scramble). Unscramble assumes same seed/n/m.")
-    parser.add_argument("--noise-intensity", type=int, default=0,
+    parser.add_argument("--noise_intensity", type=int, default=0,
                         help="Noise intensity (0-128). 0 = no noise, 64 = moderate. Adds tileable noise before scrambling.")
-    parser.add_argument("--noise-tile-size", type=int, default=16,
-                        help="Size of noise tile pattern in pixels (default: 16).")
+    parser.add_argument("--noise_seed", type=int, default=0,
+                        help="Noise seed for generating tileable noise pattern.")
+    parser.add_argument("--noise_mode", type=str, default="add_mod256_tile",
+                        help="Noise mode for applying tileable noise before scrambling.")
+    
+    # parser.add_argument("--noise_tile_size", type=int, default=16,
+    #                     help="Size of noise tile pattern in pixels (default: 16).")
 
     args = parser.parse_args()
 
@@ -686,7 +697,7 @@ def main():
                 percentage=args.percentage,
                 mode=args.mode,
                 noise_intensity=args.noise_intensity,
-                noise_tile_size=args.noise_tile_size,
+                # noise_tile_size=args.noise_tile_size,
             )
         else:
             # Use the standard photo processing function for 100% scrambling
@@ -698,7 +709,7 @@ def main():
                 cols=args.cols,
                 mode=args.mode,
                 noise_intensity=args.noise_intensity,
-                noise_tile_size=args.noise_tile_size,
+                # noise_tile_size=args.noise_tile_size,
             )
         
         print(f"Done. Output photo: {args.output}")

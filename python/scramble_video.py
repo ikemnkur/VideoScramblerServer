@@ -114,7 +114,7 @@ def get_fourcc_for_output(output_path: str):
         return cv2.VideoWriter_fourcc(*"XVID"), True
     else:
         # Default fallback
-        return cv2.VideoWriter_fourcc(*"mp4v"), True
+        return cv2.VideoWriter_fourcc(*"VP80"), True
 
 def params_to_json(seed: int, n: int, m: int, perm_dest_to_src_0: List[int]) -> Dict[str, Any]:
     """
