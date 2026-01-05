@@ -28,6 +28,16 @@ from pydub import AudioSegment
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
 
+# Configure Python executable path for venv
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+PYTHON_CMD = os.path.join(BASE_DIR, 'venv', 'bin', 'python3')
+# Fallback to system python3 if venv doesn't exist
+if not os.path.exists(PYTHON_CMD):
+    PYTHON_CMD = 'python3'
+    print(f"⚠️  Warning: venv not found, using system python3")
+else:
+    print(f"✅ Using venv Python: {PYTHON_CMD}")
+
 # Track last request time for auto-cleanup
 last_request_time = time()
 cleanup_lock = threading.Lock()
@@ -295,198 +305,6 @@ def list_files():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
     
-
-# Scramble a photo using various algorithms
-# it looks for a file with a given filename, it should be in the python/inputs folder
-
-# @app.route('/scramble-photo-old', methods=['POST'])
-# def scramble_photo_old():
-#     """
-#     Scramble a photo using various algorithms (OLD VERSION)
-#     Expects JSON with: input, output, seed, mode, algorithm, and algorithm-specific params
-#     """
-#     # Accept payloads from the other backend which send:
-#     # { localFileName, localFilePath, params }
-#     # Normalize that into the expected schema (input, output, seed, mode, algorithm, ...)
-#     # incoming = request.get_json(silent=True)
-#     # if incoming and ('localFileName' in incoming or 'localFilePath' in incoming):
-#     #     params = incoming.get('params', {}) or {}
-#     #     input_name = incoming.get('localFileName') or os.path.basename(incoming.get('localFilePath', ''))
-#     #     output_name = params.get('output') or f"scrambled_{input_name}"
-#     #     normalized = {
-#     #         'input': input_name,
-#     #         'output': output_name,
-#     #         'seed': params.get('seed', 123456),
-#     #         'mode': params.get('mode', 'scramble'),
-#     #         'algorithm': params.get('algorithm', 'position'),
-#     #         'percentage': params.get('percentage', 100),
-#     #         'rows': params.get('rows'),
-#     #         'cols': params.get('cols'),
-#     #         'max_hue_shift': params.get('max_hue_shift'),
-#     #         'max_intensity_shift': params.get('max_intensity_shift')
-#     #     }
-#     #     # remove unset keys
-#     #     normalized = {k: v for k, v in normalized.items() if v is not None}
-#     #     # Cache normalized JSON so the code below (which reads request.json) gets this payload
-#     #     try:
-#     #         request._cached_json = normalized
-#     #     except Exception:
-#     #         # best-effort fallback: attach to flask.g (rarely needed)
-#     #         g.normalized_payload = normalized
-
-#     try:
-#         data = request.json
-#         if not data:
-#             return jsonify({'error': 'No JSON data provided'}), 400
-
-#         # Extract common parameters
-#         input_file = data.get('input')
-#         output_file = data.get('output')
-#         seed = data.get('seed', 123456)
-#         mode = data.get('mode', 'scramble')
-#         algorithm = data.get('algorithm', 'position')
-#         percentage = data.get('percentage', 100)
-#         noise_seed = data.get('noise_seed')
-#         noise_intensity = data.get('noise_intensity')
-#         noise_mode = data.get('noise_mode')
-#         noise_prng = data.get('noise_prng')
-
-#         if not input_file or not output_file:
-#             return jsonify({'error': 'input and output filenames required'}), 400
-
-#         # Build file paths
-#         input_path = os.path.join(app.config['UPLOAD_FOLDER'], input_file)
-#         output_path = os.path.join(app.config['OUTPUTS_FOLDER'], output_file)
-
-#         if not os.path.exists(input_path):
-#             return jsonify({'error': f'Input file {input_file} not found'}), 404
-
-#         # Build command based on algorithm
-#         cmd = []
-        
-#         if algorithm == 'position':
-#             # Position scrambling (default tile shuffling)
-#             rows = data.get('rows', 6)
-#             cols = data.get('cols', 6)
-#             cmd = [
-#                 'python3', 'scramble_photo.py',
-#                 '--input', input_path,
-#                 '--output', output_path,
-#                 '--seed', str(seed),
-#                 '--rows', str(rows),
-#                 '--cols', str(cols),
-#                 '--mode', mode,
-#                 '--percentage', str(percentage),
-#                 '--noise_seed', str(noise_seed),
-#                 '--noise_intensity', str(noise_intensity),
-#                 '--noise_mode', str(noise_mode),
-#                 
-#             ]
-        
-#         elif algorithm == 'color':
-#             # Color scrambling (hue shifting)
-#             max_hue_shift = data.get('max_hue_shift', 64)
-#             cmd = [
-#                 'python3', 'scramble_photo.py',
-#                 '--input', input_path,
-#                 '--output', output_path,
-#                 '--algorithm', 'color',
-#                 '--max-hue-shift', str(max_hue_shift),
-#                 '--seed', str(seed),
-#                 '--mode', mode,
-#                 '--percentage', str(percentage),
-#                 '--noise_seed', str(noise_seed),
-#                 '--noise_intensity', str(noise_intensity),
-#                 '--noise_mode', str(noise_mode),
-#                 
-#             ]
-        
-#         elif algorithm == 'rotation':
-#             # Rotation scrambling
-#             rows = data.get('rows', 6)
-#             cols = data.get('cols', 6)
-#             cmd = [
-#                 'python3', 'scramble_photo_rotate.py',
-#                 '--input', input_path,
-#                 '--output', output_path,
-#                 '--seed', str(seed),
-#                 '--rows', str(rows),
-#                 '--cols', str(cols),
-#                 '--mode', mode,
-#                 '--algorithm', 'rotation',
-#                 '--percentage', str(percentage),
-#                 '--noise_seed', str(noise_seed),
-#                 '--noise_intensity', str(noise_intensity),
-#                 '--noise_mode', str(noise_mode),
-#                 
-#             ]
-        
-#         elif algorithm == 'mirror':
-#             # Mirror scrambling
-#             rows = data.get('rows', 6)
-#             cols = data.get('cols', 6)
-#             cmd = [
-#                 'python3', 'scramble_photo_mirror.py',
-#                 '--input', input_path,
-#                 '--output', output_path,
-#                 '--seed', str(seed),
-#                 '--rows', str(rows),
-#                 '--cols', str(cols),
-#                 '--mode', mode,
-#                 '--algorithm', 'mirror',
-#                 '--percentage', str(percentage),
-#                 '--noise_seed', str(noise_seed),
-#                 '--noise_intensity', str(noise_intensity),
-#                 '--noise_mode', str(noise_mode),
-#                 
-#             ]
-        
-#         elif algorithm == 'intensity':
-#             # Intensity scrambling
-#             max_intensity_shift = data.get('max_intensity_shift', 128)
-#             cmd = [
-#                 'python3', 'scramble_photo_intensity.py',
-#                 '--input', input_path,
-#                 '--output', output_path,
-#                 '--algorithm', 'intensity',
-#                 '--max-intensity-shift', str(max_intensity_shift),
-#                 '--seed', str(seed),
-#                 '--mode', mode,
-#                 '--percentage', str(percentage),
-#                 '--noise_seed', str(noise_seed),
-#                 '--noise_intensity', str(noise_intensity),
-#                 '--noise_mode', str(noise_mode),
-#                 
-#             ]
-        
-#         else:
-#             return jsonify({'error': f'Unknown algorithm: {algorithm}'}), 400
-
-#         # Execute the scrambling command
-#         result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-        
-#         if result.returncode != 0:
-#             return jsonify({
-#                 'error': 'Scrambling failed',
-#                 'details': result.stderr
-#             }), 500
-
-#         # Check if output file was created
-#         if not os.path.exists(output_path):
-#             return jsonify({'error': 'Output file was not created'}), 500
-
-#         return jsonify({
-#             'message': 'Photo scrambled successfully',
-#             'output_file': output_file,
-#             'algorithm': algorithm,
-#             'seed': seed,
-#             'download_url': f'/download/{output_file}'
-#         }), 200
-
-#     except subprocess.TimeoutExpired:
-#         return jsonify({'error': 'Scrambling operation timed out'}), 500
-#     except Exception as e:
-#         return jsonify({'error': str(e)}), 500
 
 
 @app.route('/scramble-photo', methods=['POST'])
@@ -858,7 +676,7 @@ def scramble_video():
             if percentage < 100:
                 print("⚠️  FLASK WARNING: Partial percentage scrambling for videos may lead to unexpected results.")
                 cmd = [
-                    'python3', 'scramble_video.py',
+                    PYTHON_CMD, 'scramble_video.py',
                     '--input', input_path,
                     '--output', output_path,
                     '--seed', str(seed),
@@ -870,7 +688,7 @@ def scramble_video():
             else:
                 print("✅ FLASK: Full percentage scrambling for videos.")
                 cmd = [
-                    'python3', 'scramble_video.py',
+                    PYTHON_CMD, 'scramble_video.py',
                     '--input', input_path,
                     '--output', output_path,
                     '--seed', str(seed),
@@ -885,7 +703,7 @@ def scramble_video():
             max_hue_shift = data.get('max_hue_shift', 64)
             print(f"  - Color algorithm: max_hue_shift={max_hue_shift}")
             cmd = [
-                'python3', 'scramble_video.py',
+                PYTHON_CMD, 'scramble_video.py',
                 '--input', input_path,
                 '--output', output_path,
                 '--algorithm', 'color',
@@ -901,7 +719,7 @@ def scramble_video():
             cols = data.get('cols', 6)
             print(f"  - Rotation algorithm: rows={rows}, cols={cols}")
             cmd = [
-                'python3', 'scramble_video_rotate.py',
+                PYTHON_CMD, 'scramble_video_rotate.py',
                 '--input', input_path,
                 '--output', output_path,
                 '--seed', str(seed),
@@ -918,7 +736,7 @@ def scramble_video():
             cols = data.get('cols', 6)
             print(f"  - Mirror algorithm: rows={rows}, cols={cols}")
             cmd = [
-                'python3', 'scramble_video_mirror.py',
+                PYTHON_CMD, 'scramble_video_mirror.py',
                 '--input', input_path,
                 '--output', output_path,
                 '--seed', str(seed),
@@ -934,7 +752,7 @@ def scramble_video():
             max_intensity_shift = data.get('max_intensity_shift', 128)
             print(f"  - Intensity algorithm: max_intensity_shift={max_intensity_shift}")
             cmd = [
-                'python3', 'scramble_video_intensity.py',
+                PYTHON_CMD, 'scramble_video_intensity.py',
                 '--input', input_path,
                 '--output', output_path,
                 '--algorithm', 'intensity',
