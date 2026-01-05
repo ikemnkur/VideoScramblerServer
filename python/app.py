@@ -32,11 +32,11 @@ CORS(app)  # Enable CORS for all routes
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PYTHON_CMD = os.path.join(BASE_DIR, 'venv', 'bin', 'python3')
 # Fallback to system python3 if venv doesn't exist
-if not os.path.exists(PYTHON_CMD):
-    PYTHON_CMD = 'python3'
-    print(f"⚠️  Warning: venv not found, using system python3")
-else:
-    print(f"✅ Using venv Python: {PYTHON_CMD}")
+# if not os.path.exists(PYTHON_CMD):
+#     PYTHON_CMD = 'python3'
+#     print(f"⚠️  Warning: venv not found, using system python3")
+# else:
+#     print(f"✅ Using venv Python: {PYTHON_CMD}")
 
 # Track last request time for auto-cleanup
 last_request_time = time()
