@@ -381,7 +381,7 @@ def scramble_photo():
             cols = data.get('cols', 6)
             print(f"  - Position algorithm: rows={rows}, cols={cols}")
             cmd = [
-                'python3', 'scramble_photo.py',
+                PYTHON_CMD, 'scramble_photo.py',
                 '--input', input_path,
                 '--output', output_path,
                 '--seed', str(seed),
@@ -400,7 +400,7 @@ def scramble_photo():
             max_hue_shift = data.get('max_hue_shift', 64)
             print(f"  - Color algorithm: max_hue_shift={max_hue_shift}")
             cmd = [
-                'python3', 'scramble_photo.py',
+                PYTHON_CMD, 'scramble_photo.py',
                 '--input', input_path,
                 '--output', output_path,
                 '--algorithm', 'color',
@@ -420,7 +420,7 @@ def scramble_photo():
             cols = data.get('cols', 6)
             print(f"  - Rotation algorithm: rows={rows}, cols={cols}")
             cmd = [
-                'python3', 'scramble_photo_rotate.py',
+                PYTHON_CMD, 'scramble_photo_rotate.py',
                 '--input', input_path,
                 '--output', output_path,
                 '--seed', str(seed),
@@ -441,7 +441,7 @@ def scramble_photo():
             cols = data.get('cols', 6)
             print(f"  - Mirror algorithm: rows={rows}, cols={cols}")
             cmd = [
-                'python3', 'scramble_photo_mirror.py',
+                PYTHON_CMD, 'scramble_photo_mirror.py',
                 '--input', input_path,
                 '--output', output_path,
                 '--seed', str(seed),
@@ -461,7 +461,7 @@ def scramble_photo():
             max_intensity_shift = data.get('max_intensity_shift', 128)
             print(f"  - Intensity algorithm: max_intensity_shift={max_intensity_shift}")
             cmd = [
-                'python3', 'scramble_photo_intensity.py',
+                PYTHON_CMD, 'scramble_photo_intensity.py',
                 '--input', input_path,
                 '--output', output_path,
                 '--algorithm', 'intensity',
