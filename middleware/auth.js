@@ -2,16 +2,33 @@ const jwt = require('jsonwebtoken');
 
 function authenticateToken(req, res, next) {
   const authHeader = req.headers['authorization'];
-  // console.log('Auth header:', authHeader);
   const token = authHeader && authHeader.split(' ')[1];
+
+  // console.log('Request Headers:', req.headers);
+
+  // authHeader
+  // console.log('🔐 Authorization header:', authHeader);
+  // console.log('🔐 Authenticating token:' , token);
+  // console.log('🔐 Host:' , req.host);
   
-  if (token == null) return res.status(401).json({ message: 'No token provided' });
+  if (token == null) {
+    console.log('❌ No token provided');
+    return res.status(401).json({ success: false, message: 'No token provided' });
+  }
+
+  // Check if JWT_SECRET is configured
+  if (!process.env.JWT_SECRET) {
+    console.error('❌ CRITICAL: JWT_SECRET not configured in environment variables!');
+    return res.status(500).json({ success: false, message: 'Server configuration error' });
+  }
 
   jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
-    if (err) console.log('JWT verify error: ');
-    if (err) return res.status(403).json({ message: 'Invalid or expired token' });
+    if (err) {
+      console.log('❌ JWT verify error:', err.message);
+      return res.status(403).json({ success: false, message: 'Invalid or expired token' });
+    }
     req.user = user;
-    // console.log('Authenticated user:', req.user);
+    // console.log('✅ Authenticated user:', req.user.username || req.user.email);
     next();
   });
 }

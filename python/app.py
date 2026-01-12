@@ -305,6 +305,230 @@ def list_files():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
     
+@app.route('/audio-stegano-embed', methods=['POST'])
+def audio_stegano_embed():
+    """
+    Embed a secret hidden data into an audio file using steganography
+    Expects JSON with: input, output, secret_message, and optional parameters
+    """
+    print("\n" + "="*60)
+    print("🔊 FLASK: Audio steganography request received")
+    print("="*60)
+
+    try:
+        data = request.json
+        if not data:
+            print("❌ FLASK ERROR: No JSON data provided")
+            return jsonify({'error': 'No JSON data provided'}), 400
+        
+        print(f"📋 FLASK: Received payload: {json.dumps(data, indent=2)}")
+        
+        # Extract parameters
+        input_file = data.get('input')
+        output_file = data.get('output')
+        secret_message = data.get('secret_message')
+        
+        if not input_file or not output_file or not secret_message:
+            print("❌ FLASK ERROR: Missing required parameters")
+            return jsonify({'error': 'input, output, and secret_message are required'}), 400
+        
+        input_path = os.path.join(app.config['UPLOAD_FOLDER'], input_file)
+        output_path = os.path.join(app.config['OUTPUTS_FOLDER'], output_file)
+
+        print(f"\n📁 FLASK: File paths:")
+        print(f"  - Input path: {input_path}")
+        print(f"  - Output path: {output_path}")
+
+        if not os.path.exists(input_path):
+            print(f"❌ FLASK ERROR: Input file not found at: {input_path}")
+            return jsonify({'error': f'Input file {input_file} not found'}), 404
+
+        # Build command to run the audio steganography script
+        # audio_stegano.py requires: --mode embed --original <input> --output <output> --data <message>
+        cmd = [
+            PYTHON_CMD, 'audio_stegano.py',
+            '--mode', 'embed',
+            '--original', input_path,
+            '--output', output_path,
+            '--data', secret_message
+        ]
+
+        print(f"\n🚀 FLASK: Executing command:")
+        print(f"  Command: {' '.join(cmd)}")
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        
+        print(f"\n📤 FLASK: Command execution completed")
+        print(f"  - Return code: {result.returncode}")
+        if result.stdout:
+            print(f"  - STDOUT: {result.stdout}")
+        if result.stderr:
+            print(f"  - STDERR: {result.stderr}")
+        
+        if result.returncode != 0:
+            print(f"❌ FLASK ERROR: Audio steganography command failed")
+            return jsonify({
+                'error': 'Audio steganography failed',
+                'details': result.stderr,
+                'stdout': result.stdout,
+                'returncode': result.returncode
+            }), 500
+
+        # Check if output file was created
+        if not os.path.exists(output_path):
+            print(f"❌ FLASK ERROR: Output file was not created at: {output_path}")
+            return jsonify({'error': 'Output file was not created'}), 500
+        
+        print(f"✅ FLASK: Watermarked audio file created successfully at: {output_path}")
+
+        response_data = {
+            'success': True,
+            'message': 'Audio watermarked successfully',
+            'output_file': output_file,
+            'download_url': f'/download/{output_file}'
+        }
+        
+        print(f"\n✅ FLASK: Sending success response:")
+        print(f"  {json.dumps(response_data, indent=2)}")
+        print("="*60 + "\n")
+        
+        return jsonify(response_data), 200
+
+    except subprocess.TimeoutExpired:
+        print(f"❌ FLASK ERROR: Audio steganography operation timed out")
+        print("="*60 + "\n")
+        return jsonify({'error': 'Audio steganography operation timed out'}), 500
+    except Exception as e:
+        print(f"❌ FLASK ERROR: Unexpected exception: {str(e)}")
+        import traceback
+        print(f"  Traceback: {traceback.format_exc()}")
+        print("="*60 + "\n")
+        return jsonify({'error': str(e), 'type': type(e).__name__}), 500
+
+
+
+@app.route('/audio-stegano-extract', methods=['POST'])
+def audio_stegano_extract():
+    """
+    Extract hidden steganographic data from an audio file
+    Expects JSON with: input (leaked audio), original (optional), keyData, keyCode
+    """
+    print("\n" + "="*60)
+    print("🔍 FLASK: Audio steganography extraction request received")
+    print("="*60)
+
+    try:
+        data = request.json
+        if not data:
+            print("❌ FLASK ERROR: No JSON data provided")
+            return jsonify({'error': 'No JSON data provided'}), 400
+        
+        print(f"📋 FLASK: Received payload: {json.dumps(data, indent=2)}")
+        
+        # Extract parameters
+        leaked_file = data.get('input')  # The leaked/watermarked audio
+        original_file = data.get('original')  # Original audio (optional, for comparison)
+        
+        if not leaked_file:
+            print("❌ FLASK ERROR: Missing leaked audio file")
+            return jsonify({'error': 'input (leaked audio) is required'}), 400
+        
+        leaked_path = os.path.join(app.config['UPLOAD_FOLDER'], leaked_file)
+        
+        print(f"\n📁 FLASK: File paths:")
+        print(f"  - Leaked audio path: {leaked_path}")
+
+        if not os.path.exists(leaked_path):
+            print(f"❌ FLASK ERROR: Leaked audio file not found at: {leaked_path}")
+            return jsonify({'error': f'Leaked audio file {leaked_file} not found'}), 404
+
+        # Build command to extract steganographic data
+        # audio_stegano.py requires: --mode extract --original <original> --modified <leaked>
+        if original_file:
+            original_path = os.path.join(app.config['UPLOAD_FOLDER'], original_file)
+            if not os.path.exists(original_path):
+                print(f"⚠️  FLASK WARNING: Original audio not found, extracting without comparison")
+                original_path = leaked_path  # Use leaked as original for extraction
+        else:
+            original_path = leaked_path  # Use leaked as original for extraction
+
+        cmd = [
+            PYTHON_CMD, 'audio_stegano.py',
+            '--mode', 'extract',
+            '--original', original_path,
+            '--modified', leaked_path
+        ]
+
+        print(f"\n🚀 FLASK: Executing extraction command:")
+        print(f"  Command: {' '.join(cmd)}")
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        
+        print(f"\n📤 FLASK: Command execution completed")
+        print(f"  - Return code: {result.returncode}")
+        if result.stdout:
+            print(f"  - STDOUT: {result.stdout}")
+        if result.stderr:
+            print(f"  - STDERR: {result.stderr}")
+        
+        if result.returncode != 0:
+            print(f"❌ FLASK ERROR: Audio extraction command failed")
+            return jsonify({
+                'success': False,
+                'error': 'Audio extraction failed',
+                'details': result.stderr,
+                'extracted_code': None
+            }), 500
+
+        # Parse the extracted code from stdout
+        extracted_code = None
+        if result.stdout:
+            # Look for "Extracted data:" in the output
+            for line in result.stdout.split('\n'):
+                if 'Extracted data:' in line or 'Data:' in line:
+                    extracted_code = line.split(':', 1)[1].strip()
+                    break
+        
+        if not extracted_code:
+            # Try to get the last non-empty line as the extracted code
+            lines = [l.strip() for l in result.stdout.split('\n') if l.strip()]
+            if lines:
+                extracted_code = lines[-1]
+        
+        print(f"🔑 FLASK: Extracted code: {extracted_code or 'None'}")
+
+        response_data = {
+            'success': bool(extracted_code),
+            'message': 'Audio extraction completed',
+            'extracted_code': extracted_code
+        }
+        
+        print(f"\n✅ FLASK: Sending extraction response:")
+        print(f"  {json.dumps(response_data, indent=2)}")
+        print("="*60 + "\n")
+        
+        return jsonify(response_data), 200
+
+    except subprocess.TimeoutExpired:
+        print(f"❌ FLASK ERROR: Audio extraction operation timed out")
+        print("="*60 + "\n")
+        return jsonify({
+            'success': False,
+            'error': 'Audio extraction operation timed out',
+            'extracted_code': None
+        }), 500
+    except Exception as e:
+        print(f"❌ FLASK ERROR: Unexpected exception: {str(e)}")
+        import traceback
+        print(f"  Traceback: {traceback.format_exc()}")
+        print("="*60 + "\n")
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'type': type(e).__name__,
+            'extracted_code': None
+        }), 500
+
 
 
 @app.route('/scramble-photo', methods=['POST'])

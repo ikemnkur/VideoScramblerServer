@@ -6,6 +6,7 @@ const bcrypt = require('bcrypt');
 const { v4: uuidv4 } = require('uuid');
 // const axios = require('axios');
 const multer = require('multer');
+const jwt = require('jsonwebtoken');
 
 // const multer = require('multer');
 const axios = require('axios');
@@ -13,7 +14,8 @@ const fs = require('fs');
 const path = require('path');
 const util = require('util'); // Node.js utility for formatting arguments
 
-const authenticateToken = require('../middleware/auth');
+// const authenticateToken = require('../middleware/auth');
+const authenticateToken = require('./middleware/auth');
 
 const server = express();
 
@@ -132,6 +134,10 @@ const corsOptions = {
     }
   },
   credentials: true,
+    // Allow Authorization header and other custom headers
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
+  // Expose headers that the client can access
+  exposedHeaders: ['Authorization'],
   optionsSuccessStatus: 200
 };
 
@@ -1394,14 +1400,24 @@ server.post(PROXY + '/api/auth/login', async (req, res) => {
       );
 
       // Generate a proper JWT-like token (in production, use actual JWT)
-      const token = Buffer.from(`${user.id}_${Date.now()}_${Math.random()}`).toString('base64');
+      // const token = Buffer.from(`${user.id}_${Date.now()}_${Math.random()}`).toString('base64');
 
-      res.json({
-        success: true,
-        user: userData,
-        token: token,
-        message: 'Login successful'
-      });
+      // const token = jwt.sign({ id: user.id, user_id: user.user_id, accountId: user.account_id }, process.env.JWT_SECRET, { expiresIn: '1h' });
+    const token = jwt.sign({
+      id: user.id,
+      email: user.email,
+      username: user.username,  // Add this line
+      credits: user.credits
+    }, process.env.JWT_SECRET, { expiresIn: '1h' });
+
+    res.json({ token, user: { id: user.id, username: user.username, email: user.email, credits: user.credits } });
+
+      // res.json({
+      //   success: true,
+      //   user: userData,
+      //   token: token,
+      //   message: 'Login successful'
+      // });
     } else {
       res.status(401).json({
         success: false,
@@ -1650,16 +1666,53 @@ server.post(PROXY + '/api/auth/register', async (req, res) => {
 // email-service.js
 const nodemailer = require('nodemailer');
 
-// Configure nodemailer with your SMTP settings
+// // Configure nodemailer with your SMTP settings
+// const transporter = nodemailer.createTransport({
+//   host: process.env.SMTP_HOST || 'smtp.example.com',
+//   port: process.env.SMTP_PORT || 587,
+//   secure: process.env.SMTP_SECURE === 'true',
+//   auth: {
+//     user: process.env.SMTP_USER || 'your-email@example.com',
+//     pass: process.env.SMTP_PASS || 'your-password'
+//   }
+// });
+
 const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST || 'smtp.example.com',
-  port: process.env.SMTP_PORT || 587,
-  secure: process.env.SMTP_SECURE === 'true',
+  host: 'mail.videoscrambler.com',
+  port: 587,
+  secure: false, // true for 465, false for other ports
   auth: {
-    user: process.env.SMTP_USER || 'your-email@example.com',
-    pass: process.env.SMTP_PASS || 'your-password'
+    user: 'emailuser@videoscrambler.com',
+    pass: 'Password!*'
   }
 });
+
+// async function sendPromoEmail(recipients) {
+//   const mailOptions = {
+//     from: '"Your Company" <noreply@yourdomain.com>',
+//     to: recipients.join(', '),
+//     subject: 'Monthly Promotion',
+//     html: '<h1>Special Offer This Month!</h1><p>Your promo content here...</p>'
+//   };
+
+//   await transporter.sendMail(mailOptions);
+// }
+
+// const recipients = ['ikemuru@gmail.com', 'ikenuru@gmail.com'];
+// sendPromoEmail(recipients)
+
+// // Schedule promotional email every 30 days (only runs after the first interval)
+// const sendScheduledPromoEmail = () => {
+//   const recipients = ['ikemuru@gmail.com', 'ikenuru@gmail.com'];
+//   sendPromoEmail(recipients)
+//     .then(() => console.log('Promotional email sent successfully'))
+//     .catch(err => console.error('Error sending promotional email:', err));
+//   console.log('Scheduled promotional email sent to:', recipients);
+// };
+
+// // Set up the interval to run every 30 days
+// setInterval(sendScheduledPromoEmail, 30 * 24 * 60 * 60 * 1000);
+// console.log('Promotional email scheduler initialized. First email will be sent in 30 days.');
 
 // Send password reset email
 async function sendPasswordResetEmail(email, username, newPassword) {
@@ -1672,7 +1725,7 @@ async function sendPasswordResetEmail(email, username, newPassword) {
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 5px;">
           <h2 style="color: #333;">Password Reset</h2>
           <p>Hello ${username},</p>
-          <p>Your password has been reset by an administrator.</p>
+          <p>Your password ha s been reset by an administrator.</p>
           <p>Your new password is: <strong>${newPassword}</strong></p>
           <p>Please login with this password and change it immediately for security reasons.</p>
           <p style="margin-top: 30px; padding-top: 15px; border-top: 1px solid #e0e0e0; font-size: 12px; color: #777;">
@@ -1739,14 +1792,12 @@ server.post(PROXY + '/api/wallet/balance/:username', authenticateToken, async (r
     //   [username]
     // );
 
-    console.log("Fetching wallet balance for user:", username, +" : " + email);
+    console.log("Fetching wallet balance for user:", username, " : ",  email);
 
     const [users] = await pool.execute(
       'SELECT credits FROM userData WHERE username = ? and email = ?',
       [username, email]
     );
-
-
 
     const user = users[0];
 
@@ -1755,6 +1806,7 @@ server.post(PROXY + '/api/wallet/balance/:username', authenticateToken, async (r
         balance: user.credits,
         credits: user.credits,
       });
+      console.log(`User ${username} has ${user.credits} credits.`);
     } else {
       res.json({ balance: 750, credits: 750 }); // Default demo values
     }
@@ -2405,7 +2457,7 @@ server.get(PROXY + '/api/actions/:username', authenticateToken, async (req, res)
 });
 
 // Get all actions (admin/debug use)
-server.get(PROXY + '/api/actions', authenticateToken, authenticateToken, async (req, res) => {
+server.get(PROXY + '/api/actions', authenticateToken, async (req, res) => {
   try {
     const [actions] = await pool.execute(
       'SELECT * FROM actions ORDER BY date DESC'
@@ -3382,6 +3434,7 @@ const cron = require('node-cron');
 const { time } = require('console');
 const { Server } = require('http');
 const { json } = require('stream/consumers');
+const { emit } = require('process');
 
 cron.schedule('*/30 * * * *', async () => {
 
@@ -3839,11 +3892,143 @@ const upload = multer({
   dest: 'python/inputs',
   limits: { fileSize: 250 * 1024 * 1024 }, // 10MB limit
   fileFilter: function (req, file, cb) {
-    // Accept images and videos only
-    if (!file.mimetype.startsWith('image/') && !file.mimetype.startsWith('video/')) {
-      return cb(new Error('Only image and video files are allowed!'), false);
+    // Accept images, videos, and audio only
+    if (!file.mimetype.startsWith('image/') && !file.mimetype.startsWith('video/')&& !file.mimetype.startsWith('audio/')) {
+      return cb(new Error('Only image, video, and audio files are allowed!'), false);
     }
     cb(null, true);
+  }
+});
+
+
+
+// =============================
+// SCRAMBLE PHOTO ENDPOINT - UPDATED VERSION
+// Handles both old flat format and new nested format with noise parameters
+// =============================
+
+server.post(PROXY + '/api/audio-stegano-embed', upload.single('file'), authenticateToken, async (req, res) => {
+  console.log('🔊 Audio steganography request received');
+
+  try {
+    // 1) Ensure file was uploaded
+    if (!req.file) {
+      return res.status(400).json({ 
+        success: false,
+        error: 'No audio file provided' 
+      });
+    }
+
+    console.log('✅ File uploaded:', req.file.filename);
+    console.log('📁 File path:', req.file.path);
+
+    // 2) Parse steganography data (user info) from params field
+    let steganoData;
+    try {
+      steganoData = typeof req.body.params === 'string'
+        ? JSON.parse(req.body.params)
+        : (req.body.params || {});
+    } catch (parseError) {
+      console.error('❌ Failed to parse steganography parameters:', parseError);
+      return res.status(400).json({ 
+        success: false,
+        error: 'Invalid parameters format' 
+      });
+    }
+
+    console.log('📋 Steganography data (user info):', steganoData);
+
+    //  user info for watermarking
+    const { username, time, userid } = steganoData;
+    
+    if (!username || !userid) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required user information (username, userid)'
+      });
+    }
+
+    // 3) Prepare Flask payload
+    const inputFile = req.file.filename;
+    const outputFile = `watermarked_${inputFile}`;
+    
+    // Create secret message from user info
+    const secretMessage = JSON.stringify({
+      username,
+      userid,
+      timestamp: time || new Date().toISOString()
+    });
+
+    const flaskPayload = {
+      input: inputFile,
+      output: outputFile,
+      secret_message: secretMessage
+    };
+
+    console.log('🔄 Sending payload to Flask:', flaskPayload);
+    console.log('📡 Flask URL:', `${FLASKAPP_LINK}/audio-stegano-embed`);
+
+    // 4) Call Flask audio steganography endpoint
+    const flaskResponse = await axios.post(
+      `${FLASKAPP_LINK}/audio-stegano-embed`,
+      flaskPayload,
+      {
+        timeout: 60000,
+        headers: { 'Content-Type': 'application/json' }
+      }
+    );
+
+    console.log('✅ Flask response received:', flaskResponse.data);
+
+    const data = flaskResponse.data;
+
+    // 5) Send success response to frontend
+    res.json({
+      success: true,
+      output_file: data.output_file,
+      download_url: data.download_url,
+      message: data.message || 'Audio watermarked successfully',
+      watermark: {
+        username,
+        userid,
+        timestamp: time || new Date().toISOString()
+      },
+      ...data
+    });
+
+  } catch (error) {
+    console.error('❌ Error in /api/audio-stegano endpoint:', error.message);
+
+    // Cleanup uploaded file if processing failed
+    if (req.file && fs.existsSync(req.file.path)) {
+      try {
+        fs.unlinkSync(req.file.path);
+        console.log('🗑️  Cleaned up failed upload:', req.file.filename);
+      } catch (unlinkError) {
+        console.error('Failed to delete file:', unlinkError);
+      }
+    }
+
+    if (error.code === 'ECONNREFUSED') {
+      return res.status(503).json({
+        success: false,
+        error: 'Python/Flask service is not running. Please start the Flask server on port 5000.'
+      });
+    }
+
+    if (error.response) {
+      return res.status(error.response.status || 500).json({
+        success: false,
+        error: error.response.data?.error || 'Audio steganography failed in Python service',
+        details: error.response.data
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      error: 'Failed to apply audio steganography',
+      message: error.message
+    });
   }
 });
 
@@ -4555,11 +4740,11 @@ server.post(PROXY + '/api/check-photo-leak', authenticateToken, async (req, res)
 
 // Audio leak detection endpoint
 server.post(PROXY + '/api/check-audio-leak', authenticateToken, async (req, res) => {
-  console.log('\\n' + '='.repeat(60));
+  console.log('\n' + '='.repeat(60));
   console.log('🔍 NODE: Audio leak check request received');
   console.log('='.repeat(60));
 
-  // Setup multer for this endpoint if not already configured
+  // Setup multer to handle multiple files (originalAudio and leakedAudio)
   const upload = multer({
     dest: 'uploads/',
     limits: { fileSize: 50 * 1024 * 1024 }, // 50MB limit for audio files
@@ -4572,27 +4757,63 @@ server.post(PROXY + '/api/check-audio-leak', authenticateToken, async (req, res)
     }
   });
 
-  upload.single('file')(req, res, async (err) => {
+  upload.fields([
+    { name: 'originalAudio', maxCount: 1 },
+    { name: 'leakedAudio', maxCount: 1 }
+  ])(req, res, async (err) => {
     if (err) {
       console.error('❌ NODE ERROR: Multer error:', err);
       return res.status(400).json({ error: err.message });
     }
 
+    const uploadedFiles = [];
+    const LEAK_CHECK_COST = 5; // Credits cost for leak checking
+
     try {
-      if (!req.file) {
-        return res.status(400).json({ error: 'No file uploaded' });
+      // Validate that both files were uploaded
+      if (!req.files || !req.files.originalAudio || !req.files.leakedAudio) {
+        return res.status(400).json({ 
+          error: 'Both original and leaked audio files are required' 
+        });
       }
 
-      const filename = req.file.filename;
-      console.log(`📤 NODE: File saved as: ${filename}`);
+      const originalFile = req.files.originalAudio[0];
+      const leakedFile = req.files.leakedAudio[0];
+      uploadedFiles.push(originalFile.path, leakedFile.path);
 
-      // Step 1: Send to Flask to extract steganographic code
-      console.log('📡 NODE: Sending to Flask for code extraction...');
+      console.log(`📤 NODE: Original audio saved as: ${originalFile.filename}`);
+      console.log(`📤 NODE: Leaked audio saved as: ${leakedFile.filename}`);
+
+      // Parse optional keyData or keyCode
+      let keyData = null;
+      let keyCode = null;
+      
+      if (req.body.keyData) {
+        try {
+          keyData = typeof req.body.keyData === 'string' 
+            ? JSON.parse(req.body.keyData) 
+            : req.body.keyData;
+          console.log('📋 NODE: Key data provided');
+        } catch (e) {
+          console.warn('⚠️  Failed to parse keyData:', e.message);
+        }
+      }
+      
+      if (req.body.keyCode) {
+        keyCode = req.body.keyCode;
+        console.log(`🔑 NODE: Key code provided: ${keyCode}`);
+      }
+
+      // Step 1: Extract steganographic code from the leaked audio
+      console.log('📡 NODE: Sending leaked audio to Flask for code extraction...');
 
       const flaskResponse = await axios.post(
-        `${FLASKAPP_LINK}/extract-audio-code`,
+        `${FLASKAPP_LINK}/audio-stegano-extract`,
         {
-          input: filename
+          input: leakedFile.filename,
+          original: originalFile.filename,
+          keyData: keyData,
+          keyCode: keyCode
         },
         {
           headers: { 'Content-Type': 'application/json' },
@@ -4600,90 +4821,122 @@ server.post(PROXY + '/api/check-audio-leak', authenticateToken, async (req, res)
         }
       );
 
-      const { extracted_code } = flaskResponse.data;
+      const { extracted_code, success } = flaskResponse.data;
 
       console.log(`🔑 NODE: Extracted code: ${extracted_code || 'None'}`);
 
-      if (!extracted_code) {
+      if (!extracted_code || !success) {
+        // Cleanup uploaded files
+        uploadedFiles.forEach(filePath => {
+          try {
+            fs.unlinkSync(filePath);
+          } catch (e) {
+            console.warn('⚠️  Could not delete file:', filePath);
+          }
+        });
+
         return res.json({
           leakDetected: false,
           extractedCode: null,
-          message: 'No steganographic code found in audio'
+          message: 'No steganographic watermark found in the leaked audio',
+          creditsUsed: LEAK_CHECK_COST
         });
       }
 
-      // Step 2: Search database for matching code
-      console.log('🔍 NODE: Searching database for matching code...');
+      // Step 2: Parse the extracted code to get user info
+      let extractedUserInfo = null;
+      try {
+        extractedUserInfo = JSON.parse(extracted_code);
+        console.log('📋 NODE: Parsed user info:', extractedUserInfo);
+      } catch (parseError) {
+        console.log('⚠️  Could not parse extracted code as JSON, treating as plain text');
+      }
 
-      const [rows] = await pool.query(
-        `SELECT 
-          wc.*,
-          ud.username,
-          ud.email,
-          p.id as purchase_id,
-          p.createdAt as purchase_date
-        FROM watermark_codes wc
-        LEFT JOIN userData ud ON wc.user_id = ud.id
-        LEFT JOIN purchases p ON wc.purchase_id = p.id
-        WHERE wc.code = ?`,
-        [extracted_code]
-      );
+      // Step 3: Search database for matching user
+      console.log('🔍 NODE: Searching database for matching user...');
 
-      if (rows.length === 0) {
-        console.log('✅ NODE: No match found in database - audio is clean');
+      let leakData = null;
+      
+      if (extractedUserInfo && extractedUserInfo.userid) {
+        // Search by user ID from watermark
+        const [rows] = await pool.query(
+          `SELECT 
+            ud.id,
+            ud.username,
+            ud.email,
+            ud.firstName,
+            ud.lastName,
+            ud.createdAt
+          FROM userData ud
+          WHERE ud.id = ?`,
+          [extractedUserInfo.userid]
+        );
+
+        if (rows.length > 0) {
+          leakData = {
+            ...rows[0],
+            watermark_username: extractedUserInfo.username,
+            watermark_timestamp: extractedUserInfo.timestamp,
+            extraction_method: 'steganography'
+          };
+        }
+      }
+
+      // Cleanup uploaded files
+      uploadedFiles.forEach(filePath => {
+        try {
+          fs.unlinkSync(filePath);
+        } catch (e) {
+          console.warn('⚠️  Could not delete file:', filePath);
+        }
+      });
+
+      if (!leakData) {
+        console.log('✅ NODE: User not found in database');
         return res.json({
           leakDetected: false,
           extractedCode: extracted_code,
-          message: 'Code extracted but not found in database'
+          message: 'Watermark found but user not in database',
+          creditsUsed: LEAK_CHECK_COST
         });
       }
 
-      // Step 3: Leak detected! Return details
-      const leakData = rows[0];
+      // Step 4: Leak detected! Return details
       console.log('🚨 NODE: LEAK DETECTED!');
-      console.log(`   User: ${leakData.username} (${leakData.user_id})`);
-      console.log(`   File: ${leakData.filename}`);
-
-      // Cleanup: delete uploaded file
-      try {
-        fs.unlinkSync(req.file.path);
-      } catch (cleanupErr) {
-        console.warn('⚠️  Could not delete uploaded file:', cleanupErr);
-      }
-
-      console.log('='.repeat(60) + '\\n');
+      console.log(`   User: ${leakData.username} (ID: ${leakData.id})`);
+      console.log(`   Watermark timestamp: ${leakData.watermark_timestamp}`);
+      console.log('='.repeat(60) + '\n');
 
       return res.json({
         leakDetected: true,
         extractedCode: extracted_code,
         leakData: {
-          id: leakData.id,
-          code: leakData.code,
-          user_id: leakData.user_id,
+          user_id: leakData.id,
           username: leakData.username,
           email: leakData.email,
-          filename: leakData.filename,
-          media_type: leakData.media_type,
-          created_at: leakData.created_at,
-          purchase_id: leakData.purchase_id,
-          purchase_date: leakData.purchase_date,
-          device_fingerprint: leakData.device_fingerprint
+          firstName: leakData.firstName,
+          lastName: leakData.lastName,
+          watermark_username: leakData.watermark_username,
+          watermark_timestamp: leakData.watermark_timestamp,
+          account_created: leakData.createdAt,
+          extraction_method: leakData.extraction_method
         },
-        message: 'Leak detected! Original owner identified.'
+        message: '🚨 Leak detected! Original owner identified.',
+        creditsUsed: LEAK_CHECK_COST
       });
 
     } catch (error) {
       console.error('❌ NODE ERROR:', error);
-      console.log('='.repeat(60) + '\\n');
+      console.log('='.repeat(60) + '\n');
 
-      // Cleanup on error
-      if (req.file) {
+      // Cleanup uploaded files on error
+      uploadedFiles.forEach(filePath => {
         try {
-          fs.unlinkSync(req.file.path);
-        } catch (cleanupErr) {
-          console.warn('⚠️  Could not delete uploaded file:', cleanupErr);
+          fs.unlinkSync(filePath);
+        } catch (e) {
+          console.warn('⚠️  Could not delete file:', filePath);
         }
-      }
+      });
 
       return res.status(500).json({
         error: error.message,
@@ -4904,14 +5157,14 @@ server.post(PROXY + '/api/refund-credits', authenticateToken, async (req, res) =
       'INSERT INTO actions (id, transactionId, username, email, date, time, credits, action_type, action_cost, action_description) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [
         uuidv4(),
-        uuidv4(),
-        username, // Demo user
-        email,
+        uuidv4() ,
+        username || 'anonymous', // Demo user
+        email || 'anonymous@example.com',
         Date.now(),
         new Date().toLocaleTimeString(),
-        currentCredits,
+        currentCredits || credits,
         "refunded_credits",
-        credits,
+        credits || 15,
         "Credits refunded due to failed operation"
       ]
     );
