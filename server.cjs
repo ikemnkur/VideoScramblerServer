@@ -143,50 +143,64 @@ const corsOptions = {
 
 server.use(cors(corsOptions));
 
-const LOG_FILE = path.join(__dirname, 'universal.log');
+// // #################################################################################
 
-// #################################################################################
 
-// Ensure the log file is clear at startup for demonstration purposes (optional)
-fs.writeFileSync(LOG_FILE, 'Server started at ' + new Date().toISOString() + '\n\n');
+let LOG_FILE;
+let lastRotationCheck = new Date().getUTCDate();
 
 /**
- * Overrides standard console methods (log, warn, error) to capture output to a file.
+ * Generates a new log filename with a 2026-compliant ISO timestamp.
  */
+function getNewLogPath() {
+  const timestamp = new Date().toISOString().replace(/:/g, '-');
+  return path.join(__dirname, `universal_${timestamp}.log`);
+}
+
+/**
+ * Checks if the current date has changed and rotates the log file if necessary.
+ */
+function rotateLogIfNecessary() {
+  const currentDay = new Date().getUTCDate();
+  if (currentDay !== lastRotationCheck) {
+    LOG_FILE = getNewLogPath();
+    lastRotationCheck = currentDay;
+    // Optional: Log rotation event to the new file
+    fs.appendFileSync(LOG_FILE, `--- Log rotated on ${new Date().toISOString()} ---\n`);
+  }
+}
+
 function overrideConsole() {
   const originalLog = console.log;
   const originalWarn = console.warn;
   const originalError = console.error;
 
-  // Helper function to format arguments and append to file
+  LOG_FILE = getNewLogPath();
+
   const appendToFile = (level, ...args) => {
-    // Use util.format to handle placeholders like %s, %d correctly
+    rotateLogIfNecessary();
+    
     const message = util.format(...args);
     const timestamp = new Date().toISOString();
     const logEntry = `${timestamp} [${level.toUpperCase()}]: ${message}\n`;
 
+    // Use asynchronous append to prevent blocking the event loop
     fs.appendFile(LOG_FILE, logEntry, (err) => {
-      if (err) {
-        // If file writing fails, use the original error console method
-        originalError('Failed to write to log file:', err);
-      }
+      if (err) originalError('Failed to write to log file:', err);
     });
   };
-
-  // Monkey-patch console.log
-  console.log = function (...args) {
+ // Monkey-patch console.error
+  console.log = (...args) => {
     appendToFile('info', ...args);
-    originalLog.apply(console, args); // Also call the original console method to display in terminal
+    originalLog.apply(console, args);// Also call the original console method to display in terminal
   };
-
-  // Monkey-patch console.warn
-  console.warn = function (...args) {
+ // Monkey-patch console.error
+  console.warn = (...args) => {
     appendToFile('warn', ...args);
     originalWarn.apply(console, args);
   };
-
-  // Monkey-patch console.error
-  console.error = function (...args) {
+ // Monkey-patch console.error
+  console.error = (...args) => {
     appendToFile('error', ...args);
     originalError.apply(console, args);
   };
