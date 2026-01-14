@@ -560,6 +560,10 @@ def scramble_photo():
         noise_intensity = data.get('noise_intensity')
         noise_mode = data.get('noise_mode')
         noise_prng = data.get('noise_prng')
+        creator = data.get('creator')
+        user_id = data.get('user_id')
+        user_name = data.get('username')
+        metadata = data.get('metadata')
         
         print(f"\n📝 FLASK: Extracted parameters:")
         print(f"  - Input file: {input_file}")
@@ -568,6 +572,11 @@ def scramble_photo():
         print(f"  - Mode: {mode}")
         print(f"  - Algorithm: {algorithm}")
         print(f"  - Percentage: {percentage}")
+        print(f"  - Creator: {creator}")
+        print(f"  - User ID: {user_id}")
+        print(f"  - Username: {user_name}")
+        print(f"  - Metadata: {metadata}")
+
 
         if not input_file or not output_file:
             print("❌ FLASK ERROR: Missing input or output filename")
@@ -739,6 +748,9 @@ def scramble_photo():
             'seed': seed,
             'download_url': f'/download/{output_file}'
         }
+
+        
+
         
         print(f"\n✅ FLASK: Sending success response:")
         print(f"  {json.dumps(response_data, indent=2)}")
@@ -784,6 +796,12 @@ def unscramble_photo():
             # Use localFileName first (actual saved filename with timestamp), not params.input
             input_name = data.get('localFileName') or os.path.basename(data.get('localFilePath', ''))
             output_name = params.get('output') or f"unscrambled_{input_name}"
+
+            creator = data.get('creator')
+            user_id = data.get('user_id')
+            user_name = data.get('username')
+            metadata = data.get('metadata')
+            print(f"🐛 DEBUG: Creator = {creator}, User ID = {user_id}, Username = {user_name}, Metadata = {metadata}")
             
             normalized = {
                 'input': input_name,
@@ -852,6 +870,10 @@ def scramble_video():
         mode = data.get('mode', 'scramble')
         algorithm = data.get('algorithm', 'position')
         percentage = data.get('percentage', 100)
+        creator = data.get('creator')
+        user_id = data.get('user_id')
+        user_name = data.get('username')
+        metadata = data.get('metadata')
         
         print(f"\n📝 FLASK: Extracted parameters:")
         print(f"  - Input file: {input_file}")
@@ -860,6 +882,10 @@ def scramble_video():
         print(f"  - Mode: {mode}")
         print(f"  - Algorithm: {algorithm}")
         print(f"  - Percentage: {percentage}")
+        print(f"  - Creator: {creator}")
+        print(f"  - User ID: {user_id}")
+        print(f"  - Username: {user_name}")
+        print(f"  - Metadata: {metadata}")
 
         if not input_file or not output_file:
             print("❌ FLASK ERROR: Missing input or output filename")
@@ -1116,7 +1142,14 @@ def unscramble_video():
             print(f"🐛 DEBUG: data.get('localFileName') = {data.get('localFileName')}")
             print(f"🐛 DEBUG: params.get('input') = {params.get('input')}")
             output_name = params.get('output') or f"unscrambled_{input_name}"
+
+            creator = data.get('creator')
+            user_id = data.get('user_id')
+            user_name = data.get('username')
+            metadata = data.get('metadata')
+            print(f"🐛 DEBUG: Creator = {creator}, User ID = {user_id}, Username = {user_name}, Metadata = {metadata}")
             
+                
             normalized = {
                 'input': input_name,
                 'output': output_name,

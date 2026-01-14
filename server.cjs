@@ -58,7 +58,7 @@ const originalConsoleLog = console.log;
 const originalConsoleError = console.error;
 const originalConsoleWarn = console.warn;
 
-console.log = function(...args) {
+console.log = function (...args) {
   const message = args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : String(arg)).join(' ');
   logs.entries.push({
     type: 'info',
@@ -72,7 +72,7 @@ console.log = function(...args) {
   originalConsoleLog.apply(console, args);
 };
 
-console.error = function(...args) {
+console.error = function (...args) {
   const message = args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : String(arg)).join(' ');
   logs.entries.push({
     type: 'error',
@@ -86,7 +86,7 @@ console.error = function(...args) {
   originalConsoleError.apply(console, args);
 };
 
-console.warn = function(...args) {
+console.warn = function (...args) {
   const message = args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : String(arg)).join(' ');
   logs.entries.push({
     type: 'warn',
@@ -134,7 +134,7 @@ const corsOptions = {
     }
   },
   credentials: true,
-    // Allow Authorization header and other custom headers
+  // Allow Authorization header and other custom headers
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
   // Expose headers that the client can access
   exposedHeaders: ['Authorization'],
@@ -179,7 +179,7 @@ function overrideConsole() {
 
   const appendToFile = (level, ...args) => {
     rotateLogIfNecessary();
-    
+
     const message = util.format(...args);
     const timestamp = new Date().toISOString();
     const logEntry = `${timestamp} [${level.toUpperCase()}]: ${message}\n`;
@@ -189,17 +189,17 @@ function overrideConsole() {
       if (err) originalError('Failed to write to log file:', err);
     });
   };
- // Monkey-patch console.error
+  // Monkey-patch console.error
   console.log = (...args) => {
     appendToFile('info', ...args);
     originalLog.apply(console, args);// Also call the original console method to display in terminal
   };
- // Monkey-patch console.error
+  // Monkey-patch console.error
   console.warn = (...args) => {
     appendToFile('warn', ...args);
     originalWarn.apply(console, args);
   };
- // Monkey-patch console.error
+  // Monkey-patch console.error
   console.error = (...args) => {
     appendToFile('error', ...args);
     originalError.apply(console, args);
@@ -277,34 +277,34 @@ server.use(express.static('public'));
 // Request logging middleware with analytics
 server.use((req, res, next) => {
   console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
-  
+
   // Track visitor IP
   const ip = req.ip || req.connection.remoteAddress || req.socket.remoteAddress;
   if (ip) {
     analytics.visitors.add(ip);
   }
-  
+
   // Track total requests
   analytics.totalRequests++;
-  
+
   // Track data received (request size)
   const contentLength = parseInt(req.headers['content-length']) || 0;
   analytics.dataRx += contentLength;
-  
+
   // Track endpoint calls
   const endpoint = `${req.method} ${req.path}`;
   analytics.endpointCalls[endpoint] = (analytics.endpointCalls[endpoint] || 0) + 1;
-  
+
   // Track data transmitted (response size)
   const originalSend = res.send;
-  res.send = function(data) {
+  res.send = function (data) {
     if (data) {
       const size = Buffer.byteLength(typeof data === 'string' ? data : JSON.stringify(data));
       analytics.dataTx += size;
     }
     originalSend.call(this, data);
   };
-  
+
   next();
 });
 
@@ -637,14 +637,14 @@ server.get('/server', async (req, res) => {
 server.get('/logs', (req, res) => {
   const type = req.query.type || 'all'; // Filter by type: all, info, error, warn
   const limit = parseInt(req.query.limit) || 100;
-  
+
   let filteredLogs = logs.entries;
   if (type !== 'all') {
     filteredLogs = logs.entries.filter(log => log.type === type);
   }
-  
+
   const displayLogs = filteredLogs.slice(-limit).reverse();
-  
+
   const html = `
 <!DOCTYPE html>
 <html lang="en">
@@ -937,7 +937,7 @@ server.get('/logs', (req, res) => {
 </body>
 </html>
   `;
-  
+
   function escapeHtml(text) {
     const map = {
       '&': '&amp;',
@@ -948,7 +948,7 @@ server.get('/logs', (req, res) => {
     };
     return text.replace(/[&<>"']/g, m => map[m]);
   }
-  
+
   res.send(html);
 });
 
@@ -971,12 +971,12 @@ server.get('/api/logs/export', (req, res) => {
 server.get('/api/logs', (req, res) => {
   const type = req.query.type || 'all';
   const limit = parseInt(req.query.limit) || 100;
-  
+
   let filteredLogs = logs.entries;
   if (type !== 'all') {
     filteredLogs = logs.entries.filter(log => log.type === type);
   }
-  
+
   res.json({
     total: filteredLogs.length,
     logs: filteredLogs.slice(-limit).reverse()
@@ -1359,7 +1359,7 @@ server.post('/api/db-query', async (req, res) => {
 
 
 // ----------------------------------------------------
-                // Authentication Routes
+// Authentication Routes
 // ----------------------------------------------------
 
 // Custom authentication route
@@ -1417,14 +1417,14 @@ server.post(PROXY + '/api/auth/login', async (req, res) => {
       // const token = Buffer.from(`${user.id}_${Date.now()}_${Math.random()}`).toString('base64');
 
       // const token = jwt.sign({ id: user.id, user_id: user.user_id, accountId: user.account_id }, process.env.JWT_SECRET, { expiresIn: '1h' });
-    const token = jwt.sign({
-      id: user.id,
-      email: user.email,
-      username: user.username,  // Add this line
-      credits: user.credits
-    }, process.env.JWT_SECRET, { expiresIn: '1h' });
+      const token = jwt.sign({
+        id: user.id,
+        email: user.email,
+        username: user.username,  // Add this line
+        credits: user.credits
+      }, process.env.JWT_SECRET, { expiresIn: '1h' });
 
-    res.json({ token, user: { id: user.id, username: user.username, email: user.email, credits: user.credits } });
+      res.json({ token, user: { id: user.id, username: user.username, email: user.email, credits: user.credits } });
 
       // res.json({
       //   success: true,
@@ -1806,7 +1806,7 @@ server.post(PROXY + '/api/wallet/balance/:username', authenticateToken, async (r
     //   [username]
     // );
 
-    console.log("Fetching wallet balance for user:", username, " : ",  email);
+    console.log("Fetching wallet balance for user:", username, " : ", email);
 
     const [users] = await pool.execute(
       'SELECT credits FROM userData WHERE username = ? and email = ?',
@@ -3907,7 +3907,7 @@ const upload = multer({
   limits: { fileSize: 250 * 1024 * 1024 }, // 10MB limit
   fileFilter: function (req, file, cb) {
     // Accept images, videos, and audio only
-    if (!file.mimetype.startsWith('image/') && !file.mimetype.startsWith('video/')&& !file.mimetype.startsWith('audio/')) {
+    if (!file.mimetype.startsWith('image/') && !file.mimetype.startsWith('video/') && !file.mimetype.startsWith('audio/')) {
       return cb(new Error('Only image, video, and audio files are allowed!'), false);
     }
     cb(null, true);
@@ -3927,9 +3927,9 @@ server.post(PROXY + '/api/audio-stegano-embed', upload.single('file'), authentic
   try {
     // 1) Ensure file was uploaded
     if (!req.file) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        error: 'No audio file provided' 
+        error: 'No audio file provided'
       });
     }
 
@@ -3944,9 +3944,9 @@ server.post(PROXY + '/api/audio-stegano-embed', upload.single('file'), authentic
         : (req.body.params || {});
     } catch (parseError) {
       console.error('❌ Failed to parse steganography parameters:', parseError);
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        error: 'Invalid parameters format' 
+        error: 'Invalid parameters format'
       });
     }
 
@@ -3954,7 +3954,7 @@ server.post(PROXY + '/api/audio-stegano-embed', upload.single('file'), authentic
 
     //  user info for watermarking
     const { username, time, userid } = steganoData;
-    
+
     if (!username || !userid) {
       return res.status(400).json({
         success: false,
@@ -3965,7 +3965,7 @@ server.post(PROXY + '/api/audio-stegano-embed', upload.single('file'), authentic
     // 3) Prepare Flask payload
     const inputFile = req.file.filename;
     const outputFile = `watermarked_${inputFile}`;
-    
+
     // Create secret message from user info
     const secretMessage = JSON.stringify({
       username,
@@ -4051,7 +4051,7 @@ server.post(PROXY + '/api/audio-stegano-embed', upload.single('file'), authentic
 // Handles both old flat format and new nested format with noise parameters
 // =============================
 
-server.post(PROXY + '/api/scramble-photo', upload.single('file'), authenticateToken, async (req, res) => {
+server.post(PROXY + '/api/scramble-photo', authenticateToken, upload.single('file'), async (req, res) => {
   console.log('📸 Scramble photo request received');
 
   try {
@@ -4062,6 +4062,7 @@ server.post(PROXY + '/api/scramble-photo', upload.single('file'), authenticateTo
 
     console.log('✅ File uploaded:', req.file.filename);
     console.log('📁 File path:', req.file.path);
+    console.log('👤 User info:', req.user);
 
     // 2) Parse params from multipart/form-data
     let params;
@@ -4119,7 +4120,11 @@ server.post(PROXY + '/api/scramble-photo', upload.single('file'), authenticateTo
       noise_intensity: params.noise_intensity ?? noiseParams?.intensity,
       noise_mode: params.noise_mode ?? noiseParams?.mode,
       noise_prng: params.noise_prng ?? noiseParams?.prng,
-      noise_tile_size: params.noise_tile_size ?? noiseParams?.tile_size ?? noiseParams?.tileSize
+      noise_tile_size: params.noise_tile_size ?? noiseParams?.tile_size ?? noiseParams?.tileSize,
+      creator: params.creator,
+      // user_id: req.user?.id ?? params.user_id,
+      // username: req.user?.username ?? params.username,
+      metadata: metadata ? JSON.stringify(metadata) : undefined
     };
 
     // Remove undefined keys so Flask doesn't see them at all
@@ -4225,7 +4230,7 @@ server.post(PROXY + '/api/scramble-photo', upload.single('file'), authenticateTo
 // Handles both old flat format and new nested format with noise parameters
 // =============================
 
-server.post(PROXY + '/api/unscramble-photo', upload.single('file'), authenticateToken, async (req, res) => {
+server.post(PROXY + '/api/unscramble-photo', upload.single('file'), async (req, res) => {
   console.log('🔓 Unscramble photo request received');
 
   try {
@@ -4280,11 +4285,16 @@ server.post(PROXY + '/api/unscramble-photo', upload.single('file'), authenticate
       max_hue_shift: scrambleParams.max_hue_shift ?? scrambleParams.maxHueShift ?? params.max_hue_shift ?? params.maxHueShift,
       max_intensity_shift: scrambleParams.max_intensity_shift ?? scrambleParams.maxIntensityShift ?? params.max_intensity_shift ?? params.maxIntensityShift,
       // Noise parameters (if present)
-       noise_seed: params.noise_seed ?? noiseParams?.seed,
+      noise_seed: params.noise_seed ?? noiseParams?.seed,
       noise_intensity: params.noise_intensity ?? noiseParams?.intensity,
       noise_mode: params.noise_mode ?? noiseParams?.mode,
       noise_prng: params.noise_prng ?? noiseParams?.prng,
-      noise_tile_size: params.noise_tile_size ?? noiseParams?.tile_size ?? noiseParams?.tileSize
+      noise_tile_size: params.noise_tile_size ?? noiseParams?.tile_size ?? noiseParams?.tileSize,
+
+      creator: params.creator,
+      user_id: req.user?.id ?? params.user_id,
+      username: req.user?.username ?? params.username,
+      metadata: metadata ? JSON.stringify(metadata) : undefined
     };
 
     // Remove undefined keys so Flask doesn't see them at all
@@ -4380,7 +4390,7 @@ server.post(PROXY + "/api/upload", authenticateToken, async (req, res) => {
 // SCRAMBLE VIDEO ENDPOINT
 // =============================
 
-server.post(PROXY + '/api/scramble-video', upload.single('file'), authenticateToken, async (req, res) => {
+server.post(PROXY + '/api/scramble-video', upload.single('file'), async (req, res) => {
   console.log('📸 Scramble video request received');
 
   try {
@@ -4425,7 +4435,12 @@ server.post(PROXY + '/api/scramble-video', upload.single('file'), authenticateTo
       rows: params.rows,
       cols: params.cols,
       max_hue_shift: params.max_hue_shift,
-      max_intensity_shift: params.max_intensity_shift
+      max_intensity_shift: params.max_intensity_shift,
+
+      creator: params.creator,
+      // user_id: req.user?.id ?? params.user_id,
+      // username: req.user?.username ?? params.username,
+      metadata: metadata? JSON.stringify(metadata) : undefined
     };
 
     // Remove undefined keys so Flask doesn’t see them at all
@@ -4501,7 +4516,7 @@ server.post(PROXY + '/api/scramble-video', upload.single('file'), authenticateTo
 // =============================
 // UNSCRAMBLE VIDEO ENDPOINT
 // =============================
-server.post(PROXY + '/api/unscramble-video', upload.single('file'), authenticateToken, async (req, res) => {
+server.post(PROXY + '/api/unscramble-video', upload.single('file'), async (req, res) => {
   console.log('🔓 Unscramble video request received');
 
   try {
@@ -4530,7 +4545,12 @@ server.post(PROXY + '/api/unscramble-video', upload.single('file'), authenticate
     const flaskPayload = {
       localFileName: req.file.filename,
       localFilePath: req.file.path,
-      params: params
+      params: params,
+      creator: params.creator,
+      // the user_id and username can come from the unscrambling user not the creator. check req.user first and fallback to params
+      user_id: req.user?.id ?? params.user_id,
+      username: req.user?.username ?? params.username,
+      metadata: metadata? JSON.stringify(metadata) : undefined
     };
 
     console.log('🔄 Sending normalized payload to Flask:', flaskPayload);
@@ -4786,8 +4806,8 @@ server.post(PROXY + '/api/check-audio-leak', authenticateToken, async (req, res)
     try {
       // Validate that both files were uploaded
       if (!req.files || !req.files.originalAudio || !req.files.leakedAudio) {
-        return res.status(400).json({ 
-          error: 'Both original and leaked audio files are required' 
+        return res.status(400).json({
+          error: 'Both original and leaked audio files are required'
         });
       }
 
@@ -4801,18 +4821,18 @@ server.post(PROXY + '/api/check-audio-leak', authenticateToken, async (req, res)
       // Parse optional keyData or keyCode
       let keyData = null;
       let keyCode = null;
-      
+
       if (req.body.keyData) {
         try {
-          keyData = typeof req.body.keyData === 'string' 
-            ? JSON.parse(req.body.keyData) 
+          keyData = typeof req.body.keyData === 'string'
+            ? JSON.parse(req.body.keyData)
             : req.body.keyData;
           console.log('📋 NODE: Key data provided');
         } catch (e) {
           console.warn('⚠️  Failed to parse keyData:', e.message);
         }
       }
-      
+
       if (req.body.keyCode) {
         keyCode = req.body.keyCode;
         console.log(`🔑 NODE: Key code provided: ${keyCode}`);
@@ -4870,7 +4890,7 @@ server.post(PROXY + '/api/check-audio-leak', authenticateToken, async (req, res)
       console.log('🔍 NODE: Searching database for matching user...');
 
       let leakData = null;
-      
+
       if (extractedUserInfo && extractedUserInfo.userid) {
         // Search by user ID from watermark
         const [rows] = await pool.query(
@@ -5142,6 +5162,7 @@ server.get('/download/:filename', (req, res) => {
 //         });
 //         throw new Error(data.error || data.message || 'Scrambling failed');
 //       }
+
 // Handle refunding credits
 server.post(PROXY + '/api/refund-credits', authenticateToken, async (req, res) => {
   const { userId, credits, username, email, currentCredits } = req.body;
@@ -5171,7 +5192,7 @@ server.post(PROXY + '/api/refund-credits', authenticateToken, async (req, res) =
       'INSERT INTO actions (id, transactionId, username, email, date, time, credits, action_type, action_cost, action_description) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [
         uuidv4(),
-        uuidv4() ,
+        uuidv4(),
         username || 'anonymous', // Demo user
         email || 'anonymous@example.com',
         Date.now(),

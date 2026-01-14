@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import subprocess
 import cv2
 import json
 import math
@@ -10,6 +11,8 @@ from dataclasses import dataclass
 from typing import Optional, List, Dict, Any
 
 import numpy as np
+
+from python.app import PYTHON_CMD
 
 
 def mulberry32(seed: int):
@@ -394,7 +397,9 @@ def process_photo(input_path: str,
                   noise_tile_size: Optional[int] = 16,
                   noise_seed: Optional[int] = None,
                   noise_mode: Optional[str] = None,
-                  noise_prng: Optional[float] = None) -> str:
+                  noise_prng: Optional[float] = None,
+                  username: Optional[str] = None,
+                  user_id: Optional[int] = None) -> str:
     """
     Process a photo: scramble or unscramble according to mode.
     Returns path to params JSON (for scramble mode).
@@ -470,6 +475,24 @@ def process_photo(input_path: str,
 
     # Write the output image
     cv2.imwrite(output_path, processed)
+    
+    # Embed user tracking code after writing the image (only for unscramble mode)
+    if mode == "unscramble" and user_id and len(str(user_id)) == 10:
+        print(f"  - Embedding user tracking code for user_id: {user_id}")
+        embed_script = os.path.join(os.path.dirname(__file__), 'embed_code_image.py')
+        cmd = [
+            PYTHON_CMD, embed_script,
+            '--input', output_path,
+            '--output', output_path,
+            '--user-id', str(user_id),
+        ]
+        try:
+            subprocess.run(cmd, check=True, capture_output=True, text=True)
+            print(f"  - User tracking code embedded successfully")
+        except subprocess.CalledProcessError as e:
+            print(f"  - Warning: Failed to embed tracking code: {e.stderr}")
+    elif mode == "unscramble":
+        print(f"  - Skipping user tracking code embedding (user_id not valid or not 10 chars)")
 
     # Save params JSON (only for scramble mode)
     params_path = ""
@@ -496,7 +519,9 @@ def process_photo_by_percentage(input_path: str,
                   noise_tile_size: Optional[int] = None,
                   noise_seed: Optional[int] = None,
                   noise_mode: Optional[str] = None,
-                  noise_prng: Optional[float] = None) -> str:
+                  noise_prng: Optional[float] = None,
+                  username: Optional[str] = None,
+                  user_id: Optional[int] = None) -> str:
     """
     Process a photo: scramble or unscramble according to mode.
     Only scrambles a certain percentage of tiles based on the percentage parameter.
@@ -642,6 +667,24 @@ def process_photo_by_percentage(input_path: str,
 
     # Write the output image
     cv2.imwrite(output_path, processed)
+    
+    # Embed user tracking code after writing the image (only for unscramble mode)
+    if mode == "unscramble" and user_id and len(str(user_id)) == 10:
+        print(f"  - Embedding user tracking code for user_id: {user_id}")
+        embed_script = os.path.join(os.path.dirname(__file__), 'embed_code_image.py')
+        cmd = [
+            PYTHON_CMD, embed_script,
+            '--input', output_path,
+            '--output', output_path,
+            '--user-id', str(user_id),
+        ]
+        try:
+            subprocess.run(cmd, check=True, capture_output=True, text=True)
+            print(f"  - User tracking code embedded successfully")
+        except subprocess.CalledProcessError as e:
+            print(f"  - Warning: Failed to embed tracking code: {e.stderr}")
+    elif mode == "unscramble":
+        print(f"  - Skipping user tracking code embedding (user_id not valid or not 10 chars)")
 
     # Save params JSON (only for scramble mode)
     params_path = ""
