@@ -12,7 +12,10 @@ from typing import Optional, List, Dict, Any
 
 import numpy as np
 
-from python.app import PYTHON_CMD
+
+# Configure Python executable path for venv
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+PYTHON_CMD = os.path.join(BASE_DIR, 'venv', 'bin', 'python3')
 
 
 def mulberry32(seed: int):

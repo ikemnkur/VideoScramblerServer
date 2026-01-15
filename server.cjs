@@ -3547,7 +3547,7 @@ async function FetchRecentTransactionsCron() {
 // ========================================
 
 // Save or update device fingerprint
-server.post(PROXY + '/api/fingerprint/save', authenticateToken, async (req, res) => {
+server.post(PROXY + '/api/fingerprint/save',  async (req, res) => {
   try {
     const {
       userId,
