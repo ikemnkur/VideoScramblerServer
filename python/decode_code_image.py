@@ -120,10 +120,50 @@ def reconstruct_user_id_from_positions(col_positions: List[int], row_positions: 
     print("Attempting to reconstruct user_id...")
     print(f"Target column positions: {col_positions}")
     print(f"Target row positions: {row_positions}")
+
+    # each duplicated line shift the last one by 1, we'll try to reverse-engineer from the cumulative sums
+
+    # Corrected for loop syntax using range(start, stop)
+    # The range is exclusive of the stop value, so range(1, 6) covers indices 1 through 5
+    for i in range(1, 6):
+        if i <= len(row_positions):
+            row_positions[i-1] -= i 
+    for i in range(1, 6):
+        if i <= len(col_positions):
+            col_positions[i-1] -= i 
+     
+    print("Adjusting array values to reconstruct user_id...")
+    print(f"Adjd. Target column positions: {col_positions}")
+    print(f"Adjd. Target row positions: {row_positions}")
     
-    # This could take a very long time for full brute force
-    # Instead, we'll try to reverse-engineer from the cumulative sums
+    # Initialize og_userId as a fixed-size "char array" (list of strings)
+    # This allows direct index assignment like og_userId[i] = "char"
+    og_userId = [""] * 10 
+
+    # Reconstruct from adjusted positions
+    # Convert integer positions to characters using chr() if they are ASCII values
+    # for i in range(1, 5):
+    #     if i <= len(row_positions):
+    #         og_userId[i-1] = chr(row_positions[i-1] - (row_positions[i-2] if row_positions[i-2] !== null else 0 ))
+    #     if i <= len(col_positions):
+    #         og_userId[i-1 + 5] = chr(col_positions[i-1] - (col_positions[i-2] if col_positions[i-2] != null else 0 ))
     
+    for i in range(1, 6):  # Updated to 6 to cover 5 characters if list has 5
+        # Fix for row_positions
+        if i <= len(row_positions):
+            # Use a ternary to check if a "previous" index exists (i-2 >= 0)
+            # Python's equivalent of null is 'None'
+            prev_val = row_positions[i-2] if (i-2 >= 0 and row_positions[i-2] is not None) else 0
+            og_userId[i-1 + 5] = chr(row_positions[i-1] - prev_val)
+            
+        # Fix for col_positions
+        if i <= len(col_positions):
+            prev_val = col_positions[i-2] if (i-2 >= 0 and col_positions[i-2] is not None) else 0
+            og_userId[i-1] = chr(col_positions[i-1] - prev_val)
+            
+    # Convert the list (char array) to a string at the return statement
+   
+
     # For now, let's just report what we found
     print("\n⚠️  User ID reconstruction requires additional information.")
     print("The encoding is one-way without the original user_id.")
@@ -131,7 +171,9 @@ def reconstruct_user_id_from_positions(col_positions: List[int], row_positions: 
     print(f"  - {len(col_positions)} duplicate columns at positions: {col_positions}")
     print(f"  - {len(row_positions)} duplicate rows at positions: {row_positions}")
     
-    return None
+    
+    return "".join(og_userId)
+    
 
 
 def decode_user_id_from_image(input_path: str, tolerance: int = 0, diff_fraction: float = 0.0) -> Optional[str]:
