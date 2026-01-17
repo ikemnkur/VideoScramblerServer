@@ -4440,7 +4440,7 @@ server.post(PROXY + '/api/scramble-video', upload.single('file'), async (req, re
       creator: params.creator,
       // user_id: req.user?.id ?? params.user_id,
       // username: req.user?.username ?? params.username,
-      metadata: metadata? JSON.stringify(metadata) : undefined
+      metadata: params.metadata ? JSON.stringify(params.metadata) : undefined
     };
 
     // Remove undefined keys so Flask doesn’t see them at all
@@ -4550,7 +4550,7 @@ server.post(PROXY + '/api/unscramble-video', upload.single('file'), async (req, 
       // the user_id and username can come from the unscrambling user not the creator. check req.user first and fallback to params
       user_id: req.user?.id ?? params.user_id,
       username: req.user?.username ?? params.username,
-      metadata: metadata? JSON.stringify(metadata) : undefined
+      metadata: params.metadata ? JSON.stringify(params.metadata) : undefined
     };
 
     console.log('🔄 Sending normalized payload to Flask:', flaskPayload);

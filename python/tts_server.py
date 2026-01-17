@@ -87,9 +87,21 @@ def generate_speech_route():
             filename = f"speech_{uuid.uuid4().hex}.mp3"
             output_path = os.path.join(PUBLIC_AUDIO_DIR, filename)
             
-            # Generate TTS audio
-            communicate = edge_tts.Communicate(text, voice, rate=rate, pitch=pitch)
-            await communicate.save(output_path)
+            # Generate TTS audio with retry logic
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    communicate = edge_tts.Communicate(text, voice, rate=rate, pitch=pitch)
+                    await communicate.save(output_path)
+                    break
+                except Exception as e:
+                    error_str = str(e)
+                    if '403' in error_str and attempt < max_retries - 1:
+                        wait_time = (2 ** attempt) * 0.5  # Exponential backoff
+                        print(f"403 error on attempt {attempt + 1}/{max_retries}, retrying in {wait_time}s...")
+                        await asyncio.sleep(wait_time)
+                    else:
+                        raise
             
             # Get file info
             file_size = os.path.getsize(output_path)
@@ -118,6 +130,24 @@ def generate_speech_route():
 @app.route('/generate-watermark', methods=['POST'])
 def generate_watermark_route():
     """Generate a complete watermark (intro + id + outro) and return file URL"""
+    async def generate_with_retry(text, voice, rate, pitch, max_retries=3):
+        """Generate TTS with retry logic for 403 errors"""
+        for attempt in range(max_retries):
+            try:
+                temp_path = tempfile.mktemp(suffix='.mp3')
+                communicate = edge_tts.Communicate(text, voice, rate=rate, pitch=pitch)
+                await communicate.save(temp_path)
+                return temp_path
+            except Exception as e:
+                error_str = str(e)
+                if '403' in error_str and attempt < max_retries - 1:
+                    wait_time = (2 ** attempt) * 0.5  # Exponential backoff: 0.5s, 1s, 2s
+                    print(f"403 error on attempt {attempt + 1}/{max_retries}, retrying in {wait_time}s...")
+                    await asyncio.sleep(wait_time)
+                else:
+                    raise
+        raise Exception("Max retries exceeded")
+    
     async def do_generate():
         try:
             data = request.get_json()
@@ -144,30 +174,24 @@ def generate_watermark_route():
             
             try:
                 if intro:
-                    communicate_intro = edge_tts.Communicate(intro, voice, rate=rate, pitch=pitch)
-                    intro_path = tempfile.mktemp(suffix='.mp3')
+                    intro_path = await generate_with_retry(intro, voice, rate, pitch)
                     temp_files.append(intro_path)
-                    await communicate_intro.save(intro_path)
                     segments.append(AudioSegment.from_mp3(intro_path))
                     
                     if id_text or outro:
                         segments.append(AudioSegment.silent(duration=silence_ms))
                 
                 if id_text:
-                    communicate_id = edge_tts.Communicate(id_text, voice, rate=rate, pitch=pitch)
-                    id_path = tempfile.mktemp(suffix='.mp3')
+                    id_path = await generate_with_retry(id_text, voice, rate, pitch)
                     temp_files.append(id_path)
-                    await communicate_id.save(id_path)
                     segments.append(AudioSegment.from_mp3(id_path))
                     
                     if outro:
                         segments.append(AudioSegment.silent(duration=silence_ms))
                 
                 if outro:
-                    communicate_outro = edge_tts.Communicate(outro, voice, rate=rate, pitch=pitch)
-                    outro_path = tempfile.mktemp(suffix='.mp3')
+                    outro_path = await generate_with_retry(outro, voice, rate, pitch)
                     temp_files.append(outro_path)
-                    await communicate_outro.save(outro_path)
                     segments.append(AudioSegment.from_mp3(outro_path))
                 
                 # Combine all segments
@@ -205,8 +229,20 @@ def generate_watermark_route():
                         pass
             
         except Exception as e:
-            print(f"Error generating watermark: {e}")
-            return jsonify({"error": str(e)}), 500
+            error_msg = str(e)
+            print(f"Error generating watermark: {error_msg}")
+            
+            # Provide more helpful error message for 403 errors
+            if '403' in error_msg:
+                return jsonify({
+                    "error": "Microsoft Edge TTS service returned 403 Forbidden. This can happen due to: "
+                             "(1) Rate limiting - too many requests, (2) Geographic restrictions, "
+                             "(3) Service token expired. Try updating edge-tts: pip install --upgrade edge-tts",
+                    "details": error_msg,
+                    "solution": "Wait a few minutes and try again, or update edge-tts library"
+                }), 503  # Service Unavailable is more appropriate than 500
+            
+            return jsonify({"error": error_msg}), 500
     
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
