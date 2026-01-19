@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Secret Number Video Decoder</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            min-height: 100vh;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            max-width: 800px;
+            width: 100%;
+            padding: 40px;
+        }
+        
+        h1 {
+            color: #f5576c;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+        
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+        
+        .input-group {
+            margin-bottom: 25px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 600;
+        }
+        
+        input[type="file"] {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+        
+        input[type="file"]:hover {
+            border-color: #f5576c;
+        }
+        
+        input[type="file"]:focus {
+            outline: none;
+            border-color: #f5576c;
+        }
+        
+        button {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+            border: none;
+            padding: 14px 32px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            width: 100%;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(245, 87, 108, 0.4);
+        }
+        
+        button:active {
+            transform: translateY(0);
+        }
+        
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .status {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+        
+        .status.info {
+            background: #e3f2fd;
+            color: #1976d2;
+            border-left: 4px solid #1976d2;
+        }
+        
+        .status.success {
+            background: #e8f5e9;
+            color: #388e3c;
+            border-left: 4px solid #388e3c;
+        }
+        
+        .status.error {
+            background: #ffebee;
+            color: #c62828;
+            border-left: 4px solid #c62828;
+        }
+        
+        .result-box {
+            margin-top: 30px;
+            padding: 30px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 12px;
+            text-align: center;
+            display: none;
+        }
+        
+        .result-box h2 {
+            color: white;
+            margin-bottom: 15px;
+            font-size: 20px;
+        }
+        
+        .secret-number {
+            font-size: 48px;
+            font-weight: bold;
+            color: #fff;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+            padding: 20px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 8px;
+            margin: 15px 0;
+        }
+        
+        .details {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-top: 20px;
+            text-align: left;
+        }
+        
+        .details h3 {
+            color: #667eea;
+            margin-bottom: 12px;
+            font-size: 16px;
+        }
+        
+        .details table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        
+        .details th,
+        .details td {
+            padding: 8px;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .details th {
+            background: #f5f5f5;
+            font-weight: 600;
+            color: #555;
+        }
+        
+        .preview {
+            margin-top: 20px;
+        }
+        
+        video {
+            width: 100%;
+            max-height: 400px;
+            border-radius: 8px;
+            background: #000;
+        }
+        
+        .info-box {
+            background: #f5f5f5;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 20px;
+            font-size: 13px;
+            color: #555;
+        }
+        
+        .info-box h3 {
+            color: #f5576c;
+            margin-bottom: 8px;
+            font-size: 15px;
+        }
+        
+        .info-box ul {
+            margin-left: 20px;
+            margin-top: 8px;
+        }
+        
+        .info-box li {
+            margin-bottom: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔓 Secret Number Video Decoder</h1>
+        <p class="subtitle">Extract the hidden secret number from an encoded video</p>
+        
+        <div class="input-group">
+            <label for="videoFile">Select Encoded Video File:</label>
+            <input type="file" id="videoFile" accept="video/*">
+        </div>
+        
+        <button id="decodeBtn">Decode Video</button>
+        
+        <div id="status"></div>
+        
+        <div class="preview" id="previewSection" style="display: none;">
+            <h3>Video Preview:</h3>
+            <video id="videoPreview" controls></video>
+        </div>
+        
+        <div class="result-box" id="resultBox">
+            <h2>🎉 Secret Number Decoded!</h2>
+            <div class="secret-number" id="secretNumber">-</div>
+            <div class="details">
+                <h3>Decoding Details:</h3>
+                <table id="detailsTable">
+                    <thead>
+                        <tr>
+                            <th>Digit Position</th>
+                            <th>Frame Positions</th>
+                            <th>Pattern Type</th>
+                            <th>Decoded Value</th>
+                        </tr>
+                    </thead>
+                    <tbody id="detailsBody">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        
+        <div class="info-box">
+            <h3>Decoding Process:</h3>
+            <ul>
+                <li><strong>First Second Skip:</strong> Ignores the first 30 frames (1 second)</li>
+                <li><strong>Frame Analysis:</strong> Scans remaining frames for duplicates</li>
+                <li><strong>Pattern Recognition:</strong> Identifies pairs (digits 1-9) and triplets (digit 0)</li>
+                <li><strong>Distance Calculation:</strong> Measures frame position differences</li>
+                <li><strong>Sequence Detection:</strong> Looks for redundant sequences separated by 5+ frames</li>
+                <li><strong>Validation:</strong> Compares sequences for higher confidence decoding</li>
+                <li><strong>Number Reconstruction:</strong> Assembles digits to form the secret number</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        const videoFileInput = document.getElementById('videoFile');
+        const decodeBtn = document.getElementById('decodeBtn');
+        const statusDiv = document.getElementById('status');
+        const videoPreview = document.getElementById('videoPreview');
+        const previewSection = document.getElementById('previewSection');
+        const resultBox = document.getElementById('resultBox');
+        const secretNumberDiv = document.getElementById('secretNumber');
+        const detailsBody = document.getElementById('detailsBody');
+
+        let videoFile = null;
+
+        videoFileInput.addEventListener('change', (e) => {
+            videoFile = e.target.files[0];
+            if (videoFile) {
+                const url = URL.createObjectURL(videoFile);
+                videoPreview.src = url;
+                previewSection.style.display = 'block';
+                resultBox.style.display = 'none';
+                showStatus(`Video loaded: ${videoFile.name}`, 'info');
+            }
+        });
+
+        decodeBtn.addEventListener('click', async () => {
+            if (!videoFile) {
+                showStatus('Please select a video file first!', 'error');
+                return;
+            }
+
+            decodeBtn.disabled = true;
+            resultBox.style.display = 'none';
+            showStatus('Analyzing video frames... This may take a few minutes.', 'info');
+
+            try {
+                await decodeVideo(videoFile);
+            } catch (error) {
+                showStatus(`Error: ${error.message}`, 'error');
+            } finally {
+                decodeBtn.disabled = false;
+            }
+        });
+
+        async function decodeVideo(file) {
+            const video = document.createElement('video');
+            video.src = URL.createObjectURL(file);
+            
+            await new Promise((resolve, reject) => {
+                video.onloadedmetadata = resolve;
+                video.onerror = reject;
+            });
+
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+
+            const fps = 30; // Assuming 30 fps
+            const duration = video.duration;
+            const totalFrames = Math.floor(duration * fps);
+
+            showStatus(`Analyzing ${totalFrames} frames...`, 'info');
+
+            // Extract frame data for duplicate detection
+            const frameDataList = [];
+            for (let i = 0; i < totalFrames; i++) {
+                video.currentTime = i / fps;
+                await new Promise(resolve => {
+                    video.onseeked = resolve;
+                });
+
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                const frameData = getFrameData(imageData);
+                frameDataList.push(frameData);
+
+                if (i % 100 === 0) {
+                    showStatus(`Scanning frames: ${i}/${totalFrames}`, 'info');
+                }
+            }
+
+            showStatus('Detecting duplicate frames (accounting for 10% darkening)...', 'info');
+
+            // Find duplicate frames
+            const duplicates = findDuplicates(frameDataList);
+            
+            showStatus(`Found ${duplicates.length} duplicate sequences`, 'info');
+
+            // Decode the number
+            const { number, details } = decodeNumber(duplicates);
+
+            // Display results
+            displayResults(number, details);
+        }
+
+        function getFrameData(imageData) {
+            // Return sampled pixel values for comparison
+            const data = imageData.data;
+            const step = Math.floor(data.length / 1000); // Sample 1000 points
+            const samples = [];
+
+            for (let i = 0; i < data.length; i += step) {
+                samples.push(data[i]);
+            }
+
+            return samples;
+        }
+
+        function framesMatch(frame1, frame2) {
+            // Compare frames accounting for 10% darkening
+            // A darkened frame has each pixel multiplied by 0.9
+            // So we check if frame2 ≈ frame1 * 0.9 OR frame1 ≈ frame2 * 0.9 OR frame1 ≈ frame2
+            if (frame1.length !== frame2.length) return false;
+
+            let exactMatchCount = 0;
+            let darkenedMatchCount = 0;
+            const tolerance = 5; // Allow small variance for compression artifacts
+
+            for (let i = 0; i < frame1.length; i++) {
+                const v1 = frame1[i];
+                const v2 = frame2[i];
+
+                // Check exact match (within tolerance)
+                if (Math.abs(v1 - v2) <= tolerance) {
+                    exactMatchCount++;
+                }
+
+                // Check if frame2 is ~10% darker than frame1
+                // Darkening by 10% means: new = old * 0.9 + 0 * 0.1 = old * 0.9
+                // But we used rgba(0,0,0,0.1) overlay, which means: new = old * 0.9
+                const expectedDarkened = Math.round(v1 * 0.9);
+                if (Math.abs(v2 - expectedDarkened) <= tolerance) {
+                    darkenedMatchCount++;
+                }
+            }
+
+            const matchThreshold = frame1.length * 0.85; // 85% of samples must match
+            return exactMatchCount >= matchThreshold || darkenedMatchCount >= matchThreshold;
+        }
+
+        function findDuplicates(frameDataList) {
+            const duplicates = [];
+            const fps = 30;
+            const startFrame = fps; // Skip first second (30 frames)
+            let i = startFrame;
+
+            while (i < frameDataList.length - 1) {
+                if (framesMatch(frameDataList[i], frameDataList[i + 1])) {
+                    // Found duplicate (exact or darkened)
+                    let count = 1;
+                    let j = i + 1;
+
+                    // Count consecutive duplicates
+                    while (j < frameDataList.length && framesMatch(frameDataList[i], frameDataList[j])) {
+                        count++;
+                        j++;
+                    }
+
+                    duplicates.push({
+                        position: i,
+                        count: count
+                    });
+
+                    i = j;
+                } else {
+                    i++;
+                }
+            }
+
+            return duplicates;
+        }
+
+        function decodeNumber(duplicates) {
+            // Try to find the separator (5+ frames gap between duplications)
+            const sequences = splitIntoSequences(duplicates);
+            
+            let bestNumber = 0;
+            let bestDetails = [];
+            let confidence = 'Low';
+            
+            if (sequences.length === 1) {
+                // Single sequence
+                const result = decodeSequence(sequences[0], 1);
+                bestNumber = result.number;
+                bestDetails = result.details;
+                confidence = 'Medium (single sequence)';
+            } else if (sequences.length >= 2) {
+                // Multiple sequences - use for validation
+                const result1 = decodeSequence(sequences[0], 1);
+                const result2 = decodeSequence(sequences[1], 2);
+                
+                if (result1.number === result2.number) {
+                    // Both sequences agree - high confidence
+                    bestNumber = result1.number;
+                    bestDetails = [...result1.details, ...result2.details];
+                    confidence = 'High (redundant sequences match!)';
+                } else {
+                    // Sequences disagree - use first one but mark as uncertain
+                    bestNumber = result1.number;
+                    bestDetails = result1.details;
+                    confidence = `Low (sequences disagree: ${result1.number} vs ${result2.number})`;
+                }
+            }
+            
+            // Add confidence info to details
+            bestDetails.forEach(d => d.confidence = confidence);
+            
+            return { number: bestNumber, details: bestDetails };
+        }
+        
+        function splitIntoSequences(duplicates) {
+            if (duplicates.length === 0) return [];
+            
+            const sequences = [];
+            let currentSequence = [];
+            
+            for (let i = 0; i < duplicates.length; i++) {
+                if (currentSequence.length === 0) {
+                    currentSequence.push(duplicates[i]);
+                } else {
+                    const lastPos = currentSequence[currentSequence.length - 1].position;
+                    const currentPos = duplicates[i].position;
+                    const gap = currentPos - lastPos;
+                    
+                    // If gap is > 5 frames, this might be a new sequence
+                    if (gap > 5) {
+                        sequences.push(currentSequence);
+                        currentSequence = [duplicates[i]];
+                    } else {
+                        currentSequence.push(duplicates[i]);
+                    }
+                }
+            }
+            
+            if (currentSequence.length > 0) {
+                sequences.push(currentSequence);
+            }
+            
+            return sequences;
+        }
+        
+        function decodeSequence(duplicates, sequenceNum) {
+            const details = [];
+            const digits = [];
+            
+            let i = 0;
+            while (i < duplicates.length) {
+                const dup = duplicates[i];
+                
+                if (dup.count === 3) {
+                    // Triplet = 0
+                    digits.push(0);
+                    details.push({
+                        position: digits.length,
+                        frames: `${dup.position}-${dup.position + 2}`,
+                        pattern: 'Triplet',
+                        value: 0,
+                        sequence: sequenceNum
+                    });
+                    i++;
+                } else if (dup.count === 2 && i + 1 < duplicates.length && duplicates[i + 1].count === 2) {
+                    // Pair of pairs = digit 1-9
+                    const pos1 = dup.position;
+                    const pos2 = duplicates[i + 1].position;
+                    const distance = Math.abs(pos2 - pos1);
+                    
+                    // The distance represents the digit (if it's within 1-9)
+                    if (distance >= 1 && distance <= 9) {
+                        digits.push(distance);
+                        details.push({
+                            position: digits.length,
+                            frames: `${pos1}-${pos1+1}, ${pos2}-${pos2+1}`,
+                            pattern: 'Double Pair',
+                            value: distance,
+                            sequence: sequenceNum
+                        });
+                    }
+                    
+                    i += 2;
+                } else {
+                    // Single pair, might be noise or partial encoding
+                    i++;
+                }
+            }
+            
+            const number = digits.length > 0 ? parseInt(digits.join('')) : 0;
+            
+            return { number, details };
+        }
+
+        function displayResults(number, details) {
+            secretNumberDiv.textContent = number.toLocaleString();
+            
+            // Clear previous details
+            detailsBody.innerHTML = '';
+            
+            // Add new details
+            details.forEach(detail => {
+                const row = document.createElement('tr');
+                const seqBadge = detail.sequence ? `<span style="background: ${detail.sequence === 1 ? '#4caf50' : '#2196f3'}; color: white; padding: 2px 6px; border-radius: 4px; font-size: 11px; margin-left: 5px;">Seq ${detail.sequence}</span>` : '';
+                row.innerHTML = `
+                    <td>Digit ${detail.position}${seqBadge}</td>
+                    <td>Frames ${detail.frames}</td>
+                    <td>${detail.pattern}</td>
+                    <td><strong>${detail.value}</strong></td>
+                `;
+                detailsBody.appendChild(row);
+            });
+            
+            // Show confidence if available
+            const confidence = details.length > 0 ? details[0].confidence : '';
+            if (confidence) {
+                const confRow = document.createElement('tr');
+                confRow.innerHTML = `
+                    <td colspan="4" style="background: #f5f5f5; font-weight: 600; color: ${confidence.includes('High') ? '#388e3c' : confidence.includes('Medium') ? '#f57c00' : '#c62828'};">
+                        Confidence: ${confidence}
+                    </td>
+                `;
+                detailsBody.appendChild(confRow);
+            }
+            
+            resultBox.style.display = 'block';
+            showStatus('✅ Decoding complete!', 'success');
+            
+            // Scroll to result
+            resultBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+
+        function showStatus(message, type = 'info') {
+            statusDiv.className = `status ${type}`;
+            statusDiv.textContent = message;
+            statusDiv.style.display = 'block';
+        }
+    </script>
+</body>
+</html>

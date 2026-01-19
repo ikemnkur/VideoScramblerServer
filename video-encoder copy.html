@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Secret Number Video Encoder</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            max-width: 800px;
+            width: 100%;
+            padding: 40px;
+        }
+        
+        h1 {
+            color: #667eea;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+        
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+        
+        .input-group {
+            margin-bottom: 25px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 600;
+        }
+        
+        input[type="file"],
+        input[type="number"] {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+        
+        input[type="file"]:hover,
+        input[type="number"]:hover {
+            border-color: #667eea;
+        }
+        
+        input[type="file"]:focus,
+        input[type="number"]:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 14px 32px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            width: 100%;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4);
+        }
+        
+        button:active {
+            transform: translateY(0);
+        }
+        
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .status {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+        
+        .status.info {
+            background: #e3f2fd;
+            color: #1976d2;
+            border-left: 4px solid #1976d2;
+        }
+        
+        .status.success {
+            background: #e8f5e9;
+            color: #388e3c;
+            border-left: 4px solid #388e3c;
+        }
+        
+        .status.error {
+            background: #ffebee;
+            color: #c62828;
+            border-left: 4px solid #c62828;
+        }
+        
+        .preview {
+            margin-top: 20px;
+        }
+        
+        video {
+            width: 100%;
+            max-height: 400px;
+            border-radius: 8px;
+            background: #000;
+        }
+        
+        .info-box {
+            background: #f5f5f5;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 20px;
+            font-size: 13px;
+            color: #555;
+        }
+        
+        .info-box h3 {
+            color: #667eea;
+            margin-bottom: 8px;
+            font-size: 15px;
+        }
+        
+        .info-box ul {
+            margin-left: 20px;
+            margin-top: 8px;
+        }
+        
+        .info-box li {
+            margin-bottom: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔐 Secret Number Video Encoder</h1>
+        <p class="subtitle">Embed a secret number (1-1,000,000) into a video using frame duplication</p>
+        
+        <div class="input-group">
+            <label for="videoFile">Select Video File:</label>
+            <input type="file" id="videoFile" accept="video/*">
+        </div>
+        
+        <div class="input-group">
+            <label for="secretNumber">Secret Number (1-1,000,000):</label>
+            <input type="number" id="secretNumber" min="1" max="1000000" placeholder="Enter a number...">
+        </div>
+        
+        <button id="encodeBtn">Encode Video</button>
+        
+        <div id="status"></div>
+        
+        <div class="preview" id="previewSection" style="display: none;">
+            <h3>Original Video Preview:</h3>
+            <video id="videoPreview" controls></video>
+        </div>
+        
+        <div class="info-box">
+            <h3>How It Works:</h3>
+            <ul>
+                <li><strong>First Second:</strong> The first 30 frames (1 second @ 30fps) are left untouched</li>
+                <li><strong>Digit Encoding:</strong> Each digit (0-9) is encoded using frame duplications</li>
+                <li><strong>Duplication Pattern:</strong> Pairs of duplicated frames for digits 1-9, triplets for 0</li>
+                <li><strong>Position Difference:</strong> The distance between duplication positions encodes the digit</li>
+                <li><strong>Example:</strong> Frames 40-41 and 48-49 duplicated → abs(40-48) = 8</li>
+                <li><strong>Zero Encoding:</strong> Three consecutive frames (triplet) represent 0</li>
+                <li><strong>Redundancy:</strong> If video is long enough, the sequence repeats after 5 separator frames for error correction</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        const videoFileInput = document.getElementById('videoFile');
+        const secretNumberInput = document.getElementById('secretNumber');
+        const encodeBtn = document.getElementById('encodeBtn');
+        const statusDiv = document.getElementById('status');
+        const videoPreview = document.getElementById('videoPreview');
+        const previewSection = document.getElementById('previewSection');
+
+        let videoFile = null;
+
+        videoFileInput.addEventListener('change', (e) => {
+            videoFile = e.target.files[0];
+            if (videoFile) {
+                const url = URL.createObjectURL(videoFile);
+                videoPreview.src = url;
+                previewSection.style.display = 'block';
+                showStatus(`Video loaded: ${videoFile.name}`, 'info');
+            }
+        });
+
+        encodeBtn.addEventListener('click', async () => {
+            if (!videoFile) {
+                showStatus('Please select a video file first!', 'error');
+                return;
+            }
+
+            const secretNumber = parseInt(secretNumberInput.value);
+            if (!secretNumber || secretNumber < 1 || secretNumber > 1000000) {
+                showStatus('Please enter a valid number between 1 and 1,000,000!', 'error');
+                return;
+            }
+
+            encodeBtn.disabled = true;
+            showStatus('Encoding video... This may take a few minutes.', 'info');
+
+            try {
+                await encodeVideo(videoFile, secretNumber);
+            } catch (error) {
+                showStatus(`Error: ${error.message}`, 'error');
+            } finally {
+                encodeBtn.disabled = false;
+            }
+        });
+
+        async function encodeVideo(file, secretNumber) {
+            const video = document.createElement('video');
+            video.src = URL.createObjectURL(file);
+            
+            await new Promise((resolve, reject) => {
+                video.onloadedmetadata = resolve;
+                video.onerror = reject;
+            });
+
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+
+            const fps = 30; // Assuming 30 fps, adjust if needed
+            const duration = video.duration;
+            const totalFrames = Math.floor(duration * fps);
+
+            showStatus(`Video loaded: ${totalFrames} frames at ${fps} fps`, 'info');
+
+            // Convert number to string and pad if needed
+            const numberStr = secretNumber.toString();
+            
+            // Calculate duplication positions
+            const duplications = calculateDuplicationPositions(numberStr, totalFrames);
+            
+            const hasRepetition = duplications.some(d => d.sequence === 2);
+            const repetitionMsg = hasRepetition ? ' (with redundancy repetition)' : ' (single sequence - video too short for repetition)';
+            showStatus(`Encoding pattern: ${duplications.length} duplications, skipping first second${repetitionMsg}`, 'info');
+
+            // Extract all frames
+            const frames = [];
+            for (let i = 0; i < totalFrames; i++) {
+                video.currentTime = i / fps;
+                await new Promise(resolve => {
+                    video.onseeked = resolve;
+                });
+                
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                frames.push(canvas.toDataURL('image/jpeg', 0.95));
+                
+                if (i % 100 === 0) {
+                    showStatus(`Extracting frames: ${i}/${totalFrames}`, 'info');
+                }
+            }
+
+            // Insert duplicate frames
+            let insertedFrames = [...frames];
+            let offset = 0;
+            
+            for (const dup of duplications) {
+                const { position, count } = dup;
+                const frameToClone = insertedFrames[position + offset];
+                
+                // Insert duplicates
+                for (let i = 0; i < count - 1; i++) {
+                    insertedFrames.splice(position + offset + 1, 0, frameToClone);
+                }
+                offset += count - 1;
+            }
+
+            showStatus(`Creating video with ${insertedFrames.length} frames (${insertedFrames.length - totalFrames} duplicates added)...`, 'info');
+
+            // Create video from frames using MediaRecorder
+            await createVideoFromFrames(insertedFrames, fps, file.name);
+        }
+
+        function calculateDuplicationPositions(numberStr, totalFrames) {
+            const duplications = [];
+            const fps = 30; // Assuming 30 fps
+            const startFrame = fps; // Skip first second (30 frames)
+            const availableSpace = totalFrames - startFrame - 50; // Leave buffer at start and end
+            const spacing = Math.floor(availableSpace / (numberStr.length * 2));
+            
+            let currentPos = startFrame; // Start after first second
+            
+            // First encoding sequence
+            for (let i = 0; i < numberStr.length; i++) {
+                const digit = parseInt(numberStr[i]);
+                
+                if (digit === 0) {
+                    // Zero: use triplet (3 consecutive frames)
+                    duplications.push({ position: currentPos, count: 3, digit: 0, sequence: 1 });
+                    currentPos += spacing;
+                } else {
+                    // Digit 1-9: use two pairs
+                    // First pair
+                    const pos1 = currentPos;
+                    duplications.push({ position: pos1, count: 2, digit: digit, sequence: 1 });
+                    
+                    // Second pair (distance = digit value)
+                    const pos2 = pos1 + digit;
+                    duplications.push({ position: pos2, count: 2, digit: digit, sequence: 1 });
+                    
+                    currentPos = pos2 + spacing;
+                }
+            }
+            
+            // Add 5-frame separator before repetition
+            currentPos += 5;
+            
+            // Check if we have enough space for repetition (need at least same amount of space)
+            const sequenceLength = currentPos - startFrame;
+            const remainingFrames = totalFrames - currentPos - 20; // 20 frame buffer at end
+            
+            if (remainingFrames >= sequenceLength) {
+                // Add repetition sequence for redundancy
+                for (let i = 0; i < numberStr.length; i++) {
+                    const digit = parseInt(numberStr[i]);
+                    
+                    if (digit === 0) {
+                        // Zero: use triplet (3 consecutive frames)
+                        duplications.push({ position: currentPos, count: 3, digit: 0, sequence: 2 });
+                        currentPos += spacing;
+                    } else {
+                        // Digit 1-9: use two pairs
+                        // First pair
+                        const pos1 = currentPos;
+                        duplications.push({ position: pos1, count: 2, digit: digit, sequence: 2 });
+                        
+                        // Second pair (distance = digit value)
+                        const pos2 = pos1 + digit;
+                        duplications.push({ position: pos2, count: 2, digit: digit, sequence: 2 });
+                        
+                        currentPos = pos2 + spacing;
+                    }
+                }
+            }
+            
+            return duplications;
+        }
+
+        async function createVideoFromFrames(frames, fps, originalName) {
+            const canvas = document.createElement('canvas');
+            const stream = canvas.captureStream(fps);
+            const mediaRecorder = new MediaRecorder(stream, {
+                mimeType: 'video/webm;codecs=vp9',
+                videoBitsPerSecond: 5000000
+            });
+
+            const chunks = [];
+            mediaRecorder.ondataavailable = (e) => chunks.push(e.data);
+            
+            mediaRecorder.onstop = () => {
+                const blob = new Blob(chunks, { type: 'video/webm' });
+                const url = URL.createObjectURL(blob);
+                
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `encoded_${originalName.replace(/\.[^/.]+$/, '')}.webm`;
+                a.click();
+                
+                showStatus('✅ Video encoded successfully! Download started.', 'success');
+            };
+
+            mediaRecorder.start();
+
+            // Load first frame to get dimensions
+            const img = new Image();
+            img.src = frames[0];
+            await new Promise(resolve => img.onload = resolve);
+            
+            canvas.width = img.width;
+            canvas.height = img.height;
+            const ctx = canvas.getContext('2d');
+
+            // Draw frames
+            for (let i = 0; i < frames.length; i++) {
+                const frameImg = new Image();
+                frameImg.src = frames[i];
+                await new Promise(resolve => frameImg.onload = resolve);
+                
+                ctx.drawImage(frameImg, 0, 0);
+                
+                if (i % 50 === 0) {
+                    showStatus(`Encoding video: ${i}/${frames.length} frames`, 'info');
+                }
+                
+                await new Promise(resolve => setTimeout(resolve, 1000 / fps));
+            }
+
+            mediaRecorder.stop();
+        }
+
+        function showStatus(message, type = 'info') {
+            statusDiv.className = `status ${type}`;
+            statusDiv.textContent = message;
+            statusDiv.style.display = 'block';
+        }
+    </script>
+</body>
+</html>

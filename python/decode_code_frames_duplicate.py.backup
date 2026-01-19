@@ -1,0 +1,271 @@
+#!/usr/bin/env python3
+"""
+Decode secret data from video that was encoded using frame-to-frame section duplication.
+Uses frame subtraction to detect duplicated sections:
+- Duplicated sections (bit=0): subtraction yields near-zero (black)
+- Non-duplicated sections (bit=1): subtraction shows differences (visible content)
+"""
+import cv2
+import numpy as np
+import os
+import sys
+import argparse
+from typing import List, Tuple, Optional
+
+
+def compute_section_difference(
+    current_frame: np.ndarray,
+    previous_frame: np.ndarray,
+    row: int,
+    col: int,
+    h_divisions: int,
+    v_divisions: int
+) -> float:
+    """
+    Compute the average absolute difference between a section in two consecutive frames.
+    Returns a value indicating how different the section is (0 = identical, higher = different).
+    """
+    h, w = current_frame.shape[:2]
+    section_h = h // v_divisions
+    section_w = w // h_divisions
+    
+    y1 = row * section_h
+    y2 = (row + 1) * section_h if row < v_divisions - 1 else h
+    x1 = col * section_w
+    x2 = (col + 1) * section_w if col < h_divisions - 1 else w
+    
+    # Extract sections from both frames
+    curr_section = current_frame[y1:y2, x1:x2]
+    prev_section = previous_frame[y1:y2, x1:x2]
+    
+    # Compute absolute difference
+    diff = cv2.absdiff(curr_section, prev_section)
+    
+    # Convert to grayscale if needed and compute mean
+    if len(diff.shape) == 3:
+        diff_gray = cv2.cvtColor(diff, cv2.COLOR_BGR2GRAY)
+    else:
+        diff_gray = diff
+    
+    # Return average difference value (use mean for average pixel difference)
+    # For more robustness against compression, we could use median or percentile
+    return float(diff_gray.mean())
+
+
+def decode_frame_pair(
+    current_frame: np.ndarray,
+    previous_frame: np.ndarray,
+    h_divisions: int,
+    v_divisions: int,
+    threshold: Optional[float] = None
+) -> List[int]:
+    """
+    Decode bits from a pair of consecutive frames by comparing sections.
+    Uses adaptive thresholding based on the distribution of differences within this frame.
+    - If section difference < threshold: bit = 0 (duplicated)
+    - If section difference >= threshold: bit = 1 (not duplicated, natural change)
+    
+    Returns list of bits (one per section, in row-major order).
+    """
+    bits = []
+    total_sections = h_divisions * v_divisions
+    
+    # Compute all differences first
+    differences = []
+    for idx in range(total_sections):
+        row = idx // h_divisions
+        col = idx % h_divisions
+        
+        diff = compute_section_difference(
+            current_frame,
+            previous_frame,
+            row, col,
+            h_divisions,
+            v_divisions
+        )
+        differences.append(diff)
+    
+    # If no threshold provided, use adaptive threshold (between low and high values)
+    if threshold is None:
+        # Use the median as threshold - sections below median are 0, above are 1
+        threshold = np.median(differences)
+    
+    # Decode bits based on threshold
+    for diff in differences:
+        if diff < threshold:
+            bits.append(0)  # Duplicated section
+        else:
+            bits.append(1)  # Non-duplicated section
+    
+    return bits
+
+
+def bits_to_bytes(bits: List[int]) -> bytes:
+    """
+    Convert a list of bits to bytes.
+    """
+    # Pad to multiple of 8
+    while len(bits) % 8 != 0:
+        bits.append(0)
+    
+    byte_list = []
+    for i in range(0, len(bits), 8):
+        byte_val = 0
+        for j in range(8):
+            byte_val = (byte_val << 1) | bits[i + j]
+        byte_list.append(byte_val)
+    
+    return bytes(byte_list)
+
+
+def decode_code_from_video_duplicate(
+    input_path: str,
+    h_divisions: int = 4,
+    v_divisions: int = 4,
+    frame_interval: int = 1,
+    difference_threshold: Optional[float] = None,
+    max_frames: Optional[int] = None,
+) -> bytes:
+    """
+    Decode secret data from a video using frame-to-frame section comparison.
+    
+    Args:
+        input_path: Input video file
+        h_divisions: Horizontal divisions used during encoding
+        v_divisions: Vertical divisions used during encoding
+        frame_interval: How often frames were encoded (every N frames)
+        difference_threshold: Threshold for detecting duplicates (lower = more strict)
+        max_frames: Maximum number of frames to process (None for all)
+    
+    Returns:
+        Decoded bytes
+    """
+    if not os.path.isfile(input_path):
+        raise FileNotFoundError(f"Video not found: {input_path}")
+    
+    cap = cv2.VideoCapture(input_path)
+    if not cap.isOpened():
+        raise RuntimeError(f"Could not open video: {input_path}")
+    
+    total_sections = h_divisions * v_divisions
+    bits_per_frame = total_sections
+    
+    print(f"Decoding from video: {input_path}")
+    print(f"Grid: {h_divisions}x{v_divisions} = {total_sections} sections")
+    print(f"Bits per encoded frame: {bits_per_frame}")
+    if difference_threshold:
+        print(f"Difference threshold: {difference_threshold} (fixed)")
+    else:
+        print(f"Using adaptive threshold (per-frame median)")
+    
+    decoded_bits: List[int] = []
+    frame_idx = 0
+    encoded_frames_found = 0
+    previous_frame = None
+    
+    while True:
+        ok, frame = cap.read()
+        if not ok:
+            break
+        
+        if max_frames and frame_idx >= max_frames:
+            break
+        
+        # Need at least 2 frames to decode
+        if previous_frame is not None and frame_idx > 0:
+            # Check if this frame should contain encoded data
+            if frame_idx % frame_interval == 0:
+                # Decode bits from this frame pair
+                bits = decode_frame_pair(
+                    frame,
+                    previous_frame,
+                    h_divisions,
+                    v_divisions,
+                    difference_threshold
+                )
+                
+                decoded_bits.extend(bits)
+                encoded_frames_found += 1
+                
+                if encoded_frames_found % 10 == 0:
+                    print(f"  Decoded {encoded_frames_found} frames, {len(decoded_bits)} bits so far...")
+        
+        previous_frame = frame.copy()
+        frame_idx += 1
+    
+    cap.release()
+    
+    print(f"\nDecoding complete.")
+    print(f"Total frames processed: {frame_idx}")
+    print(f"Encoded frames found: {encoded_frames_found}")
+    print(f"Total bits decoded: {len(decoded_bits)}")
+    
+    # Convert bits to bytes
+    return bits_to_bytes(decoded_bits)
+
+
+def bytes_to_pretty_string(data: bytes) -> str:
+    """
+    Try to decode as UTF-8; if that fails, fall back to hex representation.
+    """
+    if not data:
+        return ""
+    
+    try:
+        # Try UTF-8 decoding, replacing errors
+        text = data.decode("utf-8", errors="replace")
+        # Strip null bytes and other control characters at the end
+        text = text.rstrip('\x00')
+        return text
+    except Exception:
+        # Fallback to hex
+        return " ".join(f"{b:02X}" for b in data)
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Decode secret data from video encoded with frame-to-frame section duplication."
+    )
+    parser.add_argument("--input", "-i", required=True, help="Input video file")
+    parser.add_argument("--interval", "-n", type=int, default=1,
+                        help="Frame interval used during encoding")
+    parser.add_argument("--h-divisions", type=int, default=4,
+                        help="Horizontal divisions (must maNone,
+                        help="Difference threshold for duplicate detection (default: adaptive/auto
+                        help="Vertical divisions (must match encoding)")
+    parser.add_argument("--threshold", type=float, default=5.0,
+                        help="Difference threshold for duplicate detection (lower=stricter)")
+    parser.add_argument("--max-frames", type=int, default=None,
+                        help="Maximum frames to process (optional)")
+    parser.add_argument("--output", "-o", help="Output file to save decoded text")
+    
+    args = parser.parse_args()
+    
+    try:
+        decoded = decode_code_from_video_duplicate(
+            input_path=args.input,
+            h_divisions=args.h_divisions,
+            v_divisions=args.v_divisions,
+            frame_interval=args.interval,
+            difference_threshold=args.threshold,
+            max_frames=args.max_frames
+        )
+        
+        print("\n=== DECODED TEXT ===")
+        text = bytes_to_pretty_string(decoded)
+        print(text)
+        
+        if args.output:
+            with open(args.output, "w", encoding="utf-8") as f:
+                f.write(text)
+            print(f"\nDecoded text saved to: {args.output}")
+        
+    except Exception as e:
+        print(f"Error during decoding: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

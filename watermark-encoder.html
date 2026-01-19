@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Forensic Video Watermark Encoder</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .container {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+            max-width: 900px;
+            width: 100%;
+            padding: 40px;
+        }
+
+        h1 {
+            color: #1a1a2e;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+
+        .input-group {
+            margin-bottom: 25px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 600;
+        }
+
+        input[type="file"],
+        input[type="number"] {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+
+        input:hover {
+            border-color: #1a1a2e;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: #1a1a2e;
+        }
+
+        .options-row {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 25px;
+        }
+
+        .options-row .input-group {
+            flex: 1;
+            margin-bottom: 0;
+        }
+
+        button {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: white;
+            border: none;
+            padding: 14px 32px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            width: 100%;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(26, 26, 46, 0.4);
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .status {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+
+        .status.info {
+            background: #e3f2fd;
+            color: #1976d2;
+            border-left: 4px solid #1976d2;
+        }
+
+        .status.success {
+            background: #e8f5e9;
+            color: #388e3c;
+            border-left: 4px solid #388e3c;
+        }
+
+        .status.error {
+            background: #ffebee;
+            color: #c62828;
+            border-left: 4px solid #c62828;
+        }
+
+        .preview {
+            margin-top: 20px;
+        }
+
+        video {
+            width: 100%;
+            max-height: 400px;
+            border-radius: 8px;
+            background: #000;
+        }
+
+        .info-box {
+            background: #f5f5f5;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 20px;
+            font-size: 13px;
+            color: #555;
+        }
+
+        .info-box h3 {
+            color: #1a1a2e;
+            margin-bottom: 8px;
+            font-size: 15px;
+        }
+
+        .info-box ul {
+            margin-left: 20px;
+            margin-top: 8px;
+        }
+
+        .info-box li {
+            margin-bottom: 4px;
+        }
+
+        .layer-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            margin-right: 5px;
+        }
+
+        .layer-1 {
+            background: #e91e63;
+            color: white;
+        }
+
+        .layer-2 {
+            background: #2196f3;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Forensic Video Watermark Encoder</h1>
+        <p class="subtitle">Embed a tracking ID (0-65535) using dual-layer forensic watermarking</p>
+
+        <div class="input-group">
+            <label for="videoFile">Select Video File:</label>
+            <input type="file" id="videoFile" accept="video/*">
+        </div>
+
+        <div class="options-row">
+            <div class="input-group">
+                <label for="trackingId">Tracking ID (0-65535, 16-bit):</label>
+                <input type="number" id="trackingId" min="0" max="65535" placeholder="Enter tracking ID...">
+            </div>
+            <div class="input-group">
+                <label for="markerOpacity">Marker Opacity (0.05-0.3):</label>
+                <input type="number" id="markerOpacity" min="0.05" max="0.3" step="0.01" value="0.15">
+            </div>
+        </div>
+
+        <button id="encodeBtn">Encode Watermark</button>
+
+        <div id="status"></div>
+
+        <div class="preview" id="previewSection" style="display: none;">
+            <h3>Video Preview:</h3>
+            <video id="videoPreview" controls></video>
+        </div>
+
+        <div class="info-box">
+            <h3>Dual-Layer Forensic Watermarking:</h3>
+            <ul>
+                <li><span class="layer-badge layer-1">Layer 1</span><strong>Random Position Markers:</strong> Semi-transparent binary markers at pseudo-random positions each frame. Hard to crop or blur out since position varies.</li>
+                <li><span class="layer-badge layer-2">Layer 2</span><strong>Edge Cropping + Center Dot:</strong> Asymmetric pixel removal from edges encodes data. A red center dot provides a reference point for measuring distances to edges.</li>
+                <li><strong>16-bit capacity:</strong> Stores values 0-65535 using 5x5 grid pattern (center 3x3 finder + 16 outer data bits)</li>
+                <li><strong>Compression resistant:</strong> High-contrast markers survive lossy compression</li>
+                <li><strong>Anti-tampering:</strong> Random positions per frame make removal extremely difficult</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        const videoFileInput = document.getElementById('videoFile');
+        const trackingIdInput = document.getElementById('trackingId');
+        const markerOpacityInput = document.getElementById('markerOpacity');
+        const encodeBtn = document.getElementById('encodeBtn');
+        const statusDiv = document.getElementById('status');
+        const videoPreview = document.getElementById('videoPreview');
+        const previewSection = document.getElementById('previewSection');
+
+        let videoFile = null;
+
+        videoFileInput.addEventListener('change', (e) => {
+            videoFile = e.target.files[0];
+            if (videoFile) {
+                const url = URL.createObjectURL(videoFile);
+                videoPreview.src = url;
+                previewSection.style.display = 'block';
+                showStatus(`Video loaded: ${videoFile.name}`, 'info');
+            }
+        });
+
+        encodeBtn.addEventListener('click', async () => {
+            if (!videoFile) {
+                showStatus('Please select a video file first!', 'error');
+                return;
+            }
+
+            const trackingId = parseInt(trackingIdInput.value);
+            if (isNaN(trackingId) || trackingId < 0 || trackingId > 65535) {
+                showStatus('Please enter a valid tracking ID (0-65535)!', 'error');
+                return;
+            }
+
+            const opacity = parseFloat(markerOpacityInput.value);
+            if (isNaN(opacity) || opacity < 0.05 || opacity > 0.3) {
+                showStatus('Please enter a valid opacity (0.05-0.3)!', 'error');
+                return;
+            }
+
+            encodeBtn.disabled = true;
+            showStatus('Starting forensic watermark encoding...', 'info');
+
+            try {
+                await encodeVideo(videoFile, trackingId, opacity);
+            } catch (error) {
+                showStatus(`Error: ${error.message}`, 'error');
+                console.error(error);
+            } finally {
+                encodeBtn.disabled = false;
+            }
+        });
+
+        // Convert tracking ID to 16-bit binary array
+        function toBinaryArray(num, bits = 16) {
+            const arr = [];
+            for (let i = bits - 1; i >= 0; i--) {
+                arr.push((num >> i) & 1);
+            }
+            return arr;
+        }
+
+        // Pseudo-random number generator with seed
+        function seededRandom(seed) {
+            const x = Math.sin(seed) * 10000;
+            return x - Math.floor(x);
+        }
+
+        // Get random position for a frame based on frame number
+        function getMarkerPosition(frameNum, width, height, markerWidth, markerHeight) {
+            // Use frame number as seed for reproducible random positions
+            const seed1 = frameNum * 12345 + 67890;
+            const seed2 = frameNum * 98765 + 43210;
+
+            // Keep marker away from edges (20% margin)
+            const marginX = width * 0.2;
+            const marginY = height * 0.2;
+            const availableWidth = width - 2 * marginX - markerWidth;
+            const availableHeight = height - 2 * marginY - markerHeight;
+
+            const x = marginX + seededRandom(seed1) * availableWidth;
+            const y = marginY + seededRandom(seed2) * availableHeight;
+
+            return { x: Math.floor(x), y: Math.floor(y) };
+        }
+
+        // Draw the binary marker (5x5 grid with center 3x3 finder pattern)
+        function drawMarker(ctx, x, y, binaryData, opacity, scale = 1) {
+            const cellSize = Math.floor(8 * scale);
+            const markerSize = cellSize * 5; // 5x5 grid
+
+            ctx.save();
+            ctx.globalAlpha = opacity;
+
+            // Finder pattern (3x3 in center)
+            // [1, 1, 1]
+            // [1, 0, 1]
+            // [1, 1, 1]
+            const finderPattern = [
+                [1, 1, 1],
+                [1, 0, 1],
+                [1, 1, 1]
+            ];
+
+            // Data bit mapping for 5x5 grid (16 outer cells)
+            // Layout:
+            // [D0 ][D1 ][D2 ][D3 ][D4 ]   <- row 0: bits 0-4
+            // [D5 ][F  ][F  ][F  ][D6 ]   <- row 1: bits 5, 6
+            // [D7 ][F  ][F  ][F  ][D8 ]   <- row 2: bits 7, 8
+            // [D9 ][F  ][F  ][F  ][D10]   <- row 3: bits 9, 10
+            // [D11][D12][D13][D14][D15]   <- row 4: bits 11-15
+
+            // Build the data bit index map
+            const dataBitMap = {};
+            let bitIndex = 0;
+            for (let row = 0; row < 5; row++) {
+                for (let col = 0; col < 5; col++) {
+                    const isFinderCell = row >= 1 && row <= 3 && col >= 1 && col <= 3;
+                    if (!isFinderCell) {
+                        dataBitMap[`${row}-${col}`] = bitIndex++;
+                    }
+                }
+            }
+
+            // Draw all cells
+            for (let row = 0; row < 5; row++) {
+                for (let col = 0; col < 5; col++) {
+                    const isFinderCell = row >= 1 && row <= 3 && col >= 1 && col <= 3;
+
+                    if (isFinderCell) {
+                        // Finder pattern cell
+                        const finderRow = row - 1;
+                        const finderCol = col - 1;
+                        ctx.fillStyle = finderPattern[finderRow][finderCol] ? '#000000' : '#ffffff';
+                    } else {
+                        // Data bit cell
+                        const bitIdx = dataBitMap[`${row}-${col}`];
+                        const bit = binaryData[bitIdx] || 0;
+                        ctx.fillStyle = bit ? '#ffffff' : '#000000';
+                    }
+
+                    ctx.fillRect(x + col * cellSize, y + row * cellSize, cellSize, cellSize);
+                }
+            }
+
+            // Draw border around entire marker for visibility
+            ctx.strokeStyle = '#888888';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(x, y, markerSize, markerSize);
+
+            ctx.restore();
+
+            return { width: markerSize, height: markerSize };
+        }
+
+        // Draw a red center dot as reference for edge crop detection
+        function drawCenterDot(ctx, width, height) {
+            const centerX = Math.floor(width / 2);
+            const centerY = Math.floor(height / 2);
+            const dotRadius = Math.max(3, Math.floor(Math.min(width, height) / 150));
+
+            ctx.save();
+            ctx.globalAlpha = 0.8;
+
+            // Draw outer ring (white for contrast)
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, dotRadius + 2, 0, Math.PI * 2);
+            ctx.fillStyle = '#ffffff';
+            ctx.fill();
+
+            // Draw inner dot (red)
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, dotRadius, 0, Math.PI * 2);
+            ctx.fillStyle = '#ff0000';
+            ctx.fill();
+
+            ctx.restore();
+        }
+
+        // Calculate edge cropping amounts from tracking ID
+        function calculateEdgeCrop(trackingId) {
+            // Split 12 bits into 4 groups of 3 bits each (0-7 pixels per edge)
+            // We'll multiply by a base unit to make it more noticeable
+            const baseUnit = 2; // Each unit = 2 pixels
+
+            const top = ((trackingId >> 9) & 0x7) * baseUnit;    // Bits 11-9
+            const right = ((trackingId >> 6) & 0x7) * baseUnit;  // Bits 8-6
+            const bottom = ((trackingId >> 3) & 0x7) * baseUnit; // Bits 5-3
+            const left = (trackingId & 0x7) * baseUnit;          // Bits 2-0
+
+            return { top, right, bottom, left };
+        }
+
+        async function encodeVideo(file, trackingId, opacity) {
+            const video = document.createElement('video');
+            video.src = URL.createObjectURL(file);
+
+            await new Promise((resolve, reject) => {
+                video.onloadedmetadata = resolve;
+                video.onerror = reject;
+            });
+
+            const fps = 30;
+            const duration = video.duration;
+            const totalFrames = Math.floor(duration * fps);
+
+            const binaryData = toBinaryArray(trackingId, 16);
+            const edgeCrop = calculateEdgeCrop(trackingId);
+
+            showStatus(`Tracking ID ${trackingId} = binary: ${binaryData.join('')}`, 'info');
+            showStatus(`Edge crop: T=${edgeCrop.top}px R=${edgeCrop.right}px B=${edgeCrop.bottom}px L=${edgeCrop.left}px`, 'info');
+
+            // Original dimensions
+            const origWidth = video.videoWidth;
+            const origHeight = video.videoHeight;
+
+            // New dimensions after edge cropping (Layer 2)
+            const newWidth = origWidth - edgeCrop.left - edgeCrop.right;
+            const newHeight = origHeight - edgeCrop.top - edgeCrop.bottom;
+
+            // Canvas for frame extraction (original size)
+            const extractCanvas = document.createElement('canvas');
+            extractCanvas.width = origWidth;
+            extractCanvas.height = origHeight;
+            const extractCtx = extractCanvas.getContext('2d');
+
+            // Canvas for output (cropped size with markers)
+            const outputCanvas = document.createElement('canvas');
+            outputCanvas.width = newWidth;
+            outputCanvas.height = newHeight;
+            const outputCtx = outputCanvas.getContext('2d');
+
+            // Calculate marker size based on video resolution (5x5 grid)
+            const markerScale = Math.max(1, Math.min(newWidth, newHeight) / 400);
+            const cellSize = Math.floor(8 * markerScale);
+            const markerDims = { width: cellSize * 5, height: cellSize * 5 };
+
+            showStatus(`Processing ${totalFrames} frames (${origWidth}x${origHeight} -> ${newWidth}x${newHeight})...`, 'info');
+
+            // Process frames
+            const frames = [];
+            for (let i = 0; i < totalFrames; i++) {
+                video.currentTime = i / fps;
+                await new Promise(resolve => {
+                    video.onseeked = resolve;
+                });
+
+                // Extract original frame
+                extractCtx.drawImage(video, 0, 0, origWidth, origHeight);
+
+                // Apply Layer 2: Edge cropping
+                // Copy cropped region to output canvas
+                outputCtx.drawImage(
+                    extractCanvas,
+                    edgeCrop.left, edgeCrop.top,           // Source x, y
+                    newWidth, newHeight,                    // Source width, height
+                    0, 0,                                   // Dest x, y
+                    newWidth, newHeight                     // Dest width, height
+                );
+
+                // Apply Layer 2b: Draw red center dot for edge crop reference
+                drawCenterDot(outputCtx, newWidth, newHeight);
+
+                // Apply Layer 1: Random position marker
+                const markerPos = getMarkerPosition(i, newWidth, newHeight, markerDims.width, markerDims.height);
+                drawMarker(outputCtx, markerPos.x, markerPos.y, binaryData, opacity, markerScale);
+
+                frames.push(outputCanvas.toDataURL('image/jpeg', 0.95));
+
+                if (i % 50 === 0) {
+                    showStatus(`Extracting frames: ${i}/${totalFrames}`, 'info');
+                }
+            }
+
+            showStatus(`Creating watermarked video...`, 'info');
+
+            // Create output video
+            await createVideoFromFrames(frames, fps, file.name, newWidth, newHeight);
+        }
+
+        async function createVideoFromFrames(frames, fps, originalName, width, height) {
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+
+            const stream = canvas.captureStream(fps);
+            const mediaRecorder = new MediaRecorder(stream, {
+                mimeType: 'video/webm;codecs=vp9',
+                videoBitsPerSecond: 8000000
+            });
+
+            const chunks = [];
+            mediaRecorder.ondataavailable = (e) => chunks.push(e.data);
+
+            mediaRecorder.onstop = () => {
+                const blob = new Blob(chunks, { type: 'video/webm' });
+                const url = URL.createObjectURL(blob);
+
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `watermarked_${originalName.replace(/\.[^/.]+$/, '')}.webm`;
+                a.click();
+
+                showStatus('Video watermarked successfully! Download started.', 'success');
+            };
+
+            mediaRecorder.start();
+
+            for (let i = 0; i < frames.length; i++) {
+                const frameImg = new Image();
+                frameImg.src = frames[i];
+                await new Promise(resolve => frameImg.onload = resolve);
+
+                ctx.drawImage(frameImg, 0, 0);
+
+                if (i % 50 === 0) {
+                    showStatus(`Encoding video: ${i}/${frames.length} frames`, 'info');
+                }
+
+                await new Promise(resolve => setTimeout(resolve, 1000 / fps));
+            }
+
+            mediaRecorder.stop();
+        }
+
+        function showStatus(message, type = 'info') {
+            statusDiv.className = `status ${type}`;
+            statusDiv.textContent = message;
+            statusDiv.style.display = 'block';
+        }
+    </script>
+</body>
+</html>
