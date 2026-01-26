@@ -20,7 +20,6 @@ const authenticateToken = require('./middleware/auth');
 const server = express();
 
 const PROXY = process.env.PROXY || '';
-
 // Database configuration
 const dbConfig = {
   host: process.env.DB_HOST || 'localhost',
@@ -1164,12 +1163,12 @@ server.get('/health', (req, res) => {
 // ============================================
 
 // Serve database manager HTML page
-server.get('/db-manager', (req, res) => {
+server.get('/db/manager', (req, res) => {
   res.sendFile(__dirname + '/public/db-manager.html');
 });
 
 // Get database statistics
-server.get('/api/db-stats', async (req, res) => {
+server.get('/db/stats', async (req, res) => {
   try {
     // Get database size
     const [sizeResult] = await pool.execute(`
@@ -1236,7 +1235,7 @@ server.get('/api/db-stats', async (req, res) => {
 });
 
 // Get list of tables with details
-server.get('/api/db-tables', async (req, res) => {
+server.get('/db/tables', async (req, res) => {
   try {
     const [tables] = await pool.execute(`
       SELECT 
@@ -1268,7 +1267,7 @@ server.get('/api/db-tables', async (req, res) => {
 });
 
 // Get records from a specific table with pagination and search
-server.get('/api/db-records/:tableName', async (req, res) => {
+server.get('/db/table/:tableName', async (req, res) => {
   try {
     const { tableName } = req.params;
     const limit = parseInt(req.query.limit) || 50;
@@ -1329,7 +1328,7 @@ server.get('/api/db-records/:tableName', async (req, res) => {
 });
 
 // Execute raw SQL query (SELECT only for safety)
-server.post('/api/db-query', async (req, res) => {
+server.post('/db/query', async (req, res) => {
   try {
     const { query } = req.body;
 
@@ -1422,9 +1421,9 @@ server.post(PROXY + '/api/auth/login', async (req, res) => {
         email: user.email,
         username: user.username,  // Add this line
         credits: user.credits
-      }, process.env.JWT_SECRET, { expiresIn: '1h' });
+      }, process.env.JWT_SECRET, { expiresIn: '2h' });
 
-      res.json({ token, user: { id: user.id, username: user.username, email: user.email, credits: user.credits } });
+      res.json({ token, tokenExpiry: new Date(Date.now() + 7200 * 1000), user: { id: user.id, username: user.username, email: user.email, credits: user.credits }, accountType: user.accountType, message: 'Login successful' });
 
       // res.json({
       //   success: true,
@@ -1450,13 +1449,13 @@ server.post(PROXY + '/api/auth/login', async (req, res) => {
 
 
 // Custom fetch account details route
-server.post(PROXY + '/api/user', async (req, res) => {
+server.post(PROXY + '/api/user', authenticateToken, async (req, res) => {
   console.log("Fetching user details...");
   try {
-    const { email, username, password } = req.body;
+    const { email, username } = req.body;
     //  console.log("User found:", user.username);
     // Validate input
-    if (!email || !password) {
+    if (!email) {
       return res.status(400).json({
         success: false,
         message: 'Email and password are required'
@@ -1495,37 +1494,45 @@ server.post(PROXY + '/api/user', async (req, res) => {
 
 
     // Compare password with hash
-    const isValidPassword = await bcrypt.compare(password, user.passwordHash);
+    // const isValidPassword = await bcrypt.compare(password, user.passwordHash);
 
-    if (isValidPassword) {
-      const userData = { ...user };
-      delete userData.passwordHash; // Don't send password hash
+    // if (isValidPassword) {
+    const userData = { ...user };
+    delete userData.passwordHash; // Don't send password hash
 
-      // Update last login with proper MySQL datetime format
-      // const currentDateTime = new Date().toISOString().slice(0, 19).replace('T', ' ');
+    // Update last login with proper MySQL datetime format
+    // const currentDateTime = new Date().toISOString().slice(0, 19).replace('T', ' ');
 
-      // Generate a proper JWT-like token (in production, use actual JWT)
-      const token = Buffer.from(`${user.id}_${Date.now()}_${Math.random()}`).toString('base64');
+    // Generate a proper JWT-like token (in production, use actual JWT)
+    // const token = Buffer.from(`${user.id}_${Date.now()}_${Math.random()}`).toString('base64');
+    const token = jwt.sign({
+      id: user.id,
+      email: user.email,
+      username: user.username,  // Add this line
+      credits: user.credits
+    }, process.env.JWT_SECRET, { expiresIn: '2h' });
 
 
-      res.json({
-        success: true,
-        user: userData,
-        unlocks: actions,
-        dayPassExpiry: user.dayPassExpiry,
-        dayPassMode: user.dayPassMode,
-        planExpiry: user.planExpiry,
-        token: token,
-        message: 'Login successful'
-      });
-      // }
+    res.json({
+      success: true,
+      user: userData,
+      unlocks: actions,
+      dayPassExpiry: user.dayPassExpiry,
+      dayPassMode: user.dayPassMode,
+      planExpiry: user.planExpiry,
+      token: token,
+      tokenExpiry: new Date(Date.now() + 7200 * 1000),
+      accountType: user.accountType,
+      message: 'Login successful'
+    });
+    // }
 
-    } else {
-      res.status(401).json({
-        success: false,
-        message: 'Invalid credentials'
-      });
-    }
+    // } else {
+    //   res.status(401).json({
+    //     success: false,
+    //     message: 'Invalid credentials'
+    //   });
+    // }
   } catch (error) {
     console.error('Login error:', error);
     res.status(500).json({
@@ -1654,7 +1661,16 @@ server.post(PROXY + '/api/auth/register', async (req, res) => {
 
 
     // Generate token for automatic login
-    const token = Buffer.from(`${userId}_${Date.now()}_${Math.random()}`).toString('base64');
+    // const token = Buffer.from(`${userId}_${Date.now()}_${Math.random()}`).toString('base64');
+    const token = jwt.sign({
+      id: newUser.id,
+      email: newUser.email,
+      username: newUser.username,  // Add this line
+      credits: newUser.credits
+    }, process.env.JWT_SECRET, { expiresIn: '3h' });
+
+    // res.json({ token, user: { id: user.id, username: user.username, email: user.email, credits: user.credits } });
+
 
     // Return user data without password hash
     const userData = { ...newUser };
@@ -1664,6 +1680,8 @@ server.post(PROXY + '/api/auth/register', async (req, res) => {
       success: true,
       user: userData,
       token: token,
+      tokenExpiry: new Date(Date.now() + 11800 * 1000),
+      accountType: newUser.accountType,
       message: 'Account created successfully'
     });
 
@@ -4632,13 +4650,14 @@ server.get(PROXY + '/api/download/:filename', (req, res) => {
 });
 
 
-// Photo leak detection endpoint
+
+// Photo leak detection endpoint -server side
 server.post(PROXY + '/api/check-photo-leak', authenticateToken, async (req, res) => {
-  console.log('\\n' + '='.repeat(60));
+  console.log('\n' + '='.repeat(60));
   console.log('🔍 NODE: Photo leak check request received');
   console.log('='.repeat(60));
 
-  // Setup multer for this endpoint if not already configured
+  // Setup multer to handle multiple files
   const upload = multer({
     dest: 'uploads/',
     limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
@@ -4651,27 +4670,61 @@ server.post(PROXY + '/api/check-photo-leak', authenticateToken, async (req, res)
     }
   });
 
-  upload.single('file')(req, res, async (err) => {
+  // Accept both originalImage and leakedImage files
+  upload.fields([
+    { name: 'originalImage', maxCount: 1 },
+    { name: 'leakedImage', maxCount: 1 }
+  ])(req, res, async (err) => {
     if (err) {
       console.error('❌ NODE ERROR: Multer error:', err);
       return res.status(400).json({ error: err.message });
     }
 
+    const uploadedFiles = [];
+
     try {
-      if (!req.file) {
-        return res.status(400).json({ error: 'No file uploaded' });
+      // Validate that both files were uploaded
+      if (!req.files || !req.files.originalImage || !req.files.leakedImage) {
+        return res.status(400).json({ 
+          error: 'Both originalImage and leakedImage files are required' 
+        });
       }
 
-      const filename = req.file.filename;
-      console.log(`📤 NODE: File saved as: ${filename}`);
+      const originalImageFile = req.files.originalImage[0];
+      const leakedImageFile = req.files.leakedImage[0];
+      uploadedFiles.push(originalImageFile.path, leakedImageFile.path);
 
-      // Step 1: Send to Flask to extract steganographic code
-      console.log('📡 NODE: Sending to Flask for code extraction...');
+      console.log(`📤 NODE: Original image saved as: ${originalImageFile.filename}`);
+      console.log(`📤 NODE: Leaked image saved as: ${leakedImageFile.filename}`);
+
+      // Parse optional keyData or keyCode
+      let keyData = null;
+      let keyCode = null;
+
+      if (req.body.keyData) {
+        try {
+          keyData = JSON.parse(req.body.keyData);
+          console.log('🔑 NODE: Key data provided');
+        } catch (parseError) {
+          console.warn('⚠️  Failed to parse keyData:', parseError);
+        }
+      }
+
+      if (req.body.keyCode) {
+        keyCode = req.body.keyCode;
+        console.log('🔑 NODE: Key code provided:', keyCode);
+      }
+
+      // Step 1: Send to Flask to extract steganographic code by comparing both images
+      console.log('📡 NODE: Sending both images to Flask for code extraction...');
 
       const flaskResponse = await axios.post(
         `${FLASKAPP_LINK}/extract-photo-code`,
         {
-          input: filename
+          input: leakedImageFile.filename,
+          original: originalImageFile.filename,
+          keyData: keyData,
+          keyCode: keyCode
         },
         {
           headers: { 'Content-Type': 'application/json' },
@@ -4684,6 +4737,15 @@ server.post(PROXY + '/api/check-photo-leak', authenticateToken, async (req, res)
       console.log(`🔑 NODE: Extracted code: ${extracted_code || 'None'}`);
 
       if (!extracted_code) {
+        // Cleanup uploaded files
+        uploadedFiles.forEach(filePath => {
+          try {
+            fs.unlinkSync(filePath);
+          } catch (cleanupErr) {
+            console.warn('⚠️  Could not delete uploaded file:', cleanupErr);
+          }
+        });
+
         return res.json({
           leakDetected: false,
           extractedCode: null,
@@ -4710,6 +4772,16 @@ server.post(PROXY + '/api/check-photo-leak', authenticateToken, async (req, res)
 
       if (rows.length === 0) {
         console.log('✅ NODE: No match found in database - image is clean');
+        
+        // Cleanup uploaded files
+        uploadedFiles.forEach(filePath => {
+          try {
+            fs.unlinkSync(filePath);
+          } catch (cleanupErr) {
+            console.warn('⚠️  Could not delete uploaded file:', cleanupErr);
+          }
+        });
+
         return res.json({
           leakDetected: false,
           extractedCode: extracted_code,
@@ -4723,14 +4795,16 @@ server.post(PROXY + '/api/check-photo-leak', authenticateToken, async (req, res)
       console.log(`   User: ${leakData.username} (${leakData.user_id})`);
       console.log(`   File: ${leakData.filename}`);
 
-      // Cleanup: delete uploaded file
-      try {
-        fs.unlinkSync(req.file.path);
-      } catch (cleanupErr) {
-        console.warn('⚠️  Could not delete uploaded file:', cleanupErr);
-      }
+      // Cleanup uploaded files
+      uploadedFiles.forEach(filePath => {
+        try {
+          fs.unlinkSync(filePath);
+        } catch (cleanupErr) {
+          console.warn('⚠️  Could not delete uploaded file:', cleanupErr);
+        }
+      });
 
-      console.log('='.repeat(60) + '\\n');
+      console.log('='.repeat(60) + '\n');
 
       return res.json({
         leakDetected: true,
@@ -4753,16 +4827,16 @@ server.post(PROXY + '/api/check-photo-leak', authenticateToken, async (req, res)
 
     } catch (error) {
       console.error('❌ NODE ERROR:', error);
-      console.log('='.repeat(60) + '\\n');
+      console.log('='.repeat(60) + '\n');
 
       // Cleanup on error
-      if (req.file) {
+      uploadedFiles.forEach(filePath => {
         try {
-          fs.unlinkSync(req.file.path);
+          fs.unlinkSync(filePath);
         } catch (cleanupErr) {
           console.warn('⚠️  Could not delete uploaded file:', cleanupErr);
         }
-      }
+      });
 
       return res.status(500).json({
         error: error.message,
@@ -4982,13 +5056,14 @@ server.post(PROXY + '/api/check-audio-leak', authenticateToken, async (req, res)
 
 // Video leak detection endpoint
 server.post(PROXY + '/api/check-video-leak', authenticateToken, async (req, res) => {
-  console.log('\\n' + '='.repeat(60));
+  console.log('\n' + '='.repeat(60));
   console.log('🎥 NODE: Video leak check request received');
   console.log('='.repeat(60));
 
+  // Setup multer to handle multiple files
   const upload = multer({
     dest: 'uploads/',
-    limits: { fileSize: 50 * 1024 * 1024 }, // 50MB limit for videos
+    limits: { fileSize: 250 * 1024 * 1024 }, // 250MB limit for video files
     fileFilter: (req, file, cb) => {
       if (file.mimetype.startsWith('video/')) {
         cb(null, true);
@@ -4998,35 +5073,71 @@ server.post(PROXY + '/api/check-video-leak', authenticateToken, async (req, res)
     }
   });
 
-  upload.single('file')(req, res, async (err) => {
+  // Accept both originalVideo and leakedVideo files
+  upload.fields([
+    { name: 'originalVideo', maxCount: 1 },
+    { name: 'leakedVideo', maxCount: 1 }
+  ])(req, res, async (err) => {
     if (err) {
       console.error('❌ NODE ERROR: Multer error:', err);
       return res.status(400).json({ error: err.message });
     }
 
+    const uploadedFiles = [];
+    const LEAK_CHECK_COST = 10; // Credits cost for leak checking
+
     try {
-      if (!req.file) {
-        return res.status(400).json({ error: 'No file uploaded' });
+      // Validate that both files were uploaded
+      if (!req.files || !req.files.originalVideo || !req.files.leakedVideo) {
+        return res.status(400).json({ 
+          error: 'Both originalVideo and leakedVideo files are required' 
+        });
       }
 
-      const filename = req.file.filename;
-      console.log(`📤 NODE: File saved as: ${filename}`);
+      const originalVideoFile = req.files.originalVideo[0];
+      const leakedVideoFile = req.files.leakedVideo[0];
+      uploadedFiles.push(originalVideoFile.path, leakedVideoFile.path);
 
-      // PAUSE HERE FOR A MOMENT TO AVOID RATE LIMITS
+      console.log(`📤 NODE: Original video saved as: ${originalVideoFile.filename}`);
+      console.log(`📤 NODE: Leaked video saved as: ${leakedVideoFile.filename}`);
 
+      // Parse optional keyData or keyCode
+      let keyData = null;
+      let keyCode = null;
+
+      if (req.body.keyData) {
+        try {
+          keyData = typeof req.body.keyData === 'string'
+            ? JSON.parse(req.body.keyData)
+            : req.body.keyData;
+          console.log('🔑 NODE: Key data provided');
+        } catch (parseError) {
+          console.warn('⚠️  Failed to parse keyData:', parseError);
+        }
+      }
+
+      if (req.body.keyCode) {
+        keyCode = req.body.keyCode;
+        console.log('🔑 NODE: Key code provided:', keyCode);
+      }
+
+      // PAUSE TO AVOID RATE LIMITS
       await new Promise(resolve => setTimeout(resolve, 3000));
 
-      // Step 1: Send to Flask to extract steganographic code
-      console.log('📡 NODE: Sending to Flask for code extraction...');
+      // Step 1: Send both videos to Flask to extract steganographic code
+      console.log('📡 NODE: Sending both videos to Flask for code extraction...');
 
       const flaskResponse = await axios.post(
         `${FLASKAPP_LINK}/extract-video-code`,
         {
-          input: filename
+          input: leakedVideoFile.filename,
+          original: originalVideoFile.filename,
+          keyData: keyData,
+          keyCode: keyCode
         },
         {
           headers: { 'Content-Type': 'application/json' },
-          timeout: 60000 // 60 seconds for video processing
+          timeout: 120000 // 120 seconds for video processing
         }
       );
 
@@ -5035,14 +5146,24 @@ server.post(PROXY + '/api/check-video-leak', authenticateToken, async (req, res)
       console.log(`🔑 NODE: Extracted code: ${extracted_code || 'None'}`);
 
       if (!extracted_code) {
+        // Cleanup uploaded files
+        uploadedFiles.forEach(filePath => {
+          try {
+            fs.unlinkSync(filePath);
+          } catch (cleanupErr) {
+            console.warn('⚠️  Could not delete uploaded file:', cleanupErr);
+          }
+        });
+
         return res.json({
           leakDetected: false,
           extractedCode: null,
-          message: 'No steganographic code found in video'
+          message: 'No steganographic code found in video',
+          creditsUsed: LEAK_CHECK_COST
         });
       }
 
-      // Step 2: Search database
+      // Step 2: Search database for matching code
       console.log('🔍 NODE: Searching database for matching code...');
 
       const [rows] = await pool.query(
@@ -5061,10 +5182,21 @@ server.post(PROXY + '/api/check-video-leak', authenticateToken, async (req, res)
 
       if (rows.length === 0) {
         console.log('✅ NODE: No match found in database - video is clean');
+        
+        // Cleanup uploaded files
+        uploadedFiles.forEach(filePath => {
+          try {
+            fs.unlinkSync(filePath);
+          } catch (cleanupErr) {
+            console.warn('⚠️  Could not delete uploaded file:', cleanupErr);
+          }
+        });
+
         return res.json({
           leakDetected: false,
           extractedCode: extracted_code,
-          message: 'Code extracted but not found in database'
+          message: 'Code extracted but not found in database',
+          creditsUsed: LEAK_CHECK_COST
         });
       }
 
@@ -5073,14 +5205,16 @@ server.post(PROXY + '/api/check-video-leak', authenticateToken, async (req, res)
       console.log('🚨 NODE: LEAK DETECTED!');
       console.log(`   User: ${leakData.username} (${leakData.user_id})`);
 
-      // Cleanup
-      try {
-        fs.unlinkSync(req.file.path);
-      } catch (cleanupErr) {
-        console.warn('⚠️  Could not delete uploaded file:', cleanupErr);
-      }
+      // Cleanup uploaded files
+      uploadedFiles.forEach(filePath => {
+        try {
+          fs.unlinkSync(filePath);
+        } catch (cleanupErr) {
+          console.warn('⚠️  Could not delete uploaded file:', cleanupErr);
+        }
+      });
 
-      console.log('='.repeat(60) + '\\n');
+      console.log('='.repeat(60) + '\n');
 
       return res.json({
         leakDetected: true,
@@ -5098,18 +5232,22 @@ server.post(PROXY + '/api/check-video-leak', authenticateToken, async (req, res)
           purchase_date: leakData.purchase_date,
           device_fingerprint: leakData.device_fingerprint
         },
-        message: 'Leak detected! Original owner identified.'
+        message: 'Leak detected! Original owner identified.',
+        creditsUsed: LEAK_CHECK_COST
       });
 
     } catch (error) {
       console.error('❌ NODE ERROR:', error.message);
-      console.log('='.repeat(60) + '\\n');
+      console.log('='.repeat(60) + '\n');
 
-      if (req.file) {
+      // Cleanup on error
+      uploadedFiles.forEach(filePath => {
         try {
-          fs.unlinkSync(req.file.path);
-        } catch (cleanupErr) { }
-      }
+          fs.unlinkSync(filePath);
+        } catch (cleanupErr) {
+          console.warn('⚠️  Could not delete uploaded file:', cleanupErr);
+        }
+      });
 
       return res.status(500).json({
         error: error.message,

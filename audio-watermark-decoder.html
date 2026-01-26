@@ -1,0 +1,921 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audio Watermark Decoder</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #0f9b0f 0%, #000428 100%);
+            min-height: 100vh;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .container {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+            max-width: 900px;
+            width: 100%;
+            padding: 40px;
+        }
+
+        h1 {
+            color: #0f9b0f;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+
+        .input-group {
+            margin-bottom: 25px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 600;
+        }
+
+        input[type="file"] {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+
+        input:hover {
+            border-color: #0f9b0f;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: #0f9b0f;
+        }
+
+        button {
+            background: linear-gradient(135deg, #0f9b0f 0%, #000428 100%);
+            color: white;
+            border: none;
+            padding: 14px 32px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            width: 100%;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(15, 155, 15, 0.4);
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .status {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+
+        .status.info {
+            background: #e3f2fd;
+            color: #1976d2;
+            border-left: 4px solid #1976d2;
+        }
+
+        .status.success {
+            background: #e8f5e9;
+            color: #388e3c;
+            border-left: 4px solid #388e3c;
+        }
+
+        .status.error {
+            background: #ffebee;
+            color: #c62828;
+            border-left: 4px solid #c62828;
+        }
+
+        .preview {
+            margin-top: 20px;
+        }
+
+        audio {
+            width: 100%;
+            margin-top: 10px;
+        }
+
+        .result-box {
+            margin-top: 30px;
+            padding: 30px;
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            border-radius: 12px;
+            text-align: center;
+            display: none;
+        }
+
+        .result-box h2 {
+            color: white;
+            margin-bottom: 15px;
+            font-size: 20px;
+        }
+
+        .tracking-id {
+            font-size: 64px;
+            font-weight: bold;
+            color: #fff;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+            padding: 20px;
+            background: rgba(255,255,255,0.15);
+            border-radius: 8px;
+            margin: 15px 0;
+        }
+
+        .bit-display {
+            background: #1a1a2e;
+            color: #38ef7d;
+            padding: 20px;
+            border-radius: 8px;
+            font-family: monospace;
+            margin-top: 15px;
+            font-size: 18px;
+            word-break: break-all;
+        }
+
+        .details {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-top: 20px;
+            text-align: left;
+        }
+
+        .details h3 {
+            color: #11998e;
+            margin-bottom: 12px;
+            font-size: 16px;
+        }
+
+        .details table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+
+        .details th,
+        .details td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+        }
+
+        .details th {
+            background: #f5f5f5;
+            font-weight: 600;
+            color: #555;
+        }
+
+        .info-box {
+            background: #f5f5f5;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 20px;
+            font-size: 13px;
+            color: #555;
+        }
+
+        .info-box h3 {
+            color: #0f9b0f;
+            margin-bottom: 8px;
+            font-size: 15px;
+        }
+
+        .info-box ul {
+            margin-left: 20px;
+            margin-top: 8px;
+        }
+
+        .info-box li {
+            margin-bottom: 4px;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background: #e0e0e0;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-top: 10px;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #11998e, #38ef7d);
+            transition: width 0.3s;
+        }
+
+        .spectrogram-container {
+            margin-top: 20px;
+            background: #1a1a2e;
+            border-radius: 8px;
+            padding: 10px;
+        }
+
+        canvas {
+            width: 100%;
+            height: 150px;
+            display: block;
+        }
+
+        .confidence-high {
+            color: #388e3c;
+            font-weight: bold;
+        }
+
+        .confidence-medium {
+            color: #f57c00;
+            font-weight: bold;
+        }
+
+        .confidence-low {
+            color: #c62828;
+            font-weight: bold;
+        }
+
+        .detection-list {
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+            background: #f5f5f5;
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 10px;
+        }
+
+        .detection-item {
+            padding: 4px 0;
+            border-bottom: 1px solid #ddd;
+        }
+
+        .detection-item:last-child {
+            border-bottom: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Audio Watermark Decoder</h1>
+        <p class="subtitle">Extract tracking ID from watermarked audio using FFT analysis</p>
+
+        <div class="input-group">
+            <label for="audioFile">Select Watermarked Audio:</label>
+            <input type="file" id="audioFile" accept="audio/*">
+        </div>
+
+        <button id="decodeBtn">Decode Watermark</button>
+
+        <div id="status"></div>
+
+        <div class="progress-bar" id="progressBar" style="display: none;">
+            <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+        </div>
+
+        <div class="preview" id="previewSection" style="display: none;">
+            <h3>Audio File:</h3>
+            <audio id="audioPreview" controls></audio>
+        </div>
+
+        <div class="spectrogram-container" id="spectrogramContainer" style="display: none;">
+            <canvas id="spectrogramCanvas"></canvas>
+        </div>
+
+        <div class="result-box" id="resultBox">
+            <h2>Tracking ID Decoded</h2>
+            <div class="tracking-id" id="trackingIdDisplay">-</div>
+            <div class="bit-display" id="bitDisplay"></div>
+            <div class="details">
+                <h3>Detection Details:</h3>
+                <table>
+                    <tbody id="detailsBody">
+                    </tbody>
+                </table>
+                <div class="detection-list" id="detectionList"></div>
+            </div>
+        </div>
+
+        <div class="info-box">
+            <h3>Decoding Process:</h3>
+            <ul>
+                <li><strong>Step 1:</strong> Load audio and perform FFT analysis on sliding windows</li>
+                <li><strong>Step 2:</strong> Detect sync chirp (150-250 Hz sweep) to locate watermark start</li>
+                <li><strong>Step 3:</strong> Extract 16 bits by analyzing frequency peaks (180 Hz = 0, 220 Hz = 1)</li>
+                <li><strong>Step 4:</strong> Multiple detections are combined using majority voting</li>
+                <li><strong>Note:</strong> Works best with WAV files; MP3 compression may reduce accuracy</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        const audioFileInput = document.getElementById('audioFile');
+        const decodeBtn = document.getElementById('decodeBtn');
+        const statusDiv = document.getElementById('status');
+        const audioPreview = document.getElementById('audioPreview');
+        const previewSection = document.getElementById('previewSection');
+        const spectrogramContainer = document.getElementById('spectrogramContainer');
+        const spectrogramCanvas = document.getElementById('spectrogramCanvas');
+        const resultBox = document.getElementById('resultBox');
+        const trackingIdDisplay = document.getElementById('trackingIdDisplay');
+        const bitDisplay = document.getElementById('bitDisplay');
+        const detailsBody = document.getElementById('detailsBody');
+        const detectionList = document.getElementById('detectionList');
+        const progressBar = document.getElementById('progressBar');
+        const progressFill = document.getElementById('progressFill');
+
+        let audioFile = null;
+
+        // Must match encoder configuration
+        const CONFIG = {
+            SYNC_FREQ_START: 150,
+            SYNC_FREQ_END: 250,
+            SYNC_DURATION: 0.2,
+
+            BIT_0_FREQ: 180,
+            BIT_1_FREQ: 220,
+            BIT_DURATION: 0.05,
+            GAP_DURATION: 0.02,
+
+            REPEAT_INTERVAL: 10,
+
+            // Analysis settings
+            FFT_SIZE: 2048,  // Reduced from 4096 for faster processing
+            FREQ_TOLERANCE: 15,  // Hz tolerance for frequency matching
+        };
+
+        // Debug logging helper
+        function log(message, data = null) {
+            const timestamp = performance.now().toFixed(2);
+            if (data !== null) {
+                console.log(`[${timestamp}ms] ${message}`, data);
+            } else {
+                console.log(`[${timestamp}ms] ${message}`);
+            }
+        }
+
+        audioFileInput.addEventListener('change', (e) => {
+            audioFile = e.target.files[0];
+            if (audioFile) {
+                const url = URL.createObjectURL(audioFile);
+                audioPreview.src = url;
+                previewSection.style.display = 'block';
+                resultBox.style.display = 'none';
+                spectrogramContainer.style.display = 'none';
+                showStatus(`Audio loaded: ${audioFile.name}`, 'info');
+            }
+        });
+
+        decodeBtn.addEventListener('click', async () => {
+            if (!audioFile) {
+                showStatus('Please select an audio file first!', 'error');
+                return;
+            }
+
+            decodeBtn.disabled = true;
+            progressBar.style.display = 'block';
+            showStatus('Loading audio file...', 'info');
+
+            try {
+                await decodeAudio(audioFile);
+            } catch (error) {
+                showStatus(`Error: ${error.message}`, 'error');
+                console.error(error);
+            } finally {
+                decodeBtn.disabled = false;
+            }
+        });
+
+        // Cooley-Tukey FFT implementation (radix-2, in-place)
+        // This is a Fast Fourier Transform - O(n log n) complexity
+        function fft(real, imag) {
+            const n = real.length;
+            if (n <= 1) return;
+
+            // Bit reversal permutation
+            for (let i = 0, j = 0; i < n; i++) {
+                if (i < j) {
+                    [real[i], real[j]] = [real[j], real[i]];
+                    [imag[i], imag[j]] = [imag[j], imag[i]];
+                }
+                let k = n >> 1;
+                while (k <= j) {
+                    j -= k;
+                    k >>= 1;
+                }
+                j += k;
+            }
+
+            // Cooley-Tukey decimation-in-time radix-2 FFT
+            for (let size = 2; size <= n; size *= 2) {
+                const halfSize = size / 2;
+                const angle = -2 * Math.PI / size;
+
+                // Precompute twiddle factors for this stage
+                const wReal = Math.cos(angle);
+                const wImag = Math.sin(angle);
+
+                for (let i = 0; i < n; i += size) {
+                    let wpReal = 1;
+                    let wpImag = 0;
+
+                    for (let j = 0; j < halfSize; j++) {
+                        const tReal = wpReal * real[i + j + halfSize] - wpImag * imag[i + j + halfSize];
+                        const tImag = wpReal * imag[i + j + halfSize] + wpImag * real[i + j + halfSize];
+
+                        real[i + j + halfSize] = real[i + j] - tReal;
+                        imag[i + j + halfSize] = imag[i + j] - tImag;
+                        real[i + j] += tReal;
+                        imag[i + j] += tImag;
+
+                        // Update twiddle factor
+                        const tempReal = wpReal * wReal - wpImag * wImag;
+                        wpImag = wpReal * wImag + wpImag * wReal;
+                        wpReal = tempReal;
+                    }
+                }
+            }
+        }
+
+        // Get magnitude spectrum from audio samples
+        function getSpectrum(samples, fftSize) {
+            const real = new Float32Array(fftSize);
+            const imag = new Float32Array(fftSize);
+
+            // Apply Hanning window and copy samples
+            for (let i = 0; i < fftSize && i < samples.length; i++) {
+                const window = 0.5 * (1 - Math.cos(2 * Math.PI * i / fftSize));
+                real[i] = samples[i] * window;
+            }
+
+            fft(real, imag);
+
+            // Calculate magnitude
+            const magnitude = new Float32Array(fftSize / 2);
+            for (let i = 0; i < fftSize / 2; i++) {
+                magnitude[i] = Math.sqrt(real[i] * real[i] + imag[i] * imag[i]);
+            }
+
+            return magnitude;
+        }
+
+        // Get the frequency bin index for a given frequency
+        function freqToBin(freq, sampleRate, fftSize) {
+            return Math.round(freq * fftSize / sampleRate);
+        }
+
+        // Get energy in a frequency band
+        function getBandEnergy(spectrum, centerFreq, bandwidth, sampleRate, fftSize) {
+            const centerBin = freqToBin(centerFreq, sampleRate, fftSize);
+            const halfBandBins = Math.ceil(bandwidth * fftSize / sampleRate / 2);
+
+            let energy = 0;
+            for (let i = centerBin - halfBandBins; i <= centerBin + halfBandBins; i++) {
+                if (i >= 0 && i < spectrum.length) {
+                    energy += spectrum[i] * spectrum[i];
+                }
+            }
+
+            return Math.sqrt(energy);
+        }
+
+        // Detect sync chirp at a given position
+        function detectSyncChirp(audioData, startSample, sampleRate) {
+            const fftSize = CONFIG.FFT_SIZE;
+            const chirpSamples = Math.floor(CONFIG.SYNC_DURATION * sampleRate);
+            const numWindows = 4; // Analyze chirp in 4 windows
+
+            let chirpScore = 0;
+            const expectedFreqs = [];
+
+            for (let i = 0; i < numWindows; i++) {
+                const t = i / numWindows;
+                const expectedFreq = CONFIG.SYNC_FREQ_START + (CONFIG.SYNC_FREQ_END - CONFIG.SYNC_FREQ_START) * t;
+                expectedFreqs.push(expectedFreq);
+            }
+
+            for (let w = 0; w < numWindows; w++) {
+                const windowStart = startSample + Math.floor(w * chirpSamples / numWindows);
+
+                // Bounds check
+                if (windowStart + fftSize > audioData.length) continue;
+
+                const samples = audioData.slice(windowStart, windowStart + fftSize);
+
+                if (samples.length < fftSize) continue;
+
+                const spectrum = getSpectrum(samples, fftSize);
+                const expectedFreq = expectedFreqs[w];
+
+                // Check if there's energy around the expected frequency
+                const energy = getBandEnergy(spectrum, expectedFreq, CONFIG.FREQ_TOLERANCE * 2, sampleRate, fftSize);
+                const noiseFloor = getBandEnergy(spectrum, 400, 50, sampleRate, fftSize); // Reference noise
+
+                if (energy > noiseFloor * 1.5) {
+                    chirpScore++;
+                }
+            }
+
+            return chirpScore / numWindows;
+        }
+
+        // Decode a single bit at a given position
+        function decodeBit(audioData, startSample, sampleRate) {
+            const fftSize = CONFIG.FFT_SIZE;
+            const bitSamples = Math.floor(CONFIG.BIT_DURATION * sampleRate);
+            const samples = audioData.slice(startSample, startSample + Math.min(bitSamples, fftSize));
+
+            if (samples.length < fftSize / 2) {
+                return { bit: 0, confidence: 0 };
+            }
+
+            // Pad to fftSize if needed
+            const paddedSamples = new Float32Array(fftSize);
+            paddedSamples.set(samples);
+
+            const spectrum = getSpectrum(paddedSamples, fftSize);
+
+            // Get energy at bit 0 and bit 1 frequencies
+            const energy0 = getBandEnergy(spectrum, CONFIG.BIT_0_FREQ, CONFIG.FREQ_TOLERANCE, sampleRate, fftSize);
+            const energy1 = getBandEnergy(spectrum, CONFIG.BIT_1_FREQ, CONFIG.FREQ_TOLERANCE, sampleRate, fftSize);
+
+            const total = energy0 + energy1;
+            if (total < 0.001) {
+                return { bit: 0, confidence: 0 };
+            }
+
+            const bit = energy1 > energy0 ? 1 : 0;
+            const confidence = Math.abs(energy1 - energy0) / total;
+
+            return { bit, confidence };
+        }
+
+        // Find all watermark instances in the audio (async for UI responsiveness)
+        async function findWatermarks(audioData, sampleRate, onProgress) {
+            const detections = [];
+            const windowStep = Math.floor(sampleRate * 0.5); // Check every 500ms (faster scan)
+            const duration = audioData.length / sampleRate;
+            const totalWindows = Math.floor((audioData.length - sampleRate * 2) / windowStep);
+
+            log(`Starting watermark scan: ${totalWindows} windows to check`);
+            log(`Audio duration: ${duration.toFixed(2)}s, Sample rate: ${sampleRate}Hz`);
+            log(`Window step: ${windowStep} samples (${(windowStep/sampleRate*1000).toFixed(0)}ms)`);
+            log(`FFT size: ${CONFIG.FFT_SIZE}`);
+
+            let windowsProcessed = 0;
+            let chirpsFound = 0;
+            const startTime = performance.now();
+
+            // Scan for sync chirps
+            for (let sample = 0; sample < audioData.length - sampleRate * 2; sample += windowStep) {
+                windowsProcessed++;
+
+                // Yield to UI every 50 windows
+                if (windowsProcessed % 50 === 0) {
+                    const progress = 50 + (windowsProcessed / totalWindows) * 30;
+                    const elapsed = ((performance.now() - startTime) / 1000).toFixed(1);
+                    const position = (sample / sampleRate).toFixed(1);
+
+                    log(`Progress: ${windowsProcessed}/${totalWindows} windows (${position}s / ${duration.toFixed(1)}s), chirps found: ${chirpsFound}, elapsed: ${elapsed}s`);
+                    showStatus(`Scanning: ${position}s / ${duration.toFixed(1)}s (${Math.floor(progress)}%)`, 'info');
+                    updateProgress(progress);
+
+                    // Allow UI to update
+                    await new Promise(resolve => setTimeout(resolve, 0));
+                }
+
+                const chirpScore = detectSyncChirp(audioData, sample, sampleRate);
+
+                if (chirpScore > 0.5) {
+                    chirpsFound++;
+                    log(`Potential sync chirp at ${(sample/sampleRate).toFixed(2)}s, score: ${chirpScore.toFixed(2)}`);
+
+                    // Found potential sync chirp, try to decode bits
+                    const syncEndSample = sample + Math.floor((CONFIG.SYNC_DURATION + CONFIG.GAP_DURATION) * sampleRate);
+
+                    const bits = [];
+                    let totalConfidence = 0;
+                    const bitStep = Math.floor((CONFIG.BIT_DURATION + CONFIG.GAP_DURATION) * sampleRate);
+
+                    log(`  Decoding 16 bits starting at sample ${syncEndSample}...`);
+
+                    for (let i = 0; i < 16; i++) {
+                        const bitStart = syncEndSample + i * bitStep;
+                        const result = decodeBit(audioData, bitStart, sampleRate);
+                        bits.push(result.bit);
+                        totalConfidence += result.confidence;
+                    }
+
+                    const avgConfidence = totalConfidence / 16;
+                    log(`  Bits decoded: ${bits.join('')}, avg confidence: ${(avgConfidence*100).toFixed(1)}%`);
+
+                    if (avgConfidence > 0.1) {
+                        // Convert bits to number
+                        let trackingId = 0;
+                        for (let i = 0; i < 16; i++) {
+                            trackingId = (trackingId << 1) | bits[i];
+                        }
+
+                        log(`  DETECTION: Tracking ID = ${trackingId} at ${(sample/sampleRate).toFixed(2)}s`);
+
+                        detections.push({
+                            position: sample / sampleRate,
+                            trackingId,
+                            bits: bits.join(''),
+                            chirpScore,
+                            confidence: avgConfidence
+                        });
+
+                        // Skip ahead to avoid duplicate detections
+                        sample += Math.floor(sampleRate * 1.5);
+                    } else {
+                        log(`  Rejected: confidence too low (${(avgConfidence*100).toFixed(1)}%)`);
+                    }
+                }
+            }
+
+            const totalTime = ((performance.now() - startTime) / 1000).toFixed(2);
+            log(`Scan complete: ${windowsProcessed} windows processed in ${totalTime}s`);
+            log(`Found ${detections.length} valid detections from ${chirpsFound} chirp candidates`);
+
+            return detections;
+        }
+
+        async function decodeAudio(file) {
+            log('=== AUDIO WATERMARK DECODE START ===');
+            log(`File: ${file.name}, Size: ${(file.size / 1024).toFixed(1)} KB`);
+
+            // Create audio context
+            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            const sampleRate = audioContext.sampleRate;
+            log(`AudioContext created, sample rate: ${sampleRate}Hz`);
+
+            // Load and decode audio file
+            log('Loading file into ArrayBuffer...');
+            const arrayBuffer = await file.arrayBuffer();
+            log(`ArrayBuffer loaded: ${(arrayBuffer.byteLength / 1024).toFixed(1)} KB`);
+            updateProgress(20);
+            showStatus('Decoding audio...', 'info');
+
+            log('Decoding audio data...');
+            const decodeStart = performance.now();
+            const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+            log(`Audio decoded in ${(performance.now() - decodeStart).toFixed(0)}ms`);
+            updateProgress(40);
+
+            const duration = audioBuffer.duration;
+            const numChannels = audioBuffer.numberOfChannels;
+            const totalSamples = audioBuffer.length;
+            log(`Audio info: ${duration.toFixed(2)}s, ${sampleRate}Hz, ${numChannels} channel(s), ${totalSamples} samples`);
+            showStatus(`Audio: ${duration.toFixed(2)}s, ${sampleRate}Hz, ${numChannels}ch`, 'info');
+
+            // Get mono audio data (average channels if stereo)
+            log('Extracting audio data...');
+            let audioData;
+            if (numChannels === 1) {
+                audioData = audioBuffer.getChannelData(0);
+                log('Using mono channel directly');
+            } else {
+                const left = audioBuffer.getChannelData(0);
+                const right = audioBuffer.getChannelData(1);
+                audioData = new Float32Array(left.length);
+                for (let i = 0; i < left.length; i++) {
+                    audioData[i] = (left[i] + right[i]) / 2;
+                }
+                log('Mixed stereo to mono');
+            }
+
+            showStatus('Scanning for watermarks (check console for progress)...', 'info');
+            updateProgress(50);
+
+            // Find watermarks (async with progress)
+            log('Starting watermark detection...');
+            const detections = await findWatermarks(audioData, sampleRate);
+            updateProgress(85);
+
+            // Draw spectrogram
+            log('Drawing spectrogram...');
+            showStatus('Generating spectrogram...', 'info');
+            await new Promise(resolve => setTimeout(resolve, 0)); // Allow UI update
+            drawSpectrogram(audioData, sampleRate, detections);
+            spectrogramContainer.style.display = 'block';
+            log('Spectrogram complete');
+
+            // Analyze detections
+            log('Displaying results...');
+            displayResults(detections, duration);
+
+            updateProgress(100);
+            audioContext.close();
+            log('=== AUDIO WATERMARK DECODE COMPLETE ===');
+        }
+
+        function displayResults(detections, duration) {
+            detailsBody.innerHTML = '';
+
+            if (detections.length === 0) {
+                trackingIdDisplay.textContent = 'Not Found';
+                bitDisplay.textContent = 'No watermark detected in the audio';
+                resultBox.style.display = 'block';
+                showStatus('No watermark found. The audio may not be watermarked or the watermark was removed.', 'error');
+                return;
+            }
+
+            // Use majority voting for final result
+            const idCounts = {};
+            detections.forEach(d => {
+                idCounts[d.trackingId] = (idCounts[d.trackingId] || 0) + 1;
+            });
+
+            let mostCommonId = 0;
+            let maxCount = 0;
+            for (const [id, count] of Object.entries(idCounts)) {
+                if (count > maxCount) {
+                    maxCount = count;
+                    mostCommonId = parseInt(id);
+                }
+            }
+
+            // Calculate overall confidence
+            const matchingDetections = detections.filter(d => d.trackingId === mostCommonId);
+            const avgConfidence = matchingDetections.reduce((sum, d) => sum + d.confidence, 0) / matchingDetections.length;
+
+            let confidenceLevel = 'low';
+            if (avgConfidence > 0.5 && matchingDetections.length >= 2) {
+                confidenceLevel = 'high';
+            } else if (avgConfidence > 0.3 || matchingDetections.length >= 2) {
+                confidenceLevel = 'medium';
+            }
+
+            // Display result
+            trackingIdDisplay.textContent = mostCommonId;
+            const binaryStr = mostCommonId.toString(2).padStart(16, '0');
+            bitDisplay.textContent = `Binary: ${binaryStr}`;
+
+            // Add details
+            addDetailRow('Tracking ID', mostCommonId);
+            addDetailRow('Binary', binaryStr);
+            addDetailRow('Detections', `${matchingDetections.length} / ${detections.length} matched`);
+            addDetailRow('Confidence', `${(avgConfidence * 100).toFixed(1)}%`, `confidence-${confidenceLevel}`);
+            addDetailRow('Audio Duration', `${duration.toFixed(2)}s`);
+
+            // Show all detections
+            detectionList.innerHTML = '<strong>All Detections:</strong><br>';
+            detections.forEach((d, i) => {
+                const match = d.trackingId === mostCommonId ? ' [MATCH]' : '';
+                detectionList.innerHTML += `
+                    <div class="detection-item">
+                        #${i + 1} @ ${d.position.toFixed(2)}s: ID=${d.trackingId} (${d.bits}) conf=${(d.confidence * 100).toFixed(1)}%${match}
+                    </div>
+                `;
+            });
+
+            resultBox.style.display = 'block';
+            showStatus(`Tracking ID decoded: ${mostCommonId} (${confidenceLevel} confidence)`, 'success');
+            resultBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+
+        function addDetailRow(label, value, className = '') {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td><strong>${label}</strong></td>
+                <td class="${className}">${value}</td>
+            `;
+            detailsBody.appendChild(row);
+        }
+
+        function drawSpectrogram(audioData, sampleRate, detections) {
+            const canvas = spectrogramCanvas;
+            const ctx = canvas.getContext('2d');
+
+            canvas.width = canvas.offsetWidth * 2;
+            canvas.height = 300;
+
+            const width = canvas.width;
+            const height = canvas.height;
+
+            ctx.fillStyle = '#1a1a2e';
+            ctx.fillRect(0, 0, width, height);
+
+            // Parameters - limit to first 30 seconds for performance
+            const fftSize = 1024; // Smaller FFT for spectrogram (faster)
+            const maxDuration = Math.min(30, audioData.length / sampleRate);
+            const maxSamples = Math.floor(maxDuration * sampleRate);
+            const hopSize = Math.max(Math.floor(sampleRate * 0.02), Math.floor(maxSamples / width)); // Adaptive hop
+            const numFrames = Math.min(Math.floor(maxSamples / hopSize), width);
+
+            log(`Spectrogram: ${numFrames} frames, hopSize=${hopSize}, fftSize=${fftSize}`);
+
+            // Frequency range to display (0-500 Hz)
+            const maxFreq = 500;
+            const maxBin = Math.floor(maxFreq * fftSize / sampleRate);
+
+            // Draw spectrogram
+            for (let frame = 0; frame < numFrames; frame++) {
+                const startSample = frame * hopSize;
+                const samples = audioData.slice(startSample, startSample + fftSize);
+
+                if (samples.length < fftSize) break;
+
+                const spectrum = getSpectrum(samples, fftSize);
+
+                // Draw frequency bins
+                for (let bin = 0; bin < maxBin; bin++) {
+                    const x = Math.floor(frame * width / numFrames);
+                    const y = height - Math.floor(bin * height / maxBin);
+
+                    // Normalize and apply log scale
+                    const magnitude = Math.log10(spectrum[bin] + 0.001) + 3;
+                    const intensity = Math.max(0, Math.min(1, magnitude / 3));
+
+                    // Color based on intensity
+                    const r = Math.floor(intensity * 255);
+                    const g = Math.floor(intensity * 200);
+                    const b = Math.floor((1 - intensity) * 100);
+
+                    ctx.fillStyle = `rgb(${r},${g},${b})`;
+                    ctx.fillRect(x, y - height / maxBin, Math.ceil(width / numFrames) + 1, Math.ceil(height / maxBin) + 1);
+                }
+            }
+
+            // Draw frequency markers
+            ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+            ctx.setLineDash([5, 5]);
+
+            const freqMarkers = [CONFIG.BIT_0_FREQ, CONFIG.BIT_1_FREQ, CONFIG.SYNC_FREQ_START, CONFIG.SYNC_FREQ_END];
+            freqMarkers.forEach(freq => {
+                const y = height - Math.floor(freq * height / maxFreq);
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(width, y);
+                ctx.stroke();
+            });
+
+            ctx.setLineDash([]);
+
+            // Draw detection markers
+            ctx.fillStyle = '#38ef7d';
+            ctx.font = '12px monospace';
+            detections.forEach(d => {
+                // Only show detections within the displayed range
+                if (d.position <= maxDuration) {
+                    const x = Math.floor(d.position * width / maxDuration);
+                    ctx.fillStyle = 'rgba(56, 239, 125, 0.5)';
+                    ctx.fillRect(x, 0, 3, height);
+                    ctx.fillStyle = '#fff';
+                    ctx.fillText(`ID:${d.trackingId}`, x + 5, 15);
+                }
+            });
+
+            // Labels
+            ctx.fillStyle = '#fff';
+            ctx.font = '11px monospace';
+            ctx.fillText(`${CONFIG.BIT_0_FREQ}Hz (bit 0)`, 5, height - CONFIG.BIT_0_FREQ * height / maxFreq + 12);
+            ctx.fillText(`${CONFIG.BIT_1_FREQ}Hz (bit 1)`, 5, height - CONFIG.BIT_1_FREQ * height / maxFreq + 12);
+            ctx.fillText(`Spectrogram (0-500 Hz, first ${maxDuration.toFixed(0)}s)`, 5, 15);
+        }
+
+        function updateProgress(percent) {
+            progressFill.style.width = percent + '%';
+        }
+
+        function showStatus(message, type = 'info') {
+            statusDiv.className = `status ${type}`;
+            statusDiv.textContent = message;
+            statusDiv.style.display = 'block';
+        }
+    </script>
+</body>
+</html>

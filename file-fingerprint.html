@@ -146,9 +146,10 @@
             <select id="encMode">
               <option value="rotCrop">rotation + crop</option>
               <option value="shiftCrop">shift + crop</option>
-              <option value="scaleXY">x-scale + y-scale</option>
-              <option value="logX">non-constant scale (log X)</option>
-              <option value="logY">non-constant scale (log Y)</option>
+              <option value="scaleX">X-scale (linear)</option>
+              <option value="scaleY">Y-scale (linear)</option>
+              <option value="logX">X-scale (logarithmic)</option>
+              <option value="logY">Y-scale (logarithmic)</option>
               <option value="fisheye">fish-eye dilation</option>
               <option value="aberration">chromatic aberration angles</option>
               <option value="colorShift">color shift (HSV-ish)</option>
@@ -213,9 +214,10 @@
             <select id="decMode">
               <option value="rotCrop">rotation + crop</option>
               <option value="shiftCrop">shift + crop</option>
-              <option value="scaleXY">x-scale + y-scale</option>
-              <option value="logX">non-constant scale (log X)</option>
-              <option value="logY">non-constant scale (log Y)</option>
+              <option value="scaleX">X-scale (linear)</option>
+              <option value="scaleY">Y-scale (linear)</option>
+              <option value="logX">X-scale (logarithmic)</option>
+              <option value="logY">Y-scale (logarithmic)</option>
               <option value="fisheye">fish-eye dilation</option>
               <option value="aberration">chromatic aberration angles</option>
               <option value="colorShift">color shift (HSV-ish)</option>
@@ -443,9 +445,14 @@ function paramsFromB(mode, B, intensity){
     const crop = (0.01 + 0.05*t) * (0.4 + 0.6*rnd());
     p.dx = dx; p.dy = dy; p.crop = crop;
   } else if(mode === "scaleXY"){
+    // Linear scale factors
     const sx = 1 + (rnd()*2-1) * (0.002 + 0.02*t);
     const sy = 1 + (rnd()*2-1) * (0.002 + 0.02*t);
+    // Logarithmic warp factors for both X and Y
+    const kx = (rnd()<0.5?-1:1) * (0.01 + 0.10*t) * (0.4 + 0.6*rnd());
+    const ky = (rnd()<0.5?-1:1) * (0.01 + 0.10*t) * (0.4 + 0.6*rnd());
     p.sx = sx; p.sy = sy;
+    p.kx = kx; p.ky = ky;
   } else if(mode === "logX"){
     p.k = (rnd()<0.5?-1:1) * (0.02 + 0.18*t) * (0.4 + 0.6*rnd()); // curvature strength
   } else if(mode === "logY"){

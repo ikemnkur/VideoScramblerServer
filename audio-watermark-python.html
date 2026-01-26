@@ -1,0 +1,683 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audio Watermark Tool (Python Backend)</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .main-container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 20px;
+        }
+
+        .header h1 {
+            font-size: 32px;
+            margin-bottom: 10px;
+        }
+
+        .header .subtitle {
+            opacity: 0.9;
+            font-size: 14px;
+        }
+
+        .backend-badge {
+            display: inline-block;
+            background: #ff6b6b;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            margin-left: 10px;
+        }
+
+        .server-status {
+            padding: 10px 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            text-align: center;
+        }
+
+        .server-status.connected {
+            background: rgba(40, 167, 69, 0.2);
+            color: #90EE90;
+            border: 1px solid #28a745;
+        }
+
+        .server-status.disconnected {
+            background: rgba(220, 53, 69, 0.2);
+            color: #ffb3b3;
+            border: 1px solid #dc3545;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .tab-btn {
+            flex: 1;
+            padding: 15px;
+            border: none;
+            border-radius: 12px 12px 0 0;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            background: rgba(255,255,255,0.2);
+            color: white;
+        }
+
+        .tab-btn.active {
+            background: white;
+            color: #667eea;
+        }
+
+        .tab-btn:hover:not(.active) {
+            background: rgba(255,255,255,0.3);
+        }
+
+        .container {
+            background: white;
+            border-radius: 0 0 16px 16px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            padding: 40px;
+            display: none;
+        }
+
+        .container.active {
+            display: block;
+        }
+
+        .input-group {
+            margin-bottom: 25px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 600;
+        }
+
+        input[type="file"],
+        input[type="number"],
+        input[type="text"] {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+
+        input:hover {
+            border-color: #667eea;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        button.action-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 14px 32px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            width: 100%;
+        }
+
+        button.action-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        button.action-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .status {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 8px;
+            font-size: 14px;
+            display: none;
+        }
+
+        .status.info {
+            background: #e3f2fd;
+            color: #1976d2;
+            border-left: 4px solid #1976d2;
+            display: block;
+        }
+
+        .status.success {
+            background: #e8f5e9;
+            color: #388e3c;
+            border-left: 4px solid #388e3c;
+            display: block;
+        }
+
+        .status.error {
+            background: #ffebee;
+            color: #c62828;
+            border-left: 4px solid #c62828;
+            display: block;
+        }
+
+        .result-box {
+            margin-top: 20px;
+            padding: 20px;
+            background: #f5f5f5;
+            border-radius: 8px;
+            display: none;
+        }
+
+        .result-box h3 {
+            color: #667eea;
+            margin-bottom: 15px;
+        }
+
+        .tracking-id {
+            font-size: 48px;
+            font-weight: bold;
+            color: #667eea;
+            text-align: center;
+            padding: 20px;
+            background: white;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .details-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+            font-size: 13px;
+        }
+
+        .details-table th,
+        .details-table td {
+            padding: 8px 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+
+        .details-table th {
+            background: #e0e0e0;
+            font-weight: 600;
+        }
+
+        .info-box {
+            background: #f5f5f5;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 20px;
+            font-size: 13px;
+            color: #555;
+        }
+
+        .info-box h3 {
+            color: #667eea;
+            margin-bottom: 8px;
+            font-size: 15px;
+        }
+
+        .info-box code {
+            background: #e0e0e0;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: monospace;
+        }
+
+        .info-box ul {
+            margin-left: 20px;
+            margin-top: 8px;
+        }
+
+        .info-box li {
+            margin-bottom: 4px;
+        }
+
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .checkbox-group input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+        }
+
+        .debug-section {
+            margin-top: 20px;
+            padding: 15px;
+            background: #263238;
+            color: #4fc3f7;
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+            display: none;
+        }
+
+        .debug-section pre {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        audio {
+            width: 100%;
+            margin-top: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div class="main-container">
+        <div class="header">
+            <h1>Audio Watermark Tool <span class="backend-badge">Python Backend</span></h1>
+            <p class="subtitle">Embed and detect tracking IDs in audio using scipy matched filter</p>
+        </div>
+
+        <div id="serverStatus" class="server-status disconnected">
+            Checking server connection...
+        </div>
+
+        <div class="tabs">
+            <button class="tab-btn active" data-tab="encode">Encode Watermark</button>
+            <button class="tab-btn" data-tab="decode">Decode Watermark</button>
+        </div>
+
+        <!-- ENCODER TAB -->
+        <div class="container active" id="encodeTab">
+            <div class="input-group">
+                <label for="serverUrlEncode">Flask Server URL:</label>
+                <input type="text" id="serverUrlEncode" value="http://localhost:5000">
+            </div>
+
+            <div class="input-group">
+                <label for="encodeFile">Select Audio File (WAV):</label>
+                <input type="file" id="encodeFile" accept="audio/wav,.wav">
+            </div>
+
+            <div class="input-group">
+                <label for="trackingIdInput">Tracking ID (0-65535):</label>
+                <input type="number" id="trackingIdInput" min="0" max="65535" placeholder="Enter tracking ID...">
+            </div>
+
+            <button class="action-btn" id="encodeBtn" disabled>Encode Watermark</button>
+
+            <div id="encodeStatus" class="status"></div>
+
+            <div id="encodeResult" class="result-box">
+                <h3>Encoding Complete</h3>
+                <div id="encodeDetails"></div>
+                <audio id="encodePreview" controls></audio>
+            </div>
+
+            <div class="info-box">
+                <h3>How Encoding Works:</h3>
+                <ul>
+                    <li><strong>Sync Chirp:</strong> 150-250 Hz frequency sweep marks the start</li>
+                    <li><strong>Bit Encoding:</strong> 180 Hz = bit 0, 220 Hz = bit 1</li>
+                    <li><strong>Repetition:</strong> Watermark repeats every 10 seconds for redundancy</li>
+                    <li><strong>Amplitude:</strong> Low amplitude (3%) to minimize audibility</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- DECODER TAB -->
+        <div class="container" id="decodeTab">
+            <div class="input-group">
+                <label for="serverUrlDecode">Flask Server URL:</label>
+                <input type="text" id="serverUrlDecode" value="http://localhost:5000">
+            </div>
+
+            <div class="input-group">
+                <label for="decodeFile">Select Audio File (WAV):</label>
+                <input type="file" id="decodeFile" accept="audio/wav,.wav">
+            </div>
+
+            <div class="checkbox-group">
+                <input type="checkbox" id="debugMode">
+                <label for="debugMode" style="margin-bottom: 0;">Enable debug output</label>
+            </div>
+
+            <button class="action-btn" id="decodeBtn" disabled>Detect Watermark</button>
+
+            <div id="decodeStatus" class="status"></div>
+
+            <div id="decodeResult" class="result-box">
+                <h3>Detection Results</h3>
+                <div id="trackingIdDisplay" class="tracking-id"></div>
+                <div id="decodeDetails"></div>
+            </div>
+
+            <div id="debugSection" class="debug-section">
+                <pre id="debugOutput"></pre>
+            </div>
+
+            <div class="info-box">
+                <h3>How Detection Works:</h3>
+                <ul>
+                    <li><strong>Matched Filter:</strong> Cross-correlation with reference chirp signal</li>
+                    <li><strong>Peak Detection:</strong> scipy.signal.find_peaks finds watermark positions</li>
+                    <li><strong>Bit Extraction:</strong> Correlation with 180/220 Hz tones determines bits</li>
+                    <li><strong>Consensus:</strong> Multiple detections compared for accuracy</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="info-box" style="margin-top: 20px; background: rgba(255,255,255,0.9);">
+            <h3>Setup Instructions:</h3>
+            <p>1. Install dependencies: <code>pip install -r python/requirements.txt</code></p>
+            <p>2. Start the server: <code>python python/audio_watermark_server.py</code></p>
+            <p>3. Server runs at <code>http://localhost:5000</code></p>
+        </div>
+    </div>
+
+    <script>
+        // Tab switching
+        const tabBtns = document.querySelectorAll('.tab-btn');
+        const containers = document.querySelectorAll('.container');
+
+        tabBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const tabId = btn.dataset.tab;
+
+                tabBtns.forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+
+                containers.forEach(c => c.classList.remove('active'));
+                document.getElementById(tabId + 'Tab').classList.add('active');
+            });
+        });
+
+        // Elements
+        const serverUrlEncode = document.getElementById('serverUrlEncode');
+        const serverUrlDecode = document.getElementById('serverUrlDecode');
+        const encodeFileInput = document.getElementById('encodeFile');
+        const decodeFileInput = document.getElementById('decodeFile');
+        const trackingIdInput = document.getElementById('trackingIdInput');
+        const encodeBtn = document.getElementById('encodeBtn');
+        const decodeBtn = document.getElementById('decodeBtn');
+        const encodeStatus = document.getElementById('encodeStatus');
+        const decodeStatus = document.getElementById('decodeStatus');
+        const encodeResult = document.getElementById('encodeResult');
+        const decodeResult = document.getElementById('decodeResult');
+        const encodeDetails = document.getElementById('encodeDetails');
+        const decodeDetails = document.getElementById('decodeDetails');
+        const trackingIdDisplay = document.getElementById('trackingIdDisplay');
+        const encodePreview = document.getElementById('encodePreview');
+        const debugCheckbox = document.getElementById('debugMode');
+        const debugSection = document.getElementById('debugSection');
+        const debugOutput = document.getElementById('debugOutput');
+        const serverStatusDiv = document.getElementById('serverStatus');
+
+        let encodeFile = null;
+        let decodeFile = null;
+        let serverConnected = false;
+
+        // Sync server URLs
+        serverUrlEncode.addEventListener('change', () => {
+            serverUrlDecode.value = serverUrlEncode.value;
+            checkServer();
+        });
+        serverUrlDecode.addEventListener('change', () => {
+            serverUrlEncode.value = serverUrlDecode.value;
+            checkServer();
+        });
+
+        // Check server connection
+        async function checkServer() {
+            const url = serverUrlEncode.value.trim();
+            try {
+                const response = await fetch(`${url}/health`, { method: 'GET', mode: 'cors' });
+                if (response.ok) {
+                    serverStatusDiv.className = 'server-status connected';
+                    serverStatusDiv.textContent = `Connected to ${url}`;
+                    serverConnected = true;
+                } else {
+                    throw new Error('Server not responding');
+                }
+            } catch (e) {
+                serverStatusDiv.className = 'server-status disconnected';
+                serverStatusDiv.textContent = `Not connected - Start Flask server at ${url}`;
+                serverConnected = false;
+            }
+            updateButtons();
+        }
+
+        function updateButtons() {
+            encodeBtn.disabled = !encodeFile || !serverConnected;
+            decodeBtn.disabled = !decodeFile || !serverConnected;
+        }
+
+        checkServer();
+        setInterval(checkServer, 10000);
+
+        // File inputs
+        encodeFileInput.addEventListener('change', (e) => {
+            encodeFile = e.target.files[0];
+            if (encodeFile) {
+                showStatus(encodeStatus, `File loaded: ${encodeFile.name}`, 'info');
+            }
+            updateButtons();
+        });
+
+        decodeFileInput.addEventListener('change', (e) => {
+            decodeFile = e.target.files[0];
+            if (decodeFile) {
+                showStatus(decodeStatus, `File loaded: ${decodeFile.name}`, 'info');
+            }
+            updateButtons();
+        });
+
+        // ENCODE
+        encodeBtn.addEventListener('click', async () => {
+            if (!encodeFile) {
+                showStatus(encodeStatus, 'Please select an audio file', 'error');
+                return;
+            }
+
+            const trackingId = parseInt(trackingIdInput.value);
+            if (isNaN(trackingId) || trackingId < 0 || trackingId > 65535) {
+                showStatus(encodeStatus, 'Please enter a valid tracking ID (0-65535)', 'error');
+                return;
+            }
+
+            encodeBtn.disabled = true;
+            showStatus(encodeStatus, 'Encoding watermark...', 'info');
+            encodeResult.style.display = 'none';
+
+            try {
+                const formData = new FormData();
+                formData.append('file', encodeFile);
+                formData.append('tracking_id', trackingId.toString());
+
+                const url = serverUrlEncode.value.trim();
+
+                // First get info
+                const infoResponse = await fetch(`${url}/encode-info`, {
+                    method: 'POST',
+                    body: formData,
+                    mode: 'cors'
+                });
+                const info = await infoResponse.json();
+
+                if (!info.success) {
+                    showStatus(encodeStatus, `Error: ${info.error}`, 'error');
+                    return;
+                }
+
+                // Now get the actual file
+                const formData2 = new FormData();
+                formData2.append('file', encodeFile);
+                formData2.append('tracking_id', trackingId.toString());
+
+                const fileResponse = await fetch(`${url}/encode`, {
+                    method: 'POST',
+                    body: formData2,
+                    mode: 'cors'
+                });
+
+                if (!fileResponse.ok) {
+                    const err = await fileResponse.json();
+                    showStatus(encodeStatus, `Error: ${err.error}`, 'error');
+                    return;
+                }
+
+                const blob = await fileResponse.blob();
+                const audioUrl = URL.createObjectURL(blob);
+
+                // Show results
+                encodeResult.style.display = 'block';
+                encodePreview.src = audioUrl;
+
+                let html = `<p><strong>Tracking ID:</strong> ${info.info.tracking_id}</p>`;
+                html += `<p><strong>Binary:</strong> <code>${info.info.binary}</code></p>`;
+                html += `<p><strong>Duration:</strong> ${info.info.duration.toFixed(2)}s @ ${info.info.sample_rate}Hz</p>`;
+                html += `<p><strong>Watermarks embedded:</strong> ${info.info.num_watermarks} (every 10s)</p>`;
+                html += `<p><strong>Positions:</strong> ${info.info.watermark_positions.map(p => p.toFixed(1) + 's').join(', ')}</p>`;
+
+                // Add download link
+                html += `<p style="margin-top:15px"><a href="${audioUrl}" download="watermarked_${encodeFile.name}" style="color:#667eea;font-weight:600;">Download Watermarked Audio</a></p>`;
+
+                encodeDetails.innerHTML = html;
+
+                showStatus(encodeStatus, 'Watermark encoded successfully!', 'success');
+
+            } catch (error) {
+                showStatus(encodeStatus, `Error: ${error.message}`, 'error');
+                console.error(error);
+            } finally {
+                encodeBtn.disabled = false;
+                updateButtons();
+            }
+        });
+
+        // DECODE
+        decodeBtn.addEventListener('click', async () => {
+            if (!decodeFile) {
+                showStatus(decodeStatus, 'Please select an audio file', 'error');
+                return;
+            }
+
+            decodeBtn.disabled = true;
+            showStatus(decodeStatus, 'Detecting watermark...', 'info');
+            decodeResult.style.display = 'none';
+            debugSection.style.display = 'none';
+
+            try {
+                const formData = new FormData();
+                formData.append('file', decodeFile);
+
+                const url = serverUrlDecode.value.trim();
+                const debug = debugCheckbox.checked ? '?debug=true' : '';
+
+                const response = await fetch(`${url}/detect${debug}`, {
+                    method: 'POST',
+                    body: formData,
+                    mode: 'cors'
+                });
+
+                const result = await response.json();
+
+                if (debugCheckbox.checked) {
+                    debugSection.style.display = 'block';
+                    debugOutput.textContent = JSON.stringify(result, null, 2);
+                }
+
+                if (result.error) {
+                    showStatus(decodeStatus, `Error: ${result.error}`, 'error');
+                    return;
+                }
+
+                if (result.success && result.watermarks.length > 0) {
+                    decodeResult.style.display = 'block';
+
+                    const primaryId = result.consensus_id !== undefined
+                        ? result.consensus_id
+                        : result.watermarks[0].tracking_id;
+
+                    trackingIdDisplay.textContent = primaryId;
+
+                    let html = '<table class="details-table">';
+                    html += '<tr><th>Position</th><th>ID</th><th>Binary</th><th>Confidence</th></tr>';
+
+                    for (const wm of result.watermarks) {
+                        const binaryStr = wm.bits.join('');
+                        html += `<tr>
+                            <td>${wm.position_seconds.toFixed(2)}s</td>
+                            <td>${wm.tracking_id}</td>
+                            <td><code>${binaryStr}</code></td>
+                            <td>${wm.confidence}</td>
+                        </tr>`;
+                    }
+                    html += '</table>';
+
+                    if (result.consensus_id !== undefined) {
+                        html += `<p style="margin-top:10px"><strong>Consensus:</strong> ID ${result.consensus_id} found ${result.consensus_count} times</p>`;
+                    }
+
+                    html += `<p style="margin-top:10px;color:#888">Audio: ${result.debug_info.duration.toFixed(2)}s @ ${result.debug_info.sample_rate}Hz</p>`;
+
+                    decodeDetails.innerHTML = html;
+                    showStatus(decodeStatus, `Watermark detected! Tracking ID: ${primaryId}`, 'success');
+                } else {
+                    showStatus(decodeStatus, 'No watermark detected in this audio file', 'error');
+                    if (result.debug_info) {
+                        debugSection.style.display = 'block';
+                        debugOutput.textContent = JSON.stringify(result.debug_info, null, 2);
+                    }
+                }
+
+            } catch (error) {
+                showStatus(decodeStatus, `Error: ${error.message}`, 'error');
+                console.error(error);
+            } finally {
+                decodeBtn.disabled = false;
+                updateButtons();
+            }
+        });
+
+        function showStatus(element, message, type) {
+            element.className = `status ${type}`;
+            element.textContent = message;
+            element.style.display = 'block';
+        }
+    </script>
+</body>
+</html>
