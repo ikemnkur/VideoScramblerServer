@@ -4659,7 +4659,7 @@ server.post(PROXY + '/api/check-photo-leak', authenticateToken, async (req, res)
 
   // Setup multer to handle multiple files
   const upload = multer({
-    dest: 'uploads/',
+    dest: 'leak_uploads/',
     limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
     fileFilter: (req, file, cb) => {
       if (file.mimetype.startsWith('image/')) {
@@ -4854,7 +4854,7 @@ server.post(PROXY + '/api/check-audio-leak', authenticateToken, async (req, res)
 
   // Setup multer to handle multiple files (originalAudio and leakedAudio)
   const upload = multer({
-    dest: 'uploads/',
+    dest: 'leak_uploads/',
     limits: { fileSize: 50 * 1024 * 1024 }, // 50MB limit for audio files
     fileFilter: (req, file, cb) => {
       if (file.mimetype.startsWith('audio/')) {
@@ -5062,7 +5062,7 @@ server.post(PROXY + '/api/check-video-leak', authenticateToken, async (req, res)
 
   // Setup multer to handle multiple files
   const upload = multer({
-    dest: 'uploads/',
+    dest: 'leak_uploads/',
     limits: { fileSize: 250 * 1024 * 1024 }, // 250MB limit for video files
     fileFilter: (req, file, cb) => {
       if (file.mimetype.startsWith('video/')) {
