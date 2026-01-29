@@ -1594,6 +1594,8 @@ server.post(PROXY + '/api/auth/register', async (req, res) => {
     const userId = generateId();
     const currentTime = Date.now();
     const currentDateTime = formatDateTimeForMySQL(new Date());
+    const amount1 = Math.random().toFixed(8);
+    const amount2 = Math.random().toFixed(8);
 
     console.log("Account type during registration:", accountType);
 
@@ -1626,8 +1628,8 @@ server.post(PROXY + '/api/auth/register', async (req, res) => {
       socialLinks: {}
     };
 
-    const [result] = await pool.execute(
-      'INSERT INTO userData (id, loginStatus, lastLogin, accountType, username, email, firstName, lastName, phoneNumber, birthDate, encryptionKey, credits, reportCount, isBanned, banReason, banDate, banDuration, createdAt, updatedAt, passwordHash, twoFactorEnabled, twoFactorSecret, recoveryCodes, profilePicture, bio, socialLinks) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    await pool.execute(
+      'INSERT INTO userData (id, loginStatus, lastLogin, accountType, username, email, firstName, lastName, phoneNumber, birthDate, encryptionKey, credits, reportCount, isBanned, banReason, banDate, banDuration, createdAt, updatedAt, passwordHash, twoFactorEnabled, twoFactorSecret, recoveryCodes, profilePicture, bio, socialLinks, verification, amount1, amount2) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [
         newUser.id,
         newUser.loginStatus,
@@ -1654,11 +1656,12 @@ server.post(PROXY + '/api/auth/register', async (req, res) => {
         JSON.stringify(newUser.recoveryCodes),
         newUser.profilePicture,
         newUser.bio,
-        JSON.stringify(newUser.socialLinks)
+        JSON.stringify(newUser.socialLinks),
+        "false",
+        amount1,
+        amount2
       ]
     );
-
-
 
     // Generate token for automatic login
     // const token = Buffer.from(`${userId}_${Date.now()}_${Math.random()}`).toString('base64');
@@ -1669,9 +1672,6 @@ server.post(PROXY + '/api/auth/register', async (req, res) => {
       credits: newUser.credits
     }, process.env.JWT_SECRET, { expiresIn: '3h' });
 
-    // res.json({ token, user: { id: user.id, username: user.username, email: user.email, credits: user.credits } });
-
-
     // Return user data without password hash
     const userData = { ...newUser };
     delete userData.passwordHash;
@@ -1680,10 +1680,18 @@ server.post(PROXY + '/api/auth/register', async (req, res) => {
       success: true,
       user: userData,
       token: token,
-      tokenExpiry: new Date(Date.now() + 11800 * 1000),
-      accountType: newUser.accountType,
+      verification: {
+        verified: false,
+        amount1: amount1,
+        amount2: amount2,
+        // timeLeft: null,
+        // chain: null,
+        // address: null
+      },
       message: 'Account created successfully'
     });
+
+    sendAccountVerificationEmail(newUser)
 
   } catch (error) {
     console.error('Registration error:', error);
@@ -1746,6 +1754,38 @@ const transporter = nodemailer.createTransport({
 // setInterval(sendScheduledPromoEmail, 30 * 24 * 60 * 60 * 1000);
 // console.log('Promotional email scheduler initialized. First email will be sent in 30 days.');
 
+
+async function sendAccountVerificationEmail(newUser) {
+  const msg = {
+    to: newUser.email,
+    from: process.env.FROM_EMAIL,
+    subject: 'Welcome to Scramblurr! 🎉',
+    text: 'Please confirm your email to get started with using Scramblurr.',
+    html: `Here is your confirmation email. Welcome aboard, ${newUser.firstName}!
+    <br><br>
+    We are thrilled to have you use the Scamblur app. Your account has been successfully created with the username: <strong>${newUser.username}</strong>.
+    <br><br>
+    To get started, please verify your email address by clicking the link below:
+    <br><br>
+    <a href="https://Scramblurr.com/verify-email?email=${encodeURIComponent(newUser.email)}">Verify Email Address</a>
+    <br><br>
+    If you did not sign up for a Scramblurr account, please ignore this email.
+    <br><br>
+    Best regards,
+    <br>
+    The Scramblurr Team`
+  };
+
+  // Send email with error handling via SendGrid
+  try {
+    await sgMail.send(msg);
+    console.log(`✅ Email sent to ${msg.to}`);
+  } catch (emailError) {
+    console.error('⚠️ Failed to send welcome email:', emailError.message);
+    // Don't fail the registration if email fails
+  }
+}
+
 // Send password reset email
 async function sendPasswordResetEmail(email, username, newPassword) {
   try {
@@ -1779,6 +1819,94 @@ async function sendPasswordResetEmail(email, username, newPassword) {
 module.exports = {
   sendPasswordResetEmail
 };
+
+
+// Custom authentication route
+server.post(PROXY + '/api/auth/verify-account', async (req, res) => {
+  try {
+
+    // check the crypto payment data 
+
+    const { amount1, amount2, timeLeft, chain, address, urlParams } = req.body;
+
+    const params = new URLSearchParams(urlParams);
+    // const address = params.get('address');
+
+    console.log('Verification request data:', { amount1, amount2, timeLeft, chain, address });
+    console.log('URL Parameters:', params.forEach((value, key) => {
+      console.log(`${key}: ${value}`);
+    }));
+
+    let rows = [];
+    let limit = 10;
+    // const { address, limit = 10 } = req.body;
+
+    if (!amount1 || !amount2 || !timeLeft || !chain || !address || !urlParams) {
+      return res.status(400).json({
+        success: false,
+        message: 'All fields are required for verification'
+      });
+    }
+
+
+    let checkTransactionAmount1 = parseFloat(amount1);
+    let checkTransactionAmount2 = parseFloat(amount2);
+
+    if (chain === 'BTC') rows = await fetchEsploraAddressTxs(BTC_ESPLORA, address, limit);
+    else if (chain === 'LTC') rows = await fetchEsploraAddressTxs(LTC_ESPLORA, address, limit);
+    else if (chain === 'ETH') rows = await fetchEth({ address, limit, chainId: 1, action: "txlist", extraParams: {} });
+    else if (chain === 'SOL') rows = await fetchSol(address, limit);
+
+    // Here you would typically verify the payment details with your payment gateway
+
+    tx1Found = false;
+    tx2Found = false;
+
+    rows.forEach(tx => {
+      console.log(`Transaction found: ${tx.txid || tx.hash} with amount: ${tx.amount || tx.value}`);
+      let txAmount = parseFloat(tx.amount || tx.value);
+      if (txAmount === checkTransactionAmount1) {
+        checkTransactionAmount1 = txAmount;
+        tx1Found = true;
+      }
+      if (txAmount === checkTransactionAmount2) {
+        checkTransactionAmount2 = txAmount;
+        tx2Found = true;
+      }
+    });
+
+    // For demonstration, we'll assume verification is successful if amount1 and amount2 are equal
+    if (!tx1Found || !tx2Found) {
+
+      const [result] = await pool.execute(
+        'UPDATE userData SET verification = ? WHERE email = ?',
+        ["false", params.get('email')]
+      );
+
+      return res.status(400).json({
+        success: false,
+        message: 'Payment amounts do not match, Account verification failed'
+      });
+    }
+
+    const [result] = await pool.execute(
+      'UPDATE userData SET verification = ? WHERE email = ?',
+      ["true", params.get('email')]);
+
+    res.json({
+      success: true,
+      user: userData,
+      message: 'Account verified successfully'
+    });
+
+  } catch (error) {
+    console.error('Token verification error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error occurred during token verification'
+    });
+  }
+});
 
 
 // Custom logout route
