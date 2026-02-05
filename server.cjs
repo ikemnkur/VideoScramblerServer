@@ -1544,6 +1544,7 @@ server.post(PROXY + '/api/user', authenticateToken, async (req, res) => {
 
 
 
+
 // Custom registration route
 server.post(PROXY + '/api/auth/register', async (req, res) => {
   try {
@@ -1594,16 +1595,67 @@ server.post(PROXY + '/api/auth/register', async (req, res) => {
     const userId = generateId();
     const currentTime = Date.now();
     const currentDateTime = formatDateTimeForMySQL(new Date());
-    const amount1 = Math.random().toFixed(8);
-    const amount2 = Math.random().toFixed(8);
 
-    console.log("Account type during registration:", accountType);
+    // gerate two small random amounts for verification above 10 cents USD, less than 20 cents.
+    const amount1 = (0.1 * parseFloat(Math.random().toFixed(8)) + 0.1).toPrecision(4);
+    const amount2 = (0.1 * parseFloat(Math.random().toFixed(8)) + 0.1).toPrecision(4);
+
+    const currencyIdMap = {
+      BTC: 'bitcoin',
+      ETH: 'ethereum',
+      LTC: 'litecoin',
+      SOL: 'solana',
+      // XMR: 'monero',
+      // XRP: 'ripple'
+    };
+
+    // Fetch crypto rate from CoinGecko API
+    const fetchCryptoRate = async (cryptoCurrency) => {
+      try {
+        const coinId = currencyIdMap[cryptoCurrency];
+        if (!coinId) {
+          console.error('Currency not supported:', cryptoCurrency);
+          return 0;
+        }
+
+        const response = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${coinId}&vs_currencies=usd`);
+        const data = await response.json();
+        return data[coinId]?.usd || 0;
+      } catch (error) {
+        console.error('Error fetching crypto rate:', error);
+        // Fallback rates for demo
+        const fallbackRates = { BTC: 45000, ETH: 3000, LTC: 100, SOL: 50, XMR: 150, XRP: 0.5 };
+        return fallbackRates[cryptoCurrency] || 0;
+      }
+    };
+
+
+
+    // conver random amounts to crypto amounts based on current rates 
+    const btcRate = await fetchCryptoRate('BTC');
+    const ethRate = await fetchCryptoRate('ETH');
+    const ltcRate = await fetchCryptoRate('LTC');
+    const solRate = await fetchCryptoRate('SOL');
+    // const xmrRate = await fetchCryptoRate('XMR');
+    // const xrpRate = await fetchCryptoRate('XRP');
+    const amount1BTC = (amount1 / btcRate).toFixed(8);
+    const amount2BTC = (amount2 / btcRate).toFixed(8);
+    const amount1ETH = (amount1 / ethRate).toFixed(8);
+    const amount2ETH = (amount2 / ethRate).toFixed(8);
+    const amount1LTC = (amount1 / ltcRate).toFixed(8);
+    const amount2LTC = (amount2 / ltcRate).toFixed(8);
+    const amount1SOL = (amount1 / solRate).toFixed(8);
+    const amount2SOL = (amount2 / solRate).toFixed(8);
+    // const amount1XMR = (amount1 / xmrRate).toFixed(8);
+    // const amount2XMR = (amount2 / xmrRate).toFixed(8);
+    // const amount1XRP = (amount1 / xrpRate).toFixed(8);
+    // const amount2X
 
     const newUser = {
       id: userId,
       loginStatus: true,
       lastLogin: currentDateTime,
-      accountType: accountType || 'free',
+      accountType: accountType || 'buyer',
       username: username,
       email: email,
       firstName: firstName,
@@ -1663,14 +1715,18 @@ server.post(PROXY + '/api/auth/register', async (req, res) => {
       ]
     );
 
+
+
     // Generate token for automatic login
-    // const token = Buffer.from(`${userId}_${Date.now()}_${Math.random()}`).toString('base64');
+    // TODO: implementation of JWT here
     const token = jwt.sign({
       id: newUser.id,
       email: newUser.email,
       username: newUser.username,  // Add this line
       credits: newUser.credits
-    }, process.env.JWT_SECRET, { expiresIn: '3h' });
+    }, process.env.JWT_SECRET, { expiresIn: '2h' });
+
+    // const token = Buffer.from(`${userId}_${Date.now()}_${Math.random()}`).toString('base64');
 
     // Return user data without password hash
     const userData = { ...newUser };
@@ -1684,14 +1740,50 @@ server.post(PROXY + '/api/auth/register', async (req, res) => {
         verified: false,
         amount1: amount1,
         amount2: amount2,
-        // timeLeft: null,
+        cryptoAmounts: {
+          BTC: { amount1: amount1BTC, amount2: amount2BTC },
+          ETH: { amount1: amount1ETH, amount2: amount2ETH },
+          LTC: { amount1: amount1LTC, amount2: amount2LTC },
+          SOL: { amount1: amount1SOL, amount2: amount2SOL }
+        },
+        time: new Date().getTime(),
         // chain: null,
         // address: null
       },
       message: 'Account created successfully'
     });
-
+       
     sendAccountVerificationEmail(newUser)
+
+    const msg = {
+      to: newUser.email,
+      from: process.env.FROM_EMAIL,
+      subject: 'Welcome to Key-Ching! 🎉',
+      text: 'Please confirm your email to get started with Key-Ching.',
+      html: `Here is your confirmation email. Welcome aboard, ${newUser.firstName}!
+      <br><br>
+      We are thrilled to have you join the Key-Ching community. Your account has been successfully created with the username: <strong>${newUser.username}</strong>.
+      <br><br>
+      To get started, please verify your email address by clicking the link below:
+      <br><br>
+      <a href="https://key-ching.com/verify-email?email=${encodeURIComponent(newUser.email)}">Verify Email Address</a>
+      <br><br>
+      If you did not sign up for a Key-Ching account, please ignore this email.
+      <br><br>
+      Best regards,
+      <br>
+      The Key-Ching Team`
+    };
+
+    // Send email with error handling
+    try {
+      await sgMail.send(msg);
+      console.log(`✅ Email sent to ${msg.to}`);
+    } catch (emailError) {
+      console.error('⚠️ Failed to send welcome email:', emailError.message);
+      // Don't fail the registration if email fails
+    }
+
 
   } catch (error) {
     console.error('Registration error:', error);
@@ -1701,6 +1793,231 @@ server.post(PROXY + '/api/auth/register', async (req, res) => {
     });
   }
 });
+
+const convertCryptoTXamountIntoUSD = (chain, txAmount) => {
+  return new Promise(async (resolve, reject) => {
+    try {
+      const currencyIdMap = {
+        BTC: 'bitcoin',
+        ETH: 'ethereum',
+        LTC: 'litecoin',
+        SOL: 'solana',
+      };
+
+      const coinId = currencyIdMap[chain];
+      if (!coinId) {
+        console.error('Currency not supported for conversion:', chain);
+        return resolve(0);
+      }
+
+      const response = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${coinId}&vs_currencies=usd`);
+      const data = await response.json();
+      const rate = data[coinId]?.usd || 0;
+      const usdAmount = txAmount * rate;
+      resolve(usdAmount);
+    } catch (error) {
+      console.error('Error converting crypto amount to USD:', error);
+      resolve(0);
+    }
+  });
+}
+
+
+// Custom authentication route
+server.post(PROXY + '/api/auth/verify-account', async (req, res) => {
+  try {
+
+    // check the crypto payment data 
+
+    const { email, username, timeLeft, chain, address, transactionId, urlParams } = req.body;
+
+    const params = new URLSearchParams(urlParams);
+
+    const hash = transactionId
+
+    console.log('Verification request data:', { email, username, timeLeft, chain, address, hash });
+
+    // console.log('URL Parameters:', params.forEach((value, key) => {
+    //   console.log(`${key}: ${value}`);
+    // }));
+
+    let rows = [];
+    let limit = 10;
+
+
+    if (!timeLeft || !chain || !address || !email || !username || !hash) {
+      // if (!timeLeft || !chain || !email || !username) {
+      return res.status(400).json({
+        success: false,
+        message: 'All fields are required for verification'
+      });
+    }
+
+    // now pull in userdata from database
+    const [users] = await pool.execute(
+      'SELECT * FROM userData WHERE email = ?',
+      [email]
+    );
+
+    const userData = users[0];
+
+    if (!userData) {
+
+      console.error('User not found for verification:', email);
+
+      return res.status(404).json({
+        success: false,
+        message: 'User not found for verification'
+      });
+    }
+
+    FetchRecentTransactionsCronByChain(chain); // ensure latest TXs are fetched
+
+    setTimeout
+      (async () => {
+
+        // console.log('User data for verification:', userData);
+
+        let tx1Found = false;
+        let tx2Found = false;
+
+        let rows;
+
+        // fetch transactions from blockchain explorer APIs
+        if (chain === 'BTC')
+        // try {
+        //   rows = await fetchEsploraAddressTxs(BTC_ESPLORA, address, limit);
+        // } catch (err) {
+        //   console.error('Error fetching live BTC transactions:', err);
+
+        {
+          let result = await pool.execute(
+            'SELECT * FROM CryptoTransactions_BTC WHERE hash = ?',
+            [hash]
+          );
+
+          rows = result[0];
+
+        }
+        // }
+        else if (chain === 'LTC')
+        // try {
+        //   rows = await fetchEsploraAddressTxs(LTC_ESPLORA, address, limit);
+        // } catch (error) {
+        // console.error('Error fetching live LTC transactions:', error);
+
+        {
+          let result = await pool.execute(
+            'SELECT * FROM CryptoTransactions_LTC WHERE hash = ?',
+            [hash]
+          );
+          rows = result[0];
+        }
+        // }
+
+        else if (chain === 'ETH')
+        // try {
+        //   rows = await fetchEth({ address, limit, chainId: 1, action: "txlist", extraParams: {} });
+        //   // rows = await fetchEth({ address, limit, chainId: 1, action: "txlist", extraParams: {} });
+        // } catch (error) {
+        {
+          console.error('Error fetching live ETH transactions:', error);
+
+          let result = await pool.execute(
+            'SELECT * FROM CryptoTransactions_ETH WHERE hash = ?',
+            [hash]
+          );
+          rows = result[0];
+        }
+        // }
+
+        else if (chain === 'SOL')
+        // try {
+        //   rows = await fetchSol(address, limit);
+
+        // } catch (error) {
+        //   console.error('Error fetching live SOL transactions:', error);
+
+        {
+          let result = await pool.execute(
+            'SELECT * FROM CryptoTransactions_SOL WHERE hash = ?',
+            [hash]
+          );
+          rows = result[0];
+        }
+
+
+        // Here you would typically verify the payment details with your payment gateway
+        // Check for match of transaction amounts in the fetched transactions
+        console.log(`Fetched ${rows.length} transactions for address ${address} on chain ${chain}`);
+
+        // console.log ("Rows:", rows);
+
+        // Use for...of loop with await to ensure all conversions complete before verification
+        for (const tx of rows) {
+          console.log('Checking transaction:', tx);
+          console.log(`Transaction found: ${tx.txid || tx.hash} with amount: ${tx.amount || tx.value}`);
+          let txAmount = parseFloat(tx.amount || tx.value);
+
+          const usdAmount = await convertCryptoTXamountIntoUSD(chain, txAmount);
+          console.log(`Converted transaction amount to USD: $${usdAmount.toFixed(4)} VS expected amounts: $${userData.amount1}, $${userData.amount2}`);
+
+          const diff1 = Math.abs(usdAmount - userData.amount1);
+          const diff2 = Math.abs(usdAmount - userData.amount2);
+          
+          console.log(`Transaction amounts within margin of error: $${diff1.toFixed(4)} and $${diff2.toFixed(4)}`);
+
+          // if ther TXs are within a 2.5 cent margin of error, consider them a match
+          if (diff1 < 0.025) {
+            tx1Found = true;
+          }
+          if (diff2 < 0.025) {
+            tx2Found = true;
+          }
+        }
+
+        console.log(`Transaction verification results: tx1Found=${tx1Found}, tx2Found=${tx2Found}`);
+        //  if one of the transactions are not found, return error
+        if (!tx1Found || !tx2Found) {
+
+          const [result] = await pool.execute(
+            'UPDATE userData SET verification = ? WHERE email = ?',
+            ["false", email]
+          );
+
+          console.error('Payment amounts do not match for verification:', { tx1Found, tx2Found });
+
+          return res.status(400).json({
+            success: false,
+            message: 'Payment amounts do not match, Account verification failed'
+          });
+        }
+
+        // if both transactions are found, verify the account
+        const [result] = await pool.execute(
+          'UPDATE userData SET verification = ? WHERE email = ?',
+          ["true", email]);
+
+        console.log('Account verified successfully for user:', email);
+
+        res.json({
+          success: true,
+          user: userData,
+          message: 'Account verified successfully'
+        });
+
+      }, 5000); // wait 5 seconds to ensure TXs are fetched
+
+  } catch (error) {
+    console.error('Account verification error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error occurred during account verification'
+    });
+  }
+});
+
+
 
 // Email verification 
 // email-service.js
@@ -1752,11 +2069,12 @@ const transporter = nodemailer.createTransport({
 
 // // Set up the interval to run every 30 days
 // setInterval(sendScheduledPromoEmail, 30 * 24 * 60 * 60 * 1000);
+// console.log('Promotional email scheduler initialized. First email will be sent in 30 days.');async function sendAccountVerificationEmail(newUser) {
 // console.log('Promotional email scheduler initialized. First email will be sent in 30 days.');
 
 
-async function sendAccountVerificationEmail(newUser) {
-  const msg = {
+async function sendAccountVerificationEmail(newUser) {  
+const msg = {
     to: newUser.email,
     from: process.env.FROM_EMAIL,
     subject: 'Welcome to Scramblurr! 🎉',
@@ -1819,94 +2137,6 @@ async function sendPasswordResetEmail(email, username, newPassword) {
 module.exports = {
   sendPasswordResetEmail
 };
-
-
-// Custom authentication route
-server.post(PROXY + '/api/auth/verify-account', async (req, res) => {
-  try {
-
-    // check the crypto payment data 
-
-    const { amount1, amount2, timeLeft, chain, address, urlParams } = req.body;
-
-    const params = new URLSearchParams(urlParams);
-    // const address = params.get('address');
-
-    console.log('Verification request data:', { amount1, amount2, timeLeft, chain, address });
-    console.log('URL Parameters:', params.forEach((value, key) => {
-      console.log(`${key}: ${value}`);
-    }));
-
-    let rows = [];
-    let limit = 10;
-    // const { address, limit = 10 } = req.body;
-
-    if (!amount1 || !amount2 || !timeLeft || !chain || !address || !urlParams) {
-      return res.status(400).json({
-        success: false,
-        message: 'All fields are required for verification'
-      });
-    }
-
-
-    let checkTransactionAmount1 = parseFloat(amount1);
-    let checkTransactionAmount2 = parseFloat(amount2);
-
-    if (chain === 'BTC') rows = await fetchEsploraAddressTxs(BTC_ESPLORA, address, limit);
-    else if (chain === 'LTC') rows = await fetchEsploraAddressTxs(LTC_ESPLORA, address, limit);
-    else if (chain === 'ETH') rows = await fetchEth({ address, limit, chainId: 1, action: "txlist", extraParams: {} });
-    else if (chain === 'SOL') rows = await fetchSol(address, limit);
-
-    // Here you would typically verify the payment details with your payment gateway
-
-    tx1Found = false;
-    tx2Found = false;
-
-    rows.forEach(tx => {
-      console.log(`Transaction found: ${tx.txid || tx.hash} with amount: ${tx.amount || tx.value}`);
-      let txAmount = parseFloat(tx.amount || tx.value);
-      if (txAmount === checkTransactionAmount1) {
-        checkTransactionAmount1 = txAmount;
-        tx1Found = true;
-      }
-      if (txAmount === checkTransactionAmount2) {
-        checkTransactionAmount2 = txAmount;
-        tx2Found = true;
-      }
-    });
-
-    // For demonstration, we'll assume verification is successful if amount1 and amount2 are equal
-    if (!tx1Found || !tx2Found) {
-
-      const [result] = await pool.execute(
-        'UPDATE userData SET verification = ? WHERE email = ?',
-        ["false", params.get('email')]
-      );
-
-      return res.status(400).json({
-        success: false,
-        message: 'Payment amounts do not match, Account verification failed'
-      });
-    }
-
-    const [result] = await pool.execute(
-      'UPDATE userData SET verification = ? WHERE email = ?',
-      ["true", params.get('email')]);
-
-    res.json({
-      success: true,
-      user: userData,
-      message: 'Account verified successfully'
-    });
-
-  } catch (error) {
-    console.error('Token verification error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error occurred during token verification'
-    });
-  }
-});
 
 
 // Custom logout route
@@ -3680,6 +3910,98 @@ async function FetchRecentTransactionsCron() {
       }
       // console.log(`📈 Recent transactions for ${address}:`, txs);
     }
+  } catch (error) {
+    console.error('❌ Error fetching recent transactions:', error);
+  }
+}
+
+
+async function FetchRecentTransactionsCronByChain(cryptoChain) {
+  try {
+    console.log(`🔄 Fetching recent transactions for all ${cryptoChain || 'chain'} wallet addresses...`);
+    // Iterate over walletAddressMap entries (key = chain, value = address) for the cron job
+
+    let [chainKey, addr] = walletAddressMap[cryptoChain]
+
+
+    // for (const [chainKey, addr] of Object.entries(walletAddressMap)) {
+    // const txs = await fetchRe,centTransactions(address);
+    const chain = cryptoChain ? cryptoChain : String(chainKey || '').toUpperCase();
+    const address = String(addr || '').trim();
+    // Use a fixed reasonable limit for cron runs
+    const limit = 100;
+    try {
+
+      if (!address || !chain) {
+        console.log('No address or chain provided');
+
+      }
+      let rows = [];
+      if (chain === 'BTC') rows = await fetchEsploraAddressTxs(BTC_ESPLORA, address, limit);
+      else if (chain === 'LTC') rows = await fetchEsploraAddressTxs(LTC_ESPLORA, address, limit);
+      else if (chain === 'ETH') rows = await fetchEth({ address, limit, chainId: 1, action: "txlist", extraParams: {} });
+      else if (chain === 'SOL') rows = await fetchSol(address, limit);
+      else {
+        console.log('Unsupported chain. Use BTC, LTC, ETH, SOL');
+
+      }
+      // return res.status(400).json({ error: 'Unsupported chain. Use BTC, LTC, ETH, SOL' });
+
+      let transactions = {
+        chain,
+        address,
+        count: rows.length,
+        txs: rows
+      };
+
+      for (const tx of transactions.txs) {
+        const transactionId = tx?.hash ?? null;
+
+        if (!transactionId) {
+          console.log(`Skipping ${chain} transaction with missing hash`);
+          continue;
+        }
+
+        // todo: only process transactions within last 30 minutes?
+        const txTime = new Date(tx?.time ?? 0);
+        const now = new Date();
+
+        const [existingTxs] = await pool.execute(
+          `SELECT * FROM CryptoTransactions_${chain} WHERE hash = ? and time >= ?`,
+          [transactionId, new Date(now.getTime() - 30 * 60000)]
+        );
+
+        // Check if transaction already exists
+        if (existingTxs.length > 0) {
+          // console.log(`Transaction ${transactionId} already exists in the database. Skipping.`);
+          continue; // Skip to next transaction
+        }
+
+        // Insert new transaction (convert undefined values to null)
+        await pool.execute(
+          `INSERT INTO CryptoTransactions_${chain} (time, direction, amount, fromAddress, toAddress, hash) VALUES (?, ?, ?, ?, ?, ?)`,
+          [
+            tx?.time ?? null,
+            tx?.direction ?? null,
+            tx?.amount ?? null,
+            tx?.from ?? null,
+            tx?.to ?? null,
+            transactionId,
+          ]
+        );
+
+        // console.log(`Inserted transaction ${transactionId} into CryptoTransactions_${chain}`);
+      }
+
+
+    } catch (e) {
+      // res.status(500).json({ error: e.message || String(e) });
+      // console.error(`❌ Error processing transactions for ${chain} address ${address}:`, e);
+      console.error(`❌ Error processing transactions for ${chain} address ${address}:`, e.message || String(e));
+
+    }
+
+    // }
   } catch (error) {
     console.error('❌ Error fetching recent transactions:', error);
   }
