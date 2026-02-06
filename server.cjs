@@ -122,7 +122,9 @@ const corsOptions = {
       "https://whale-app-trf6r.ondigitalocean.app",
       "http://142.93.82.161",
       "https://server.videoscrambler.com",
-      "https://www.videoscrambler.com",
+      "https://www.scramblurr.com",
+      "https://scramblurr.com"
+      ,
       "*"
       // Add any other origins you want to allow
     ];
