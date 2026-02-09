@@ -13,9 +13,11 @@ const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
 const util = require('util'); // Node.js utility for formatting arguments
+const emailService = require('./emailService.cjs');
 
 // const authenticateToken = require('../middleware/auth');
 const authenticateToken = require('./middleware/auth');
+
 
 const server = express();
 
@@ -109,6 +111,7 @@ const corsOptions = {
     const allowedOrigins = [
       'http://localhost:3000',
       'http://localhost:3001',
+      'http://localhost:3002',
       'http://localhost:5001',
       'https://key-ching.com',
       'https://videoscrambler.com',
@@ -1359,6 +1362,7 @@ server.post('/db/query', async (req, res) => {
 
 
 
+
 // ----------------------------------------------------
 // Authentication Routes
 // ----------------------------------------------------
@@ -1754,37 +1758,8 @@ server.post(PROXY + '/api/auth/register', async (req, res) => {
       },
       message: 'Account created successfully'
     });
-       
-    sendAccountVerificationEmail(newUser)
 
-    const msg = {
-      to: newUser.email,
-      from: process.env.FROM_EMAIL,
-      subject: 'Welcome to Key-Ching! 🎉',
-      text: 'Please confirm your email to get started with Key-Ching.',
-      html: `Here is your confirmation email. Welcome aboard, ${newUser.firstName}!
-      <br><br>
-      We are thrilled to have you join the Key-Ching community. Your account has been successfully created with the username: <strong>${newUser.username}</strong>.
-      <br><br>
-      To get started, please verify your email address by clicking the link below:
-      <br><br>
-      <a href="https://key-ching.com/verify-email?email=${encodeURIComponent(newUser.email)}">Verify Email Address</a>
-      <br><br>
-      If you did not sign up for a Key-Ching account, please ignore this email.
-      <br><br>
-      Best regards,
-      <br>
-      The Key-Ching Team`
-    };
-
-    // Send email with error handling
-    try {
-      await sgMail.send(msg);
-      console.log(`✅ Email sent to ${msg.to}`);
-    } catch (emailError) {
-      console.error('⚠️ Failed to send welcome email:', emailError.message);
-      // Don't fail the registration if email fails
-    }
+    sendAccountVerificationEmail(newUser);
 
 
   } catch (error) {
@@ -1966,7 +1941,7 @@ server.post(PROXY + '/api/auth/verify-account', async (req, res) => {
 
           const diff1 = Math.abs(usdAmount - userData.amount1);
           const diff2 = Math.abs(usdAmount - userData.amount2);
-          
+
           console.log(`Transaction amounts within margin of error: $${diff1.toFixed(4)} and $${diff2.toFixed(4)}`);
 
           // if ther TXs are within a 2.5 cent margin of error, consider them a match
@@ -2021,113 +1996,160 @@ server.post(PROXY + '/api/auth/verify-account', async (req, res) => {
 
 
 
-// Email verification 
-// email-service.js
-const nodemailer = require('nodemailer');
+// Email verification (code + link)
+const VERIFICATION_CODE_EXPIRY_MINUTES = parseInt(process.env.VERIFICATION_CODE_EXPIRY_MINUTES, 10) || 30;
 
-// // Configure nodemailer with your SMTP settings
-// const transporter = nodemailer.createTransport({
-//   host: process.env.SMTP_HOST || 'smtp.example.com',
-//   port: process.env.SMTP_PORT || 587,
-//   secure: process.env.SMTP_SECURE === 'true',
-//   auth: {
-//     user: process.env.SMTP_USER || 'your-email@example.com',
-//     pass: process.env.SMTP_PASS || 'your-password'
-//   }
-// });
+const formatDateTimeForMySQLLocal = (dateTime) => {
+  if (!dateTime) return null;
+  return new Date(dateTime).toISOString().slice(0, 19).replace('T', ' ');
+};
 
-const transporter = nodemailer.createTransport({
-  host: 'mail.videoscrambler.com',
-  port: 587,
-  secure: false, // true for 465, false for other ports
-  auth: {
-    user: 'emailuser@videoscrambler.com',
-    pass: 'Password!*'
+const buildVerificationLink = (email) => {
+  const baseUrl = (process.env.FRONTEND_URL || FRONTEND_URL || "").replace(/\/$/, "");
+  return `${baseUrl}/verify-email?email=${encodeURIComponent(email)}`;
+};
+
+const generateVerificationCode = () => {
+  const length = Math.floor(Math.random() * 3) + 6; // 6-8 digits
+  let code = "";
+  for (let i = 0; i < length; i += 1) {
+    code += Math.floor(Math.random() * 10).toString();
   }
-});
+  return code;
+};
 
-// async function sendPromoEmail(recipients) {
-//   const mailOptions = {
-//     from: '"Your Company" <noreply@yourdomain.com>',
-//     to: recipients.join(', '),
-//     subject: 'Monthly Promotion',
-//     html: '<h1>Special Offer This Month!</h1><p>Your promo content here...</p>'
-//   };
+const ensureEmailVerificationTable = async () => {
+  await pool.execute(
+    `CREATE TABLE IF NOT EXISTS emailVerifications (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      email VARCHAR(100) NOT NULL,
+      code VARCHAR(10) NOT NULL,
+      expiresAt DATETIME NOT NULL,
+      createdAt DATETIME NOT NULL,
+      used TINYINT(1) DEFAULT 0,
+      INDEX idx_email (email),
+      INDEX idx_expires (expiresAt)
+    )`
+  );
+};
 
-//   await transporter.sendMail(mailOptions);
-// }
+const createEmailVerificationRecord = async (email, code) => {
+  await ensureEmailVerificationTable();
+  const expiresAt = new Date(Date.now() + VERIFICATION_CODE_EXPIRY_MINUTES * 60 * 1000);
+  const createdAt = new Date();
 
-// const recipients = ['ikemuru@gmail.com', 'ikenuru@gmail.com'];
-// sendPromoEmail(recipients)
+  await pool.execute('DELETE FROM emailVerifications WHERE email = ?', [email]);
+  await pool.execute(
+    'INSERT INTO emailVerifications (email, code, expiresAt, createdAt, used) VALUES (?, ?, ?, ?, 0)',
+    [
+      email,
+      code,
+      formatDateTimeForMySQLLocal(expiresAt),
+      formatDateTimeForMySQLLocal(createdAt)
+    ]
+  );
 
-// // Schedule promotional email every 30 days (only runs after the first interval)
-// const sendScheduledPromoEmail = () => {
-//   const recipients = ['ikemuru@gmail.com', 'ikenuru@gmail.com'];
-//   sendPromoEmail(recipients)
-//     .then(() => console.log('Promotional email sent successfully'))
-//     .catch(err => console.error('Error sending promotional email:', err));
-//   console.log('Scheduled promotional email sent to:', recipients);
-// };
+  return { expiresAt };
+};
 
-// // Set up the interval to run every 30 days
-// setInterval(sendScheduledPromoEmail, 30 * 24 * 60 * 60 * 1000);
-// console.log('Promotional email scheduler initialized. First email will be sent in 30 days.');async function sendAccountVerificationEmail(newUser) {
-// console.log('Promotional email scheduler initialized. First email will be sent in 30 days.');
+async function sendAccountVerificationEmail(newUser) {
+  const verificationCode = generateVerificationCode();
+  const { expiresAt } = await createEmailVerificationRecord(newUser.email, verificationCode);
+  const verificationLink = buildVerificationLink(newUser.email);
 
-
-async function sendAccountVerificationEmail(newUser) {  
-const msg = {
-    to: newUser.email,
-    from: process.env.FROM_EMAIL,
-    subject: 'Welcome to Scramblurr! 🎉',
-    text: 'Please confirm your email to get started with using Scramblurr.',
-    html: `Here is your confirmation email. Welcome aboard, ${newUser.firstName}!
-    <br><br>
-    We are thrilled to have you use the Scamblur app. Your account has been successfully created with the username: <strong>${newUser.username}</strong>.
-    <br><br>
-    To get started, please verify your email address by clicking the link below:
-    <br><br>
-    <a href="https://Scramblurr.com/verify-email?email=${encodeURIComponent(newUser.email)}">Verify Email Address</a>
-    <br><br>
-    If you did not sign up for a Scramblurr account, please ignore this email.
-    <br><br>
-    Best regards,
-    <br>
-    The Scramblurr Team`
-  };
-
-  // Send email with error handling via SendGrid
   try {
-    await sgMail.send(msg);
-    console.log(`✅ Email sent to ${msg.to}`);
+    await emailService.sendAccountVerificationEmail({
+      to: newUser.email,
+      username: newUser.firstName || newUser.username || "there",
+      verificationLink,
+      verificationCode,
+      subject: 'Welcome to Scramblurr! 🎉'
+    });
+
+    console.log(`✅ Verification email sent to ${newUser.email} (expires ${expiresAt.toISOString()})`);
   } catch (emailError) {
-    console.error('⚠️ Failed to send welcome email:', emailError.message);
-    // Don't fail the registration if email fails
+    console.error('⚠️ Failed to send verification email:', emailError.message || emailError);
   }
 }
+
+server.post(PROXY + '/api/auth/verify-email', async (req, res) => {
+  try {
+    const { email, code } = req.body;
+
+    if (!email || !code) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email and verification code are required'
+      });
+    }
+
+    await ensureEmailVerificationTable();
+
+    const [rows] = await pool.execute(
+      'SELECT id, expiresAt, used FROM emailVerifications WHERE email = ? AND code = ? ORDER BY createdAt DESC LIMIT 1',
+      [email, code]
+    );
+
+    if (!rows.length) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid verification code'
+      });
+    }
+
+    const record = rows[0];
+    if (record.used) {
+      return res.status(400).json({
+        success: false,
+        message: 'Verification code has already been used'
+      });
+    }
+
+    if (new Date(record.expiresAt).getTime() < Date.now()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Verification code has expired'
+      });
+    }
+
+    await pool.execute('UPDATE emailVerifications SET used = 1 WHERE id = ?', [record.id]);
+    await pool.execute('UPDATE userData SET verification = ? WHERE email = ?', ['true', email]);
+
+    return res.json({
+      success: true,
+      message: 'Email verified successfully'
+    });
+  } catch (error) {
+    console.error('Email verification error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Server error occurred during email verification'
+    });
+  }
+});
 
 // Send password reset email
 async function sendPasswordResetEmail(email, username, newPassword) {
   try {
-    const mailOptions = {
-      from: process.env.EMAIL_FROM || '"Admin System" <admin@example.com>',
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 5px;">
+        <h2 style="color: #333;">Password Reset</h2>
+        <p>Hello ${username},</p>
+        <p>Your password has been reset by an administrator.</p>
+        <p>Your new password is: <strong>${newPassword}</strong></p>
+        <p>Please login with this password and change it immediately for security reasons.</p>
+        <p style="margin-top: 30px; padding-top: 15px; border-top: 1px solid #e0e0e0; font-size: 12px; color: #777;">
+          This is an automated message. Please do not reply to this email.
+        </p>
+      </div>
+    `;
+
+    const info = await emailService.sendRawEmail({
       to: email,
       subject: 'Your Password Has Been Reset',
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 5px;">
-          <h2 style="color: #333;">Password Reset</h2>
-          <p>Hello ${username},</p>
-          <p>Your password ha s been reset by an administrator.</p>
-          <p>Your new password is: <strong>${newPassword}</strong></p>
-          <p>Please login with this password and change it immediately for security reasons.</p>
-          <p style="margin-top: 30px; padding-top: 15px; border-top: 1px solid #e0e0e0; font-size: 12px; color: #777;">
-            This is an automated message. Please do not reply to this email.
-          </p>
-        </div>
-      `
-    };
+      html
+    });
 
-    const info = await transporter.sendMail(mailOptions);
     console.log('Password reset email sent:', info.messageId);
     return true;
   } catch (error) {
@@ -2478,6 +2500,56 @@ server.post(PROXY + '/api/spend-credits/:username', authenticateToken, async (re
   } catch (error) {
     console.error('Unlock key error:', error);
     res.status(500).json({ success: false, message: 'Database error - unlock key failed' });
+  }
+});
+
+
+// CREATE TABLE
+//   `feedback` (
+//     `id` int unsigned NOT NULL AUTO_INCREMENT,
+//     `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+//     `title` varchar(255) DEFAULT NULL,
+//     `message` text,
+//     `contactInfo` varchar(255) DEFAULT NULL,
+//     `username` varchar(255) DEFAULT NULL,
+//     `feedbackType` varchar(255) DEFAULT NULL,
+//     PRIMARY KEY (`id`)
+//   ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci
+
+// Custom logout route
+server.post(PROXY + '/api/feedback', async (req, res) => {
+  try {
+    const { 
+      supportProblemType,
+      supportTitle,
+      supportMessage,
+      supportContactInfo,
+      supportUsername,
+      supportUserId
+    } = req.body;
+
+
+
+    // console.log("Received feedback:", { supportUsername, supportMessage, supportTitle, supportContactInfo, supportProblemType });
+
+    if (supportUsername) {
+      // Update login status in database
+      await pool.execute(
+        'INSERT into feedback (username, message, title, contactInfo, feedbackType) VALUES (?, ?, ?, ?, ?)',
+        [supportUsername, supportMessage, supportTitle, supportContactInfo, supportProblemType]
+      );
+    }
+
+    res.json({
+      success: true,
+      message: 'Feedback submitted successfully'
+    });
+  } catch (error) {
+    console.error('Feedback error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error occurred during feedback submission'
+    });
   }
 });
 
@@ -5137,8 +5209,8 @@ server.post(PROXY + '/api/check-photo-leak', authenticateToken, async (req, res)
     try {
       // Validate that both files were uploaded
       if (!req.files || !req.files.originalImage || !req.files.leakedImage) {
-        return res.status(400).json({ 
-          error: 'Both originalImage and leakedImage files are required' 
+        return res.status(400).json({
+          error: 'Both originalImage and leakedImage files are required'
         });
       }
 
@@ -5224,7 +5296,7 @@ server.post(PROXY + '/api/check-photo-leak', authenticateToken, async (req, res)
 
       if (rows.length === 0) {
         console.log('✅ NODE: No match found in database - image is clean');
-        
+
         // Cleanup uploaded files
         uploadedFiles.forEach(filePath => {
           try {
@@ -5541,8 +5613,8 @@ server.post(PROXY + '/api/check-video-leak', authenticateToken, async (req, res)
     try {
       // Validate that both files were uploaded
       if (!req.files || !req.files.originalVideo || !req.files.leakedVideo) {
-        return res.status(400).json({ 
-          error: 'Both originalVideo and leakedVideo files are required' 
+        return res.status(400).json({
+          error: 'Both originalVideo and leakedVideo files are required'
         });
       }
 
@@ -5634,7 +5706,7 @@ server.post(PROXY + '/api/check-video-leak', authenticateToken, async (req, res)
 
       if (rows.length === 0) {
         console.log('✅ NODE: No match found in database - video is clean');
-        
+
         // Cleanup uploaded files
         uploadedFiles.forEach(filePath => {
           try {
