@@ -45,6 +45,6 @@ python/venv
 
 leak-uploads/*
 
-./leak_uploads
+/leak_uploads
 
 
