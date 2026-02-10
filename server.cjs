@@ -126,9 +126,9 @@ const corsOptions = {
       "http://142.93.82.161",
       "https://server.videoscrambler.com",
       "https://www.scramblurr.com",
-      "https://scramblurr.com"
-      ,
-      "*"
+      "https://scramblurr.com",
+      'https://js.stripe.com',
+      "*", // Allow all origins (for development, remove in production)
       // Add any other origins you want to allow
     ];
     if (!origin || allowedOrigins.indexOf(origin) !== -1) {
@@ -1429,7 +1429,14 @@ server.post(PROXY + '/api/auth/login', async (req, res) => {
         credits: user.credits
       }, process.env.JWT_SECRET, { expiresIn: '2h' });
 
-      res.json({ token, tokenExpiry: new Date(Date.now() + 7200 * 1000), user: { id: user.id, username: user.username, email: user.email, credits: user.credits }, accountType: user.accountType, message: 'Login successful' });
+      res.json({
+        token,
+        tokenExpiry: new Date(Date.now() + 7200 * 1000),
+        user: { id: user.id, username: user.username, email: user.email, credits: user.credits },
+        accountType: user.accountType,
+        message: 'Login successful',
+        verification: { status: user.verification, amount1: user.amount1, amount2: user.amount2 },
+      });
 
       // res.json({
       //   success: true,
@@ -2519,7 +2526,7 @@ server.post(PROXY + '/api/spend-credits/:username', authenticateToken, async (re
 // Custom logout route
 server.post(PROXY + '/api/feedback', async (req, res) => {
   try {
-    const { 
+    const {
       supportProblemType,
       supportTitle,
       supportMessage,
@@ -5183,7 +5190,26 @@ server.post(PROXY + '/api/check-photo-leak', authenticateToken, async (req, res)
 
   // Setup multer to handle multiple files
   const upload = multer({
-    dest: 'leak_uploads/',
+    storage: multer.diskStorage({
+      destination: (req, file, cb) => {
+        const uploadDir = path.join(__dirname, 'leak_uploads', 'images');
+        if (!fs.existsSync(uploadDir)) {
+          fs.mkdirSync(uploadDir, { recursive: true });
+        }
+        cb(null, uploadDir);
+      },
+      filename: (req, file, cb) => {
+        const originalName = file.originalname || 'upload';
+        const safeBase = path
+          .basename(originalName)
+          .replace(/\s+/g, '_')
+          .replace(/[^A-Za-z0-9._-]/g, '');
+        const ext = path.extname(safeBase);
+        const mimeExt = file.mimetype ? `.${file.mimetype.split('/').pop()}` : '';
+        const finalName = ext ? safeBase : `${safeBase}${mimeExt}`;
+        cb(null, finalName);
+      }
+    }),
     limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
     fileFilter: (req, file, cb) => {
       if (file.mimetype.startsWith('image/')) {
@@ -5218,8 +5244,10 @@ server.post(PROXY + '/api/check-photo-leak', authenticateToken, async (req, res)
       const leakedImageFile = req.files.leakedImage[0];
       uploadedFiles.push(originalImageFile.path, leakedImageFile.path);
 
+      console.log('📤 NODE: Uploaded file paths:', uploadedFiles);
+
       console.log(`📤 NODE: Original image saved as: ${originalImageFile.filename}`);
-      console.log(`📤 NODE: Leaked image saved as: ${leakedImageFile.filename}`);
+      console.log(`📤 NODE: Leaked image saved in: ${leakedImageFile.filename}`);
 
       // Parse optional keyData or keyCode
       let keyData = null;
@@ -5239,114 +5267,157 @@ server.post(PROXY + '/api/check-photo-leak', authenticateToken, async (req, res)
         console.log('🔑 NODE: Key code provided:', keyCode);
       }
 
-      // Step 1: Send to Flask to extract steganographic code by comparing both images
-      console.log('📡 NODE: Sending both images to Flask for code extraction...');
+      if (0) {
+        // AUTOMATIC LEAK DETECTION STEPS:
+        // // Step 1: Send to Flask to extract steganographic code by comparing both images
+        // console.log('📡 NODE: Sending both images to Flask for code extraction...');
 
-      const flaskResponse = await axios.post(
-        `${FLASKAPP_LINK}/extract-photo-code`,
-        {
-          input: leakedImageFile.filename,
-          original: originalImageFile.filename,
-          keyData: keyData,
-          keyCode: keyCode
-        },
-        {
-          headers: { 'Content-Type': 'application/json' },
-          timeout: 30000
-        }
-      );
+        // const flaskResponse = await axios.post(
+        //   `${FLASKAPP_LINK}/extract-photo-code`,
+        //   {
+        //     input: leakedImageFile.filename,
+        //     original: originalImageFile.filename,
+        //     keyData: keyData,
+        //     keyCode: keyCode
+        //   },
+        //   {
+        //     headers: { 'Content-Type': 'application/json' },
+        //     timeout: 30000
+        //   }
+        // );
 
-      const { extracted_code } = flaskResponse.data;
+        // const { extracted_code } = flaskResponse.data;
 
-      console.log(`🔑 NODE: Extracted code: ${extracted_code || 'None'}`);
+        // console.log(`🔑 NODE: Extracted code: ${extracted_code || 'None'}`);
 
-      if (!extracted_code) {
-        // Cleanup uploaded files
-        uploadedFiles.forEach(filePath => {
-          try {
-            fs.unlinkSync(filePath);
-          } catch (cleanupErr) {
-            console.warn('⚠️  Could not delete uploaded file:', cleanupErr);
-          }
-        });
+        // if (!extracted_code) {
+        //   // Cleanup uploaded files
+        //   uploadedFiles.forEach(filePath => {
+        //     try {
+        //       fs.unlinkSync(filePath);
+        //     } catch (cleanupErr) {
+        //       console.warn('⚠️  Could not delete uploaded file:', cleanupErr);
+        //     }
+        //   });
 
-        return res.json({
-          leakDetected: false,
-          extractedCode: null,
-          message: 'No steganographic code found in image'
-        });
+        //   return res.json({
+        //     leakDetected: false,
+        //     extractedCode: null,
+        //     message: 'No steganographic code found in image'
+        //   });
+        // }
+
+        // // Step 2: Search database for matching code
+        // console.log('🔍 NODE: Searching database for matching code...');
+
+        // const [rows] = await pool.query(
+        //   `SELECT 
+        //     wc.*,
+        //     ud.username,
+        //     ud.email,
+        //     p.id as purchase_id,
+        //     p.createdAt as purchase_date
+        //   FROM watermark_codes wc
+        //   LEFT JOIN userData ud ON wc.user_id = ud.id
+        //   LEFT JOIN purchases p ON wc.purchase_id = p.id
+        //   WHERE wc.code = ?`,
+        //   [extracted_code]
+        // );
+
+        // if (rows.length === 0) {
+        //   console.log('✅ NODE: No match found in database - image is clean');
+
+        //   // Cleanup uploaded files
+        //   uploadedFiles.forEach(filePath => {
+        //     try {
+        //       fs.unlinkSync(filePath);
+        //     } catch (cleanupErr) {
+        //       console.warn('⚠️  Could not delete uploaded file:', cleanupErr);
+        //     }
+        //   });
+
+        //   return res.json({
+        //     leakDetected: false,
+        //     extractedCode: extracted_code,
+        //     message: 'Code extracted but not found in database'
+        //   });
+        // }
+
+        // // Step 3: Leak detected! Return details
+        // const leakData = rows[0];
+        // console.log('🚨 NODE: LEAK DETECTED!');
+        // console.log(`   User: ${leakData.username} (${leakData.user_id})`);
+        // console.log(`   File: ${leakData.filename}`);
+
+        // // Cleanup uploaded files
+        // uploadedFiles.forEach(filePath => {
+        //   try {
+        //     fs.unlinkSync(filePath);
+        //   } catch (cleanupErr) {
+        //     console.warn('⚠️  Could not delete uploaded file:', cleanupErr);
+        //   }
+        // });
+
+        // console.log('='.repeat(60) + '\n');
+
+        // return res.json({
+        //   leakDetected: true,
+        //   extractedCode: extracted_code,
+        //   leakData: {
+        //     id: leakData.id,
+        //     code: leakData.code,
+        //     user_id: leakData.user_id,
+        //     username: leakData.username,
+        //     email: leakData.email,
+        //     filename: leakData.filename,
+        //     media_type: leakData.media_type,
+        //     created_at: leakData.created_at,
+        //     purchase_id: leakData.purchase_id,
+        //     purchase_date: leakData.purchase_date,
+        //     device_fingerprint: leakData.device_fingerprint
+        //   },
+        //   message: 'Leak detected! Original owner identified.'
+        // });
+
+        // MANURL LEAK DETECTION STEPS:
+        // This will be done by me a human and a tool that I build to compare the two images side by side and highlight differences. I will look for signs of steganographic manipulation, such as noise patterns, pixel anomalies, or metadata inconsistencies. If I find a code or watermark, I will then search the database manually for a match and report back with my findings.
+
+        // CREATE TABLE
+        //   `leaks_reports`(
+        //     `id` int unsigned NOT NULL AUTO_INCREMENT,
+        //     `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        //     `username` varchar(255) DEFAULT NULL,
+        //     `creatorId` varchar(255) DEFAULT NULL,
+        //     `keyData` json DEFAULT NULL,
+        //     `decodeData` json DEFAULT NULL,
+        //     `originalMedia` varchar(255) DEFAULT NULL,
+        //     `leakedMedia` varchar(255) DEFAULT NULL,
+        //     `potentialLeakers` text,
+        //     PRIMARY KEY(`id`)
+        //   ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci
+
       }
 
-      // Step 2: Search database for matching code
-      console.log('🔍 NODE: Searching database for matching code...');
 
-      const [rows] = await pool.query(
-        `SELECT 
-          wc.*,
-          ud.username,
-          ud.email,
-          p.id as purchase_id,
-          p.createdAt as purchase_date
-        FROM watermark_codes wc
-        LEFT JOIN userData ud ON wc.user_id = ud.id
-        LEFT JOIN purchases p ON wc.purchase_id = p.id
-        WHERE wc.code = ?`,
-        [extracted_code]
+
+      await pool.query(
+        `INSERT INTO leaks_reports 
+          (username, creatorId, keyData, decodeData, originalMedia, leakedMedia)
+        VALUES (?, ?, ?, ?, ?, ?)`,
+        [
+          req.user?.username,
+          req.user?.id, // creatorId will be filled in later if we find a match
+          keyData ? JSON.stringify(keyData) : null,
+          null, // decodeData will be filled in later if we find a match
+          originalImageFile.filename,
+          leakedImageFile.filename
+        ]
       );
 
-      if (rows.length === 0) {
-        console.log('✅ NODE: No match found in database - image is clean');
-
-        // Cleanup uploaded files
-        uploadedFiles.forEach(filePath => {
-          try {
-            fs.unlinkSync(filePath);
-          } catch (cleanupErr) {
-            console.warn('⚠️  Could not delete uploaded file:', cleanupErr);
-          }
-        });
-
-        return res.json({
-          leakDetected: false,
-          extractedCode: extracted_code,
-          message: 'Code extracted but not found in database'
-        });
-      }
-
-      // Step 3: Leak detected! Return details
-      const leakData = rows[0];
-      console.log('🚨 NODE: LEAK DETECTED!');
-      console.log(`   User: ${leakData.username} (${leakData.user_id})`);
-      console.log(`   File: ${leakData.filename}`);
-
-      // Cleanup uploaded files
-      uploadedFiles.forEach(filePath => {
-        try {
-          fs.unlinkSync(filePath);
-        } catch (cleanupErr) {
-          console.warn('⚠️  Could not delete uploaded file:', cleanupErr);
-        }
-      });
-
-      console.log('='.repeat(60) + '\n');
-
-      return res.json({
-        leakDetected: true,
-        extractedCode: extracted_code,
-        leakData: {
-          id: leakData.id,
-          code: leakData.code,
-          user_id: leakData.user_id,
-          username: leakData.username,
-          email: leakData.email,
-          filename: leakData.filename,
-          media_type: leakData.media_type,
-          created_at: leakData.created_at,
-          purchase_id: leakData.purchase_id,
-          purchase_date: leakData.purchase_date,
-          device_fingerprint: leakData.device_fingerprint
-        },
-        message: 'Leak detected! Original owner identified.'
+      res.json({
+        leakDetected: false,
+        extractedCode: null,
+        message: 'Leak detection is currently manual. Please contact support with the original and leaked images for analysis.'
       });
 
     } catch (error) {
@@ -5378,7 +5449,26 @@ server.post(PROXY + '/api/check-audio-leak', authenticateToken, async (req, res)
 
   // Setup multer to handle multiple files (originalAudio and leakedAudio)
   const upload = multer({
-    dest: 'leak_uploads/',
+    storage: multer.diskStorage({
+      destination: (req, file, cb) => {
+        const uploadDir = path.join(__dirname, 'leak_uploads', 'images');
+        if (!fs.existsSync(uploadDir)) {
+          fs.mkdirSync(uploadDir, { recursive: true });
+        }
+        cb(null, uploadDir);
+      },
+      filename: (req, file, cb) => {
+        const originalName = file.originalname || 'upload';
+        const safeBase = path
+          .basename(originalName)
+          .replace(/\s+/g, '_')
+          .replace(/[^A-Za-z0-9._-]/g, '');
+        const ext = path.extname(safeBase);
+        const mimeExt = file.mimetype ? `.${file.mimetype.split('/').pop()}` : '';
+        const finalName = ext ? safeBase : `${safeBase}${mimeExt}`;
+        cb(null, finalName);
+      }
+    }),
     limits: { fileSize: 50 * 1024 * 1024 }, // 50MB limit for audio files
     fileFilter: (req, file, cb) => {
       if (file.mimetype.startsWith('audio/')) {
@@ -5409,12 +5499,12 @@ server.post(PROXY + '/api/check-audio-leak', authenticateToken, async (req, res)
         });
       }
 
-      const originalFile = req.files.originalAudio[0];
-      const leakedFile = req.files.leakedAudio[0];
-      uploadedFiles.push(originalFile.path, leakedFile.path);
+      const originalAudioFile = req.files.originalAudio[0];
+      const leakedAudioFile = req.files.leakedAudio[0];
+      uploadedFiles.push(originalAudioFile.path, leakedAudioFile.path);
 
-      console.log(`📤 NODE: Original audio saved as: ${originalFile.filename}`);
-      console.log(`📤 NODE: Leaked audio saved as: ${leakedFile.filename}`);
+      console.log(`📤 NODE: Original audio saved as: ${originalAudioFile.filename}`);
+      console.log(`📤 NODE: Leaked audio saved as: ${leakedAudioFile.filename}`);
 
       // Parse optional keyData or keyCode
       let keyData = null;
@@ -5436,125 +5526,150 @@ server.post(PROXY + '/api/check-audio-leak', authenticateToken, async (req, res)
         console.log(`🔑 NODE: Key code provided: ${keyCode}`);
       }
 
-      // Step 1: Extract steganographic code from the leaked audio
-      console.log('📡 NODE: Sending leaked audio to Flask for code extraction...');
+      if (0) {
+        // // Step 1: Extract steganographic code from the leaked audio
+        // console.log('📡 NODE: Sending leaked audio to Flask for code extraction...');
 
-      const flaskResponse = await axios.post(
-        `${FLASKAPP_LINK}/audio-stegano-extract`,
-        {
-          input: leakedFile.filename,
-          original: originalFile.filename,
-          keyData: keyData,
-          keyCode: keyCode
-        },
-        {
-          headers: { 'Content-Type': 'application/json' },
-          timeout: 60000 // 60 seconds for audio processing
-        }
+        // const flaskResponse = await axios.post(
+        //   `${FLASKAPP_LINK}/audio-stegano-extract`,
+        //   {
+        //     input: leakedFile.filename,
+        //     original: originalFile.filename,
+        //     keyData: keyData,
+        //     keyCode: keyCode
+        //   },
+        //   {
+        //     headers: { 'Content-Type': 'application/json' },
+        //     timeout: 60000 // 60 seconds for audio processing
+        //   }
+        // );
+
+        // const { extracted_code, success } = flaskResponse.data;
+
+        // console.log(`🔑 NODE: Extracted code: ${extracted_code || 'None'}`);
+
+        // if (!extracted_code || !success) {
+        //   // Cleanup uploaded files
+        //   uploadedFiles.forEach(filePath => {
+        //     try {
+        //       fs.unlinkSync(filePath);
+        //     } catch (e) {
+        //       console.warn('⚠️  Could not delete file:', filePath);
+        //     }
+        //   });
+
+        //   return res.json({
+        //     leakDetected: false,
+        //     extractedCode: null,
+        //     message: 'No steganographic watermark found in the leaked audio',
+        //     creditsUsed: LEAK_CHECK_COST
+        //   });
+        // }
+
+        // // Step 2: Parse the extracted code to get user info
+        // let extractedUserInfo = null;
+        // try {
+        //   extractedUserInfo = JSON.parse(extracted_code);
+        //   console.log('📋 NODE: Parsed user info:', extractedUserInfo);
+        // } catch (parseError) {
+        //   console.log('⚠️  Could not parse extracted code as JSON, treating as plain text');
+        // }
+
+        // // Step 3: Search database for matching user
+        // console.log('🔍 NODE: Searching database for matching user...');
+
+        // let leakData = null;
+
+        // if (extractedUserInfo && extractedUserInfo.userid) {
+        //   // Search by user ID from watermark
+        //   const [rows] = await pool.query(
+        //     `SELECT 
+        //     ud.id,
+        //     ud.username,
+        //     ud.email,
+        //     ud.firstName,
+        //     ud.lastName,
+        //     ud.createdAt
+        //   FROM userData ud
+        //   WHERE ud.id = ?`,
+        //     [extractedUserInfo.userid]
+        //   );
+
+        //   if (rows.length > 0) {
+        //     leakData = {
+        //       ...rows[0],
+        //       watermark_username: extractedUserInfo.username,
+        //       watermark_timestamp: extractedUserInfo.timestamp,
+        //       extraction_method: 'steganography'
+        //     };
+        //   }
+        // }
+
+        // // Cleanup uploaded files
+        // uploadedFiles.forEach(filePath => {
+        //   try {
+        //     fs.unlinkSync(filePath);
+        //   } catch (e) {
+        //     console.warn('⚠️  Could not delete file:', filePath);
+        //   }
+        // });
+
+        // if (!leakData) {
+        //   console.log('✅ NODE: User not found in database');
+        //   return res.json({
+        //     leakDetected: false,
+        //     extractedCode: extracted_code,
+        //     message: 'Watermark found but user not in database',
+        //     creditsUsed: LEAK_CHECK_COST
+        //   });
+        // }
+
+        // // Step 4: Leak detected! Return details
+        // console.log('🚨 NODE: LEAK DETECTED!');
+        // console.log(`   User: ${leakData.username} (ID: ${leakData.id})`);
+        // console.log(`   Watermark timestamp: ${leakData.watermark_timestamp}`);
+        // console.log('='.repeat(60) + '\n');
+
+        // return res.json({
+        //   leakDetected: true,
+        //   extractedCode: extracted_code,
+        //   leakData: {
+        //     user_id: leakData.id,
+        //     username: leakData.username,
+        //     email: leakData.email,
+        //     firstName: leakData.firstName,
+        //     lastName: leakData.lastName,
+        //     watermark_username: leakData.watermark_username,
+        //     watermark_timestamp: leakData.watermark_timestamp,
+        //     account_created: leakData.createdAt,
+        //     extraction_method: leakData.extraction_method
+        //   },
+        //   message: '🚨 Leak detected! Original owner identified.',
+        //   creditsUsed: LEAK_CHECK_COST
+        // });
+
+      }
+
+
+
+      await pool.query(
+        `INSERT INTO leaks_reports 
+          (username, creatorId, keyData, decodeData, originalMedia, leakedMedia)
+        VALUES (?, ?, ?, ?, ?, ?)`,
+        [
+          req.user?.username,
+          req.user?.id, // creatorId will be filled in later if we find a match
+          keyData ? JSON.stringify(keyData) : null,
+          null, // decodeData will be filled in later if we find a match
+          originalAudioFile.filename,
+          leakedAudioFile.filename
+        ]
       );
 
-      const { extracted_code, success } = flaskResponse.data;
-
-      console.log(`🔑 NODE: Extracted code: ${extracted_code || 'None'}`);
-
-      if (!extracted_code || !success) {
-        // Cleanup uploaded files
-        uploadedFiles.forEach(filePath => {
-          try {
-            fs.unlinkSync(filePath);
-          } catch (e) {
-            console.warn('⚠️  Could not delete file:', filePath);
-          }
-        });
-
-        return res.json({
-          leakDetected: false,
-          extractedCode: null,
-          message: 'No steganographic watermark found in the leaked audio',
-          creditsUsed: LEAK_CHECK_COST
-        });
-      }
-
-      // Step 2: Parse the extracted code to get user info
-      let extractedUserInfo = null;
-      try {
-        extractedUserInfo = JSON.parse(extracted_code);
-        console.log('📋 NODE: Parsed user info:', extractedUserInfo);
-      } catch (parseError) {
-        console.log('⚠️  Could not parse extracted code as JSON, treating as plain text');
-      }
-
-      // Step 3: Search database for matching user
-      console.log('🔍 NODE: Searching database for matching user...');
-
-      let leakData = null;
-
-      if (extractedUserInfo && extractedUserInfo.userid) {
-        // Search by user ID from watermark
-        const [rows] = await pool.query(
-          `SELECT 
-            ud.id,
-            ud.username,
-            ud.email,
-            ud.firstName,
-            ud.lastName,
-            ud.createdAt
-          FROM userData ud
-          WHERE ud.id = ?`,
-          [extractedUserInfo.userid]
-        );
-
-        if (rows.length > 0) {
-          leakData = {
-            ...rows[0],
-            watermark_username: extractedUserInfo.username,
-            watermark_timestamp: extractedUserInfo.timestamp,
-            extraction_method: 'steganography'
-          };
-        }
-      }
-
-      // Cleanup uploaded files
-      uploadedFiles.forEach(filePath => {
-        try {
-          fs.unlinkSync(filePath);
-        } catch (e) {
-          console.warn('⚠️  Could not delete file:', filePath);
-        }
-      });
-
-      if (!leakData) {
-        console.log('✅ NODE: User not found in database');
-        return res.json({
-          leakDetected: false,
-          extractedCode: extracted_code,
-          message: 'Watermark found but user not in database',
-          creditsUsed: LEAK_CHECK_COST
-        });
-      }
-
-      // Step 4: Leak detected! Return details
-      console.log('🚨 NODE: LEAK DETECTED!');
-      console.log(`   User: ${leakData.username} (ID: ${leakData.id})`);
-      console.log(`   Watermark timestamp: ${leakData.watermark_timestamp}`);
-      console.log('='.repeat(60) + '\n');
-
-      return res.json({
-        leakDetected: true,
-        extractedCode: extracted_code,
-        leakData: {
-          user_id: leakData.id,
-          username: leakData.username,
-          email: leakData.email,
-          firstName: leakData.firstName,
-          lastName: leakData.lastName,
-          watermark_username: leakData.watermark_username,
-          watermark_timestamp: leakData.watermark_timestamp,
-          account_created: leakData.createdAt,
-          extraction_method: leakData.extraction_method
-        },
-        message: '🚨 Leak detected! Original owner identified.',
-        creditsUsed: LEAK_CHECK_COST
+      res.json({
+        leakDetected: false,
+        extractedCode: null,
+        message: 'Leak detection is currently manual. Please contact support with the original and leaked audio for analysis.'
       });
 
     } catch (error) {
@@ -5586,7 +5701,26 @@ server.post(PROXY + '/api/check-video-leak', authenticateToken, async (req, res)
 
   // Setup multer to handle multiple files
   const upload = multer({
-    dest: 'leak_uploads/',
+    storage: multer.diskStorage({
+      destination: (req, file, cb) => {
+        const uploadDir = path.join(__dirname, 'leak_uploads', 'images');
+        if (!fs.existsSync(uploadDir)) {
+          fs.mkdirSync(uploadDir, { recursive: true });
+        }
+        cb(null, uploadDir);
+      },
+      filename: (req, file, cb) => {
+        const originalName = file.originalname || 'upload';
+        const safeBase = path
+          .basename(originalName)
+          .replace(/\s+/g, '_')
+          .replace(/[^A-Za-z0-9._-]/g, '');
+        const ext = path.extname(safeBase);
+        const mimeExt = file.mimetype ? `.${file.mimetype.split('/').pop()}` : '';
+        const finalName = ext ? safeBase : `${safeBase}${mimeExt}`;
+        cb(null, finalName);
+      }
+    }),
     limits: { fileSize: 250 * 1024 * 1024 }, // 250MB limit for video files
     fileFilter: (req, file, cb) => {
       if (file.mimetype.startsWith('video/')) {
@@ -5648,116 +5782,138 @@ server.post(PROXY + '/api/check-video-leak', authenticateToken, async (req, res)
       // PAUSE TO AVOID RATE LIMITS
       await new Promise(resolve => setTimeout(resolve, 3000));
 
-      // Step 1: Send both videos to Flask to extract steganographic code
-      console.log('📡 NODE: Sending both videos to Flask for code extraction...');
+      if (0) {
+        // // Step 1: Send both videos to Flask to extract steganographic code
+        // console.log('📡 NODE: Sending both videos to Flask for code extraction...');
 
-      const flaskResponse = await axios.post(
-        `${FLASKAPP_LINK}/extract-video-code`,
-        {
-          input: leakedVideoFile.filename,
-          original: originalVideoFile.filename,
-          keyData: keyData,
-          keyCode: keyCode
-        },
-        {
-          headers: { 'Content-Type': 'application/json' },
-          timeout: 120000 // 120 seconds for video processing
-        }
-      );
+        // const flaskResponse = await axios.post(
+        //   `${FLASKAPP_LINK}/extract-video-code`,
+        //   {
+        //     input: leakedVideoFile.filename,
+        //     original: originalVideoFile.filename,
+        //     keyData: keyData,
+        //     keyCode: keyCode
+        //   },
+        //   {
+        //     headers: { 'Content-Type': 'application/json' },
+        //     timeout: 120000 // 120 seconds for video processing
+        //   }
+        // );
 
-      const { extracted_code } = flaskResponse.data;
+        // const { extracted_code } = flaskResponse.data;
 
-      console.log(`🔑 NODE: Extracted code: ${extracted_code || 'None'}`);
+        // console.log(`🔑 NODE: Extracted code: ${extracted_code || 'None'}`);
 
-      if (!extracted_code) {
-        // Cleanup uploaded files
-        uploadedFiles.forEach(filePath => {
-          try {
-            fs.unlinkSync(filePath);
-          } catch (cleanupErr) {
-            console.warn('⚠️  Could not delete uploaded file:', cleanupErr);
-          }
-        });
+        // if (!extracted_code) {
+        //   // Cleanup uploaded files
+        //   uploadedFiles.forEach(filePath => {
+        //     try {
+        //       fs.unlinkSync(filePath);
+        //     } catch (cleanupErr) {
+        //       console.warn('⚠️  Could not delete uploaded file:', cleanupErr);
+        //     }
+        //   });
 
-        return res.json({
-          leakDetected: false,
-          extractedCode: null,
-          message: 'No steganographic code found in video',
-          creditsUsed: LEAK_CHECK_COST
-        });
+        //   return res.json({
+        //     leakDetected: false,
+        //     extractedCode: null,
+        //     message: 'No steganographic code found in video',
+        //     creditsUsed: LEAK_CHECK_COST
+        //   });
+        // }
+
+        // // Step 2: Search database for matching code
+        // console.log('🔍 NODE: Searching database for matching code...');
+
+        // const [rows] = await pool.query(
+        //   `SELECT 
+        //   wc.*,
+        //   ud.username,
+        //   ud.email,
+        //   p.id as purchase_id,
+        //   p.createdAt as purchase_date
+        // FROM watermark_codes wc
+        // LEFT JOIN userData ud ON wc.user_id = ud.id
+        // LEFT JOIN purchases p ON wc.purchase_id = p.id
+        // WHERE wc.code = ?`,
+        //   [extracted_code]
+        // );
+
+        // if (rows.length === 0) {
+        //   console.log('✅ NODE: No match found in database - video is clean');
+
+        //   // Cleanup uploaded files
+        //   uploadedFiles.forEach(filePath => {
+        //     try {
+        //       fs.unlinkSync(filePath);
+        //     } catch (cleanupErr) {
+        //       console.warn('⚠️  Could not delete uploaded file:', cleanupErr);
+        //     }
+        //   });
+
+        //   return res.json({
+        //     leakDetected: false,
+        //     extractedCode: extracted_code,
+        //     message: 'Code extracted but not found in database',
+        //     creditsUsed: LEAK_CHECK_COST
+        //   });
+        // }
+
+        // // Step 3: Leak detected!
+        // const leakData = rows[0];
+        // console.log('🚨 NODE: LEAK DETECTED!');
+        // console.log(`   User: ${leakData.username} (${leakData.user_id})`);
+
+        // // Cleanup uploaded files
+        // uploadedFiles.forEach(filePath => {
+        //   try {
+        //     fs.unlinkSync(filePath);
+        //   } catch (cleanupErr) {
+        //     console.warn('⚠️  Could not delete uploaded file:', cleanupErr);
+        //   }
+        // });
+
+        // console.log('='.repeat(60) + '\n');
+
+        // return res.json({
+        //   leakDetected: true,
+        //   extractedCode: extracted_code,
+        //   leakData: {
+        //     id: leakData.id,
+        //     code: leakData.code,
+        //     user_id: leakData.user_id,
+        //     username: leakData.username,
+        //     email: leakData.email,
+        //     filename: leakData.filename,
+        //     media_type: leakData.media_type,
+        //     created_at: leakData.created_at,
+        //     purchase_id: leakData.purchase_id,
+        //     purchase_date: leakData.purchase_date,
+        //     device_fingerprint: leakData.device_fingerprint
+        //   },
+        //   message: 'Leak detected! Original owner identified.',
+        //   creditsUsed: LEAK_CHECK_COST
+        // });
       }
 
-      // Step 2: Search database for matching code
-      console.log('🔍 NODE: Searching database for matching code...');
-
-      const [rows] = await pool.query(
-        `SELECT 
-          wc.*,
-          ud.username,
-          ud.email,
-          p.id as purchase_id,
-          p.createdAt as purchase_date
-        FROM watermark_codes wc
-        LEFT JOIN userData ud ON wc.user_id = ud.id
-        LEFT JOIN purchases p ON wc.purchase_id = p.id
-        WHERE wc.code = ?`,
-        [extracted_code]
+      await pool.query(
+        `INSERT INTO leaks_reports 
+          (username, creatorId, keyData, decodeData, originalMedia, leakedMedia)
+        VALUES (?, ?, ?, ?, ?, ?)`,
+        [
+          req.user?.username,
+          req.user?.id, // creatorId will be filled in later if we find a match
+          keyData ? JSON.stringify(keyData) : null,
+          null, // decodeData will be filled in later if we find a match
+          originalVideoFile.filename,
+          leakedVideoFile.filename
+        ]
       );
 
-      if (rows.length === 0) {
-        console.log('✅ NODE: No match found in database - video is clean');
-
-        // Cleanup uploaded files
-        uploadedFiles.forEach(filePath => {
-          try {
-            fs.unlinkSync(filePath);
-          } catch (cleanupErr) {
-            console.warn('⚠️  Could not delete uploaded file:', cleanupErr);
-          }
-        });
-
-        return res.json({
-          leakDetected: false,
-          extractedCode: extracted_code,
-          message: 'Code extracted but not found in database',
-          creditsUsed: LEAK_CHECK_COST
-        });
-      }
-
-      // Step 3: Leak detected!
-      const leakData = rows[0];
-      console.log('🚨 NODE: LEAK DETECTED!');
-      console.log(`   User: ${leakData.username} (${leakData.user_id})`);
-
-      // Cleanup uploaded files
-      uploadedFiles.forEach(filePath => {
-        try {
-          fs.unlinkSync(filePath);
-        } catch (cleanupErr) {
-          console.warn('⚠️  Could not delete uploaded file:', cleanupErr);
-        }
-      });
-
-      console.log('='.repeat(60) + '\n');
-
-      return res.json({
-        leakDetected: true,
-        extractedCode: extracted_code,
-        leakData: {
-          id: leakData.id,
-          code: leakData.code,
-          user_id: leakData.user_id,
-          username: leakData.username,
-          email: leakData.email,
-          filename: leakData.filename,
-          media_type: leakData.media_type,
-          created_at: leakData.created_at,
-          purchase_id: leakData.purchase_id,
-          purchase_date: leakData.purchase_date,
-          device_fingerprint: leakData.device_fingerprint
-        },
-        message: 'Leak detected! Original owner identified.',
-        creditsUsed: LEAK_CHECK_COST
+      res.json({
+        leakDetected: false,
+        extractedCode: null,
+        message: 'Leak detection is currently manual. Please contact support with the original and leaked videos for analysis.'
       });
 
     } catch (error) {

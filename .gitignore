@@ -43,3 +43,8 @@ python/*/
 
 python/venv
 
+leak-uploads/*
+
+./leak_uploads
+
+
