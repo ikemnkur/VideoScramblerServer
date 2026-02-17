@@ -2079,6 +2079,189 @@ async function sendAccountVerificationEmail(newUser) {
   }
 }
 
+// async function sendPasswordResetEmail({
+//     to,
+//     username,
+//     resetCode,
+//     subject = "Reset your Scramblurr password"
+// }) {
+//     return sendTemplatedEmail({
+//         to,
+//         subject,
+//         templateFile: "password-reset.html",
+//         variables: buildCommonVariables({
+//             USERNAME: username,
+//             RESET_CODE: resetCode
+//         })
+//     });
+// }
+
+const generateResetCode = () => {
+  const length = Math.floor(Math.random() * 3) + 8; // 6-8 digits
+  let code = "";
+  for (let i = 0; i < length; i += 1) {
+    code += Math.floor(Math.random() * 10).toString();
+  }
+  return code;
+};
+
+
+
+async function sendPasswordResetEmail(newUser) {
+  const resetCode = generateResetCode();
+  const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes from now
+  const verificationLink = buildVerificationLink(newUser.email);
+
+  try {
+    await emailService.sendPasswordResetEmail({
+      to: newUser.email,
+      username: newUser.firstName || newUser.username || "there",
+      resetCode,
+      subject: 'Reset your Scramblurr password'
+    });
+
+    console.log(`✅ Password reset email sent to ${newUser.email} (expires ${expiresAt.toISOString()})`);
+  } catch (emailError) {
+    console.error('⚠️ Failed to send password reset email:', emailError.message || emailError);
+  }
+}
+
+// Send password reset email
+// async function sendPasswordResetEmail(email, username, newPassword) {
+//   try {
+//     const html = `
+//       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 5px;">
+//         <h2 style="color: #333;">Password Reset</h2>
+//         <p>Hello ${username},</p>
+//         <p>Your password has been reset by an administrator.</p>
+//         <p>Your new password is: <strong>${newPassword}</strong></p>
+//         <p>Please login with this password and change it immediately for security reasons.</p>
+//         <p style="margin-top: 30px; padding-top: 15px; border-top: 1px solid #e0e0e0; font-size: 12px; color: #777;">
+//           This is an automated message. Please do not reply to this email.
+//         </p>
+//       </div>
+//     `;
+
+//     const info = await emailService.sendRawEmail({
+//       to: email,
+//       subject: 'Your Password Has Been Reset',
+//       html
+//     });
+
+//     console.log('Password reset email sent:', info.messageId);
+//     return true;
+//   } catch (error) {
+//     console.error('Error sending password reset email:', error);
+//     throw error;
+//   }
+// }
+
+// Custom forgot password route
+server.post(PROXY + '/api/auth/forgot-password', async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email is required'
+      });
+    }
+
+    const [users] = await pool.execute(
+      'SELECT * FROM userData WHERE email = ?',
+      [email]
+    );
+
+    const user = users[0];
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User with this email does not exist'
+      });
+    }
+
+    await sendPasswordResetEmail(user);
+
+    res.json({
+      success: true,
+      message: 'Password reset email sent if the account exists'
+    });
+
+  } catch (error) {
+    console.error('Forgot password error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error occurred during password reset'
+    });
+  }
+});
+
+// const response = await api.post('/api/auth/reset-password', {
+//   email,
+//   resetCode,
+//   newPassword
+// });
+
+// if (response.data.success) {
+//   setSuccess(true);
+//   // Redirect to login after 2 seconds
+//   setTimeout(() => {
+//     navigate('/login');
+//   }, 2000);
+// } else {
+//   setError(response.data.message || 'Failed to reset password.');
+// }
+
+// reset password route submission
+server.post(PROXY + '/api/auth/reset-password', async (req, res) => {
+  try {
+    const { email, newPassword } = req.body;
+    if (!email || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email and new password are required'
+      });
+    }
+
+    const [users] = await pool.execute(
+      'SELECT * FROM userData WHERE email = ?',
+      [email]
+    );
+
+    const user = users[0];
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User with this email does not exist'
+      });
+    }
+
+    const saltRounds = 12;
+    const passwordHash = await bcrypt.hash(newPassword, saltRounds);
+
+    await pool.execute(
+      'UPDATE userData SET passwordHash = ? WHERE email = ?',
+      [passwordHash, email]
+    );
+
+    res.json({
+      success: true,
+      message: 'Password has been reset successfully'
+    });
+
+  } catch (error) {
+    console.error('Reset password error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error occurred during password reset'
+    });
+  }
+});
+
+
+// Custom email verification route
 server.post(PROXY + '/api/auth/verify-email', async (req, res) => {
   try {
     const { email, code } = req.body;
@@ -2135,39 +2318,7 @@ server.post(PROXY + '/api/auth/verify-email', async (req, res) => {
   }
 });
 
-// Send password reset email
-async function sendPasswordResetEmail(email, username, newPassword) {
-  try {
-    const html = `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 5px;">
-        <h2 style="color: #333;">Password Reset</h2>
-        <p>Hello ${username},</p>
-        <p>Your password has been reset by an administrator.</p>
-        <p>Your new password is: <strong>${newPassword}</strong></p>
-        <p>Please login with this password and change it immediately for security reasons.</p>
-        <p style="margin-top: 30px; padding-top: 15px; border-top: 1px solid #e0e0e0; font-size: 12px; color: #777;">
-          This is an automated message. Please do not reply to this email.
-        </p>
-      </div>
-    `;
 
-    const info = await emailService.sendRawEmail({
-      to: email,
-      subject: 'Your Password Has Been Reset',
-      html
-    });
-
-    console.log('Password reset email sent:', info.messageId);
-    return true;
-  } catch (error) {
-    console.error('Error sending password reset email:', error);
-    throw error;
-  }
-}
-
-module.exports = {
-  sendPasswordResetEmail
-};
 
 
 // Custom logout route
@@ -2195,6 +2346,7 @@ server.post(PROXY + '/api/auth/logout', async (req, res) => {
     });
   }
 });
+
 
 // Custom wallet balance route
 server.post(PROXY + '/api/wallet/balance/:username', authenticateToken, async (req, res) => {
@@ -4406,6 +4558,56 @@ server.get(PROXY + '/api/fingerprint/stats', authenticateToken, async (req, res)
 
 // const FLASKAPP_LINK = 'http://localhost:5000';
 const FLASKAPP_LINK = process.env.FLASKAPP_LINK || 'http://localhost:5000';
+const TTS_SERVER_LINK = process.env.TTS_SERVER_LINK || 'http://localhost:5001';
+
+server.post(PROXY + '/api/tts/google', authenticateToken, async (req, res) => {
+  try {
+    const {
+      text,
+      filename,
+      username,
+      speed,
+      pitch,
+      volume,
+      voice,
+      lang
+    } = req.body || {};
+
+    const payload = {
+      text,
+      filename,
+      username,
+      speed,
+      pitch,
+      volume,
+      voice,
+      lang
+    };
+
+    const { data } = await axios.post(
+      `${TTS_SERVER_LINK}/google-tts-speech`,
+      payload,
+      {
+        timeout: 60000,
+        headers: { 'Content-Type': 'application/json' }
+      }
+    );
+
+    if (data && typeof data.url === 'string' && data.url.startsWith('/audio/')) {
+      data.url = `${TTS_SERVER_LINK}${data.url}`;
+    }
+
+    res.json(data);
+  } catch (error) {
+    const status = error.response?.status || 500;
+    console.error('❌ Error calling TTS server:', error.response?.data || error.message);
+    res.status(status).json({
+      success: false,
+      error: 'TTS request failed',
+      details: error.response?.data || error.message
+    });
+  }
+});
 
 
 server.get(PROXY + '/api/flask-python/download', (req, res) => {
