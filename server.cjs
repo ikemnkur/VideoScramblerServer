@@ -127,6 +127,7 @@ const corsOptions = {
       "https://server.videoscrambler.com",
       "https://www.scramblurr.com",
       "https://scramblurr.com",
+      "https://scramblurr.com",
       'https://js.stripe.com',
       "*", // Allow all origins (for development, remove in production)
       // Add any other origins you want to allow
