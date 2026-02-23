@@ -159,7 +159,7 @@ let lastRotationCheck = new Date().getUTCDate();
  */
 function getNewLogPath() {
   const timestamp = new Date().toISOString().replace(/:/g, '-');
-  return path.join(__dirname, `universal_${timestamp}.log`);
+  return path.join(__dirname + "/logs", `universal_${timestamp}.log`);
 }
 
 /**
@@ -5906,7 +5906,7 @@ server.post(PROXY + '/api/check-video-leak', authenticateToken, async (req, res)
   const upload = multer({
     storage: multer.diskStorage({
       destination: (req, file, cb) => {
-        const uploadDir = path.join(__dirname, 'leak_uploads', 'images');
+        const uploadDir = path.join(__dirname, 'leak_uploads', 'videos');
         if (!fs.existsSync(uploadDir)) {
           fs.mkdirSync(uploadDir, { recursive: true });
         }
