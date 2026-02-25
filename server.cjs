@@ -13,7 +13,7 @@ const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
 const util = require('util'); // Node.js utility for formatting arguments
-const emailService = require('./emailService.cjs');
+const emailService = require('./AmazonSESemailService.cjs');
 
 // const authenticateToken = require('../middleware/auth');
 const authenticateToken = require('./middleware/auth');
@@ -36,6 +36,16 @@ const dbConfig = {
 
 // Create connection pool
 const pool = mysql.createPool(dbConfig);
+
+// Helper function to build INSERT queries from objects
+function buildInsert(tableName, data) {
+  const columns = Object.keys(data);
+  const placeholders = columns.map(() => '?').join(', ');
+  const values = Object.values(data);
+
+  const sql = `INSERT INTO ${tableName} (${columns.join(', ')}) VALUES (${placeholders})`;
+  return { sql, values };
+}
 
 // Analytics tracking
 const analytics = {
@@ -1361,6 +1371,35 @@ server.post('/db/query', async (req, res) => {
   }
 });
 
+const currencyIdMap = {
+  BTC: 'bitcoin',
+  ETH: 'ethereum',
+  LTC: 'litecoin',
+  SOL: 'solana',
+  // XMR: 'monero',
+  // XRP: 'ripple'
+};
+
+// Fetch crypto rate from CoinGecko API
+const fetchCryptoRate = async (cryptoCurrency) => {
+  try {
+    const coinId = currencyIdMap[cryptoCurrency];
+    if (!coinId) {
+      console.error('Currency not supported:', cryptoCurrency);
+      return 0;
+    }
+
+    const response = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${coinId}&vs_currencies=usd`);
+    const data = await response.json();
+    return data[coinId]?.usd || 0;
+  } catch (error) {
+    console.error('Error fetching crypto rate:', error);
+    // Fallback rates for demo
+    const fallbackRates = { BTC: 45000, ETH: 3000, LTC: 100, SOL: 50, XMR: 150, XRP: 0.5 };
+    return fallbackRates[cryptoCurrency] || 0;
+  }
+};
+
 
 
 
@@ -1430,13 +1469,41 @@ server.post(PROXY + '/api/auth/login', async (req, res) => {
         credits: user.credits
       }, process.env.JWT_SECRET, { expiresIn: '2h' });
 
+      // conver random amounts to crypto amounts based on current rates 
+      const btcRate = await fetchCryptoRate('BTC');
+      const ethRate = await fetchCryptoRate('ETH');
+      const ltcRate = await fetchCryptoRate('LTC');
+      const solRate = await fetchCryptoRate('SOL');
+      // const xmrRate = await fetchCryptoRate('XMR');
+      // const xrpRate = await fetchCryptoRate('XRP');
+      const amount1BTC = (user.amount1 / btcRate).toFixed(8);
+      const amount2BTC = (user.amount2 / btcRate).toFixed(8);
+      const amount1ETH = (user.amount1 / ethRate).toFixed(8);
+      const amount2ETH = (user.amount2 / ethRate).toFixed(8);
+      const amount1LTC = (user.amount1 / ltcRate).toFixed(8);
+      const amount2LTC = (user.amount2 / ltcRate).toFixed(8);
+      const amount1SOL = (user.amount1 / solRate).toFixed(8);
+      const amount2SOL = (user.amount2 / solRate).toFixed(8);
+
       res.json({
         token,
         tokenExpiry: new Date(Date.now() + 7200 * 1000),
         user: { id: user.id, username: user.username, email: user.email, credits: user.credits },
         accountType: user.accountType,
         message: 'Login successful',
-        verification: { status: user.verification, amount1: user.amount1, amount2: user.amount2 },
+        // verification: { status: user.verification, amount1: user.amount1, amount2: user.amount2 },
+        verification: {
+          verified: false,
+          amount1: user.amount1,
+          amount2: user.amount2,
+          cryptoAmounts: {
+            BTC: { amount1: amount1BTC, amount2: amount2BTC },
+            ETH: { amount1: amount1ETH, amount2: amount2ETH },
+            LTC: { amount1: amount1LTC, amount2: amount2LTC },
+            SOL: { amount1: amount1SOL, amount2: amount2SOL }
+          },
+          time: new Date().getTime(),
+        }
       });
 
       // res.json({
@@ -1614,34 +1681,6 @@ server.post(PROXY + '/api/auth/register', async (req, res) => {
     const amount1 = (0.1 * parseFloat(Math.random().toFixed(8)) + 0.1).toPrecision(4);
     const amount2 = (0.1 * parseFloat(Math.random().toFixed(8)) + 0.1).toPrecision(4);
 
-    const currencyIdMap = {
-      BTC: 'bitcoin',
-      ETH: 'ethereum',
-      LTC: 'litecoin',
-      SOL: 'solana',
-      // XMR: 'monero',
-      // XRP: 'ripple'
-    };
-
-    // Fetch crypto rate from CoinGecko API
-    const fetchCryptoRate = async (cryptoCurrency) => {
-      try {
-        const coinId = currencyIdMap[cryptoCurrency];
-        if (!coinId) {
-          console.error('Currency not supported:', cryptoCurrency);
-          return 0;
-        }
-
-        const response = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${coinId}&vs_currencies=usd`);
-        const data = await response.json();
-        return data[coinId]?.usd || 0;
-      } catch (error) {
-        console.error('Error fetching crypto rate:', error);
-        // Fallback rates for demo
-        const fallbackRates = { BTC: 45000, ETH: 3000, LTC: 100, SOL: 50, XMR: 150, XRP: 0.5 };
-        return fallbackRates[cryptoCurrency] || 0;
-      }
-    };
 
 
 
@@ -1694,42 +1733,87 @@ server.post(PROXY + '/api/auth/register', async (req, res) => {
       socialLinks: {}
     };
 
-    await pool.execute(
-      'INSERT INTO userData (id, loginStatus, lastLogin, accountType, username, email, firstName, lastName, phoneNumber, birthDate, encryptionKey, credits, reportCount, isBanned, banReason, banDate, banDuration, createdAt, updatedAt, passwordHash, twoFactorEnabled, twoFactorSecret, recoveryCodes, profilePicture, bio, socialLinks, verification, amount1, amount2) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [
-        newUser.id,
-        newUser.loginStatus,
-        newUser.lastLogin,
-        newUser.accountType,
-        newUser.username,
-        newUser.email,
-        newUser.firstName,
-        newUser.lastName,
-        newUser.phoneNumber,
-        newUser.birthDate,
-        newUser.encryptionKey,
-        newUser.credits,
-        newUser.reportCount,
-        newUser.isBanned,
-        newUser.banReason,
-        formatDateTimeForMySQL(newUser.banDate),
-        newUser.banDuration,
-        newUser.createdAt,
-        newUser.updatedAt,
-        newUser.passwordHash,
-        newUser.twoFactorEnabled,
-        newUser.twoFactorSecret,
-        JSON.stringify(newUser.recoveryCodes),
-        newUser.profilePicture,
-        newUser.bio,
-        JSON.stringify(newUser.socialLinks),
-        "false",
-        amount1,
-        amount2
-      ]
-    );
+    // await pool.execute(
+    //   'INSERT INTO userData (id, loginStatus, lastLogin, accountType, username, email, firstName, lastName, phoneNumber, birthDate, encryptionKey, credits, reportCount, isBanned, banReason, banDate, banDuration, createdAt, updatedAt, passwordHash, twoFactorEnabled, twoFactorSecret, recoveryCodes, profilePicture, bio, socialLinks, verification, amount1, amount2, cryptoAmounts) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    //   [
+    //     newUser.id,
+    //     newUser.loginStatus,
+    //     newUser.lastLogin,
+    //     newUser.accountType,
+    //     newUser.username,
+    //     newUser.email,
+    //     newUser.firstName,
+    //     newUser.lastName,
+    //     newUser.phoneNumber,
+    //     newUser.birthDate,
+    //     newUser.encryptionKey,
+    //     newUser.credits,
+    //     newUser.reportCount,
+    //     newUser.isBanned,
+    //     newUser.banReason,
+    //     formatDateTimeForMySQL(newUser.banDate),
+    //     newUser.banDuration,
+    //     newUser.createdAt,
+    //     newUser.updatedAt,
+    //     newUser.passwordHash,
+    //     newUser.twoFactorEnabled,
+    //     newUser.twoFactorSecret,
+    //     JSON.stringify(newUser.recoveryCodes),
+    //     newUser.profilePicture,
+    //     newUser.bio,
+    //     JSON.stringify(newUser.socialLinks),
+    //     "false",
+    //     amount1,
+    //     amount2,
+    //     cryptoAmounts = JSON.stringify({
+    //       BTC: { amount1: amount1BTC, amount2: amount2BTC },
+    //       ETH: { amount1: amount1ETH, amount2: amount2ETH },
+    //       LTC: { amount1: amount1LTC, amount2: amount2LTC },
+    //       SOL: { amount1: amount1SOL, amount2: amount2SOL }
+    //     })
+    //   ]
+    // );
 
+    const insertData = {
+      id: newUser.id,
+      loginStatus: newUser.loginStatus,
+      lastLogin: newUser.lastLogin,
+      accountType: newUser.accountType,
+      username: newUser.username,
+      email: newUser.email,
+      firstName: newUser.firstName,
+      lastName: newUser.lastName,
+      phoneNumber: newUser.phoneNumber,
+      birthDate: newUser.birthDate,
+      encryptionKey: newUser.encryptionKey,
+      credits: newUser.credits,
+      reportCount: newUser.reportCount,
+      isBanned: newUser.isBanned,
+      banReason: newUser.banReason,
+      banDate: formatDateTimeForMySQL(newUser.banDate),
+      banDuration: newUser.banDuration,
+      createdAt: newUser.createdAt,
+      updatedAt: newUser.updatedAt,
+      passwordHash: newUser.passwordHash,
+      twoFactorEnabled: newUser.twoFactorEnabled,
+      twoFactorSecret: newUser.twoFactorSecret,
+      recoveryCodes: JSON.stringify(newUser.recoveryCodes),
+      profilePicture: newUser.profilePicture,
+      bio: newUser.bio,
+      socialLinks: JSON.stringify(newUser.socialLinks),
+      verification: "false",
+      amount1: amount1,
+      amount2: amount2,
+      cryptoAmounts: JSON.stringify({
+        BTC: { amount1: amount1BTC, amount2: amount2BTC },
+        ETH: { amount1: amount1ETH, amount2: amount2ETH },
+        LTC: { amount1: amount1LTC, amount2: amount2LTC },
+        SOL: { amount1: amount1SOL, amount2: amount2SOL }
+      })
+    };
 
+    const { sql, values } = buildInsert('userData', insertData);
+    await pool.execute(sql, values);
 
     // Generate token for automatic login
     // TODO: implementation of JWT here

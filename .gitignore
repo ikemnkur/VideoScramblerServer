@@ -48,3 +48,4 @@ leak-uploads/*
 /leak_uploads
 
 
+.env.example
