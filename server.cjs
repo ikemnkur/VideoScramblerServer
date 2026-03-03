@@ -6250,7 +6250,21 @@ server.post(PROXY + '/api/check-video-leak', authenticateToken, async (req, res)
 
 server.post('/api/analytics/unscramble-event', async (req, res) => {
   try {
-    const { username, userId, creator, actionCost, unscrambleKey, mediaDetails } = req.body;
+    const { username, userId, actionCost, unscrambleKey, mediaDetails, watermarkParams, scrambleType } = req.body;
+
+    console.log('📊 Log unscramble event:', {
+      "username": username,
+      "userId": userId,
+      // "creator": creator,
+      "actionCost": actionCost,
+      "unscrambleKey": unscrambleKey,
+      "mediaDetails": mediaDetails,
+      "watermarkParams": watermarkParams,
+      "scrambleType": scrambleType
+    });
+
+    let creator = JSON.parse(unscrambleKey)?.creator || 'unknown';
+    console.log('👤 Creator identified as:', creator);
 
     // CREATE TABLE
     // `unscrambles` (
@@ -6262,21 +6276,52 @@ server.post('/api/analytics/unscramble-event', async (req, res) => {
     //   `creatorId` varchar(255) DEFAULT NULL,
     //   `keyData` json DEFAULT NULL,
     //   `mediaDetails` json DEFAULT NULL,
+    //   `watermark_params` json DEFAULT NULL,
     //   PRIMARY KEY (`id`)
     // ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci
+    if (scrambleType === 'audio') {
+      await pool.execute(
+        'INSERT INTO audio_unscrambles (userId, username, creator, action_cost, keyData, mediaDetails, watermark_params) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [
+          userId || null,
+          username || 'anonymous',
+          JSON.stringify(creator) || '{"unknown"}',
+          actionCost || 'unknown',
+          unscrambleKey ? JSON.stringify(unscrambleKey) : null,
+          mediaDetails ? JSON.stringify(mediaDetails) : null,
+          watermarkParams ? JSON.stringify(watermarkParams) : null
+        ]
+      );
+    } else if (scrambleType === 'video') {
 
-    await pool.execute(
-      'INSERT INTO unscrambles (userId, username, creatorId, action_cost, keyData, mediaDetails) VALUES (?, ?, ?, ?, ?, ?)',
-      [
-        userId || null,
-        username || 'anonymous',
-        creator || 'unknown',
-        actionCost || 'unknown',
-        unscrambleKey ? JSON.stringify(unscrambleKey) : null,
-        mediaDetails ? JSON.stringify(mediaDetails) : null
-      ]
-    );
+      await pool.execute(
+        'INSERT INTO video_unscrambles (userId, username, creator, action_cost, keyData, mediaDetails, watermark_params) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [
+          userId || null,
+          username || 'anonymous',
+          JSON.stringify(creator) || '{"unknown"}',
+          actionCost || 'unknown',
+          unscrambleKey ? JSON.stringify(unscrambleKey) : null,
+          mediaDetails ? JSON.stringify(mediaDetails) : null,
+          watermarkParams ? JSON.stringify(watermarkParams) : null
+        ]
+      );
 
+    } else {
+
+      await pool.execute(
+        'INSERT INTO photo_unscrambles (userId, username, creator, action_cost, keyData, mediaDetails, watermark_params) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [
+          userId || null,
+          username || 'anonymous',
+          JSON.stringify(creator) || '{"unknown"}',
+          actionCost || 'unknown',
+          unscrambleKey ? JSON.stringify(unscrambleKey) : null,
+          mediaDetails ? JSON.stringify(mediaDetails) : null,
+          watermarkParams ? JSON.stringify(watermarkParams) : null
+        ]
+      );
+    }
     res.json({ success: true, message: 'Unscramble event logged successfully' });
   } catch (error) {
     console.error('Log unscramble event error:', error);
@@ -6284,7 +6329,43 @@ server.post('/api/analytics/unscramble-event', async (req, res) => {
   }
 });
 
+// server.post('/api/analytics/audio-unscramble-event', async (req, res) => {
+//   try {
+//     const { username, userId, creator, actionCost, unscrambleKey, mediaDetails, watermarkParams } = req.body;
 
+//     // CREATE TABLE
+//     // `unscrambles` (
+//     //   `id` int unsigned NOT NULL AUTO_INCREMENT,
+//     //   `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+//     //   `userId` varchar(255) DEFAULT NULL,
+//     //   `username` varchar(255) DEFAULT NULL,
+//     //   `action_cost` int DEFAULT NULL,
+//     //   `creatorId` varchar(255) DEFAULT NULL,
+//     //   `keyData` json DEFAULT NULL,
+//     //   `mediaDetails` json DEFAULT NULL,
+//     //   `watermark_params` json DEFAULT NULL,
+//     //   PRIMARY KEY (`id`)
+//     // ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci
+
+//     await pool.execute(
+//       'INSERT INTO unscrambles (userId, username, creatorId, action_cost, keyData, mediaDetails, watermark_params) VALUES (?, ?, ?, ?, ?, ?, ?)',
+//       [
+//         userId || null,
+//         username || 'anonymous',
+//         creator || 'unknown',
+//         actionCost || 'unknown',
+//         unscrambleKey ? JSON.stringify(unscrambleKey) : null,
+//         mediaDetails ? JSON.stringify(mediaDetails) : null,
+//         watermarkParams ? JSON.stringify(watermarkParams) : null
+//       ]
+//     );
+
+//     res.json({ success: true, message: 'Unscramble event logged successfully' });
+//   } catch (error) {
+//     console.error('Log unscramble event error:', error);
+//     res.status(500).json({ success: false, message: 'Failed to log unscramble event' });
+//   }
+// });
 
 // create a rout that will allow the clients to download video files from the server via file name
 // server.get(PROXY+'/api/download/:filename', (req, res) => {
