@@ -3149,14 +3149,27 @@ async function checkTransaction(crypto, txHash, walletAddress, amount) {
   }
 }
 
+
+
+
 // Get actions for a specific user
 server.get(PROXY + '/api/actions/:username', authenticateToken, async (req, res) => {
   try {
     const { username } = req.params;
 
+    const { since } = req.query; // Extract the 'since' parameter
+
+    // let query = 'SELECT * FROM actions WHERE username = ?';
+    // const params = [username];
+
+    // if (since) {
+    //   query += ' AND created_at > ?';
+    //   params.push(since);
+    // }
+
     const [actions] = await pool.execute(
-      'SELECT * FROM actions WHERE username = ? ORDER BY date DESC',
-      [username]
+      'SELECT * FROM actions WHERE username = ? AND created_at > ? ORDER BY date DESC',
+      [username, since || 0] // Use 0 as default to get all actions if 'since' is not provided
     );
 
     res.json(actions);
@@ -3180,15 +3193,19 @@ server.get(PROXY + '/api/actions', authenticateToken, async (req, res) => {
   }
 });
 
+
 // Get credit purchases for a specific user
 server.get(PROXY + '/api/buyCredits/:username', authenticateToken, async (req, res) => {
   try {
     const { username } = req.params;
+    const {since} = req.query;
 
     const [purchases] = await pool.execute(
-      'SELECT * FROM buyCredits WHERE username = ? ORDER BY date DESC',
-      [username]
+      'SELECT * FROM buyCredits WHERE username = ? AND time > ? ORDER BY date DESC',
+      [username, since || 0] // Use 0 as default to get all purchases if 'since' is not provided
     );
+
+    console.log(`Retrieved ${purchases.length} purchases for user ${username} since ${since || 'the beginning'}.`);
 
     res.json(purchases);
   } catch (error) {
@@ -3235,6 +3252,15 @@ server.post(PROXY + '/api/purchases/:username', authenticateToken, async (req, r
 
     console.log('Logging purchase data:', req.body);
 
+
+  const promoPackagesMap = [
+    { amount: 2500, price: 2.5, popular: false },
+    { amount: 5250, price: 5, popular: false },
+    { amount: 11250, price: 10, popular: true },
+    { amount: 26000, price: 20, popular: false },
+ 
+  ];
+
     // check for duplicate transactionId
     if (transactionId) {
       const [existing] = await pool.execute(
@@ -3279,9 +3305,9 @@ server.post(PROXY + '/api/purchases/:username', authenticateToken, async (req, r
             transactionId,
             blockExplorerLink,
             currency,
-            amount,
-            cryptoAmount,
-            rate,
+            amount/100,
+            cryptoAmount || 0,
+            rate || 1.00,
             Date.now(),
             new Date().toISOString(),
             session_id,
@@ -3295,7 +3321,7 @@ server.post(PROXY + '/api/purchases/:username', authenticateToken, async (req, r
         await CreateNotification(
           'credits_purchased',
           'Credits Purchased',
-          `You have purchased ${amount} credits for $${dollars}.`,
+          `You have purchased ${promoPackagesMap.find(pkg => pkg.price === dollars)?.amount || amount} credits for $${dollars}.`,
           'purchase',
           username || 'anonymous'
         );
@@ -6448,7 +6474,7 @@ server.post(PROXY + '/api/refund-credits', authenticateToken, async (req, res) =
         Date.now(),
         new Date().toLocaleTimeString(),
         currentCredits || credits,
-        "refunded_credits",
+        "refunded-credits",
         credits || 15,
         "Credits refunded due to failed operation"
       ]
