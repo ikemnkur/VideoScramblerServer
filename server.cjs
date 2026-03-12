@@ -141,7 +141,7 @@ const corsOptions = {
       "https://scramblurr.com",
       // "https://scramblurr.com",
       'https://js.stripe.com',
-      "*", // Allow all origins (for development, remove in production)
+      // "*", // Allow all origins (for development, remove in production)
       // Add any other origins you want to allow
     ];
     if (!origin || allowedOrigins.indexOf(origin) !== -1) {
