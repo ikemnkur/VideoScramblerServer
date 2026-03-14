@@ -1,0 +1,103 @@
+# ============================================================
+# Audio Steganography Commands
+# ============================================================
+# Embeds/extracts hidden watermarks in audio files using LSB
+# Supports WAV, MP3, OGG, and other formats (auto-converts)
+# ============================================================
+
+# ============================================================
+# EMBED MODE - Hide watermark in audio
+# ============================================================
+
+# Basic embed - WAV file
+venv/bin/python3 audio_stegano.py \
+    --mode embed \
+    --original inputs/original-audio.wav \
+    --output outputs/watermarked-audio.wav \
+    --data "{"username":"john","userid":123,"timestamp":"2026-01-11T10:30:00Z"}"
+
+# Embed with JSON watermark (typical production use)
+venv/bin/python3 audio_stegano.py \
+    --mode embed \
+    --original inputs/song.wav \
+    --output outputs/song-watermarked.wav \
+    --data '{"username":"alice_smith","userid":456,"timestamp":"2026-01-11T15:45:30Z"}'
+
+# Embed in MP3 file (auto-converts to WAV)
+venv/bin/python3 audio_stegano.py \
+    --mode embed \
+    --original inputs/music.mp3 \
+    --output outputs/music-watermarked.wav \
+    --data '{"username":"bob","userid":789,"timestamp":"2026-01-11T12:00:00Z"}'
+
+# Embed in OGG file (auto-converts to WAV)
+venv/bin/python3 audio_stegano.py \
+    --mode embed \
+    --original inputs/podcast.ogg \
+    --output outputs/podcast-watermarked.wav \
+    --data '{"username":"carol","userid":321,"timestamp":"2026-01-11T08:20:15Z"}'
+
+# Embed simple text message
+venv/bin/python3 audio_stegano.py \
+    --mode embed \
+    --original inputs/voice-recording.wav \
+    --output outputs/voice-watermarked.wav \
+    --data "Secret message hidden in audio"
+
+# ============================================================
+# EXTRACT MODE - Detect leaked audio & extract watermark
+# ============================================================
+
+# Basic extract - both WAV files
+venv/bin/python3 audio_stegano.py \
+    --mode extract \
+    --original inputs/original-audio.wav \
+    --modified outputs/leaked-audio.wav
+
+# Extract from OGG original + WAV leaked (auto-converts OGG)
+venv/bin/python3 audio_stegano.py \
+    --mode extract \
+    --original inputs/Analog-Nostalgia.ogg \
+    --modified outputs/recovered-audio_Analog-Nostalgia-scrambled.wav
+
+# Extract from MP3 files (auto-converts both)
+venv/bin/python3 audio_stegano.py \
+    --mode extract \
+    --original inputs/original-song.mp3 \
+    --modified uploads/leaked-song.mp3
+
+# Extract with JSON output parsing
+venv/bin/python3 audio_stegano.py \
+    --mode extract \
+    --original test_audio/original.wav \
+    --modified test_audio/hidden.wav
+
+# ============================================================
+# PRODUCTION EXAMPLES (via Flask endpoints)
+# ============================================================
+
+# Embed via API endpoint
+curl -X POST http://localhost:5000/audio-stegano-embed \
+    -F "audio=@inputs/song.wav" \
+    -F "secret_message={\"username\":\"user123\",\"userid\":999,\"timestamp\":\"2026-01-11T10:00:00Z\"}"
+
+# Extract via API endpoint
+curl -X POST http://localhost:5000/audio-stegano-extract \
+    -F "original=@inputs/original.wav" \
+    -F "leaked=@uploads/leaked.wav"
+
+# ============================================================
+# PARAMETERS & CONFIGURATION
+# ============================================================
+# --mode: embed | extract
+# --original: Path to original audio file
+# --output: Path for watermarked output (embed mode)
+# --modified: Path to potentially leaked audio (extract mode)
+# --data: Secret message to embed (JSON or text)
+#
+# Auto-conversion: OGG, MP3 → WAV (44.1kHz, mono, 16-bit)
+# Redundancy: 5x copies per bit for error correction
+# Spacing: 10 samples between bits
+# Amplitude: ±35 for LSB modification
+# Interval: 1-3 seconds between repeated watermarks
+# ============================================================

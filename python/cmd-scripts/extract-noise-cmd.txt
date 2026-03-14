@@ -1,0 +1,163 @@
+# ============================================================
+# Extract Noise Commands
+# ============================================================
+# Extracts the difference (noise) between original and 
+# modified audio files to analyze embedded steganography
+# Creates audible noise files showing what was changed
+# ============================================================
+
+# ============================================================
+# BASIC USAGE - Extract noise from audio files
+# ============================================================
+
+# Basic extraction (creates noise.wav and noise_raw.wav)
+venv/bin/python3 extract_noise.py \
+    --original test_audio/original.wav \
+    --modified test_audio/hidden.wav \
+    --output outputs/noise.wav
+
+# Extract with custom output name
+venv/bin/python3 extract_noise.py \
+    --original inputs/clean-audio.wav \
+    --modified outputs/watermarked-audio.wav \
+    --output outputs/extracted-noise.wav
+
+# Analyze steganography embedding
+venv/bin/python3 extract_noise.py \
+    --original test_audio/song.wav \
+    --modified test_audio/song-watermarked.wav \
+    --output outputs/watermark-noise.wav
+
+# ============================================================
+# ANALYSIS EXAMPLES - Different audio types
+# ============================================================
+
+# Extract noise from voice recording
+venv/bin/python3 extract_noise.py \
+    --original test_audio/voice-original.wav \
+    --modified test_audio/voice-modified.wav \
+    --output outputs/voice-noise.wav
+
+# Extract noise from music file
+venv/bin/python3 extract_noise.py \
+    --original test_audio/music-clean.wav \
+    --modified test_audio/music-watermarked.wav \
+    --output outputs/music-noise.wav
+
+# Extract noise from podcast
+venv/bin/python3 extract_noise.py \
+    --original test_audio/podcast-original.wav \
+    --modified test_audio/podcast-hidden-data.wav \
+    --output outputs/podcast-noise.wav
+
+# ============================================================
+# DEBUGGING & FORENSICS - Analyze modifications
+# ============================================================
+
+# Check if audio has been modified
+venv/bin/python3 extract_noise.py \
+    --original inputs/reference.wav \
+    --modified uploads/suspicious-audio.wav \
+    --output outputs/forensic-analysis.wav
+
+# Compare before/after steganography
+venv/bin/python3 extract_noise.py \
+    --original test_audio/before-embed.wav \
+    --modified test_audio/after-embed.wav \
+    --output outputs/embedding-difference.wav
+
+# Verify watermark presence
+venv/bin/python3 extract_noise.py \
+    --original test_audio/unwatermarked.wav \
+    --modified test_audio/watermarked.wav \
+    --output outputs/watermark-verification.wav
+
+# ============================================================
+# OUTPUT FILES EXPLAINED
+# ============================================================
+# The script creates TWO files:
+#
+# 1. [output].wav (amplified noise - 100x louder)
+#    - Audible version of embedded data
+#    - Can be played to "hear" the watermark
+#    - Useful for quick verification
+#
+# 2. [output]_raw.wav (raw noise - original amplitude)
+#    - Actual amplitude of modifications
+#    - Shows true steganography strength
+#    - Use for technical analysis
+#
+# Example:
+#   --output noise.wav creates:
+#     - noise.wav (amplified 100x)
+#     - noise_raw.wav (original)
+# ============================================================
+
+# ============================================================
+# STATISTICS DISPLAYED
+# ============================================================
+# The script shows:
+# - Total samples vs modified samples
+# - Percentage of audio that was changed
+# - Max difference value (±amplitude)
+# - Mean difference across modified samples
+# - Distribution of difference values
+# - First 20 positions where audio was modified
+# - Sample rate and channel information
+# ============================================================
+
+# ============================================================
+# USE CASES
+# ============================================================
+
+# 1. Verify steganography embedding worked
+venv/bin/python3 extract_noise.py \
+    --original inputs/source.wav \
+    --modified outputs/embedded.wav \
+    --output outputs/verify-embed.wav
+
+# 2. Analyze watermark strength/quality
+venv/bin/python3 extract_noise.py \
+    --original test_audio/original.wav \
+    --modified test_audio/watermarked.wav \
+    --output outputs/quality-check.wav
+
+# 3. Detect unauthorized modifications
+venv/bin/python3 extract_noise.py \
+    --original archived/master.wav \
+    --modified uploads/submitted.wav \
+    --output outputs/tampering-check.wav
+
+# 4. Compare different embedding techniques
+venv/bin/python3 extract_noise.py \
+    --original test_audio/source.wav \
+    --modified test_audio/lsb-embedded.wav \
+    --output outputs/lsb-noise.wav
+
+venv/bin/python3 extract_noise.py \
+    --original test_audio/source.wav \
+    --modified test_audio/phase-embedded.wav \
+    --output outputs/phase-noise.wav
+
+# ============================================================
+# PARAMETERS
+# ============================================================
+# --original: Path to original/clean audio file (WAV)
+# --modified: Path to modified audio with embedded data (WAV)
+# --output:   Output path for noise file (default: noise.wav)
+#
+# Requirements: Both files must be WAV format
+# Output: Creates 2 files (amplified + raw versions)
+# Sample rate: Must match between original and modified
+# Channels: Must match between original and modified
+# ============================================================
+
+# ============================================================
+# TECHNICAL NOTES
+# ============================================================
+# Calculation: noise = modified - original
+# Amplification: 100x multiplier for audibility
+# Clipping: Results clamped to int16 range (-32768, 32767)
+# Statistics: Shows distribution and modification patterns
+# Use Case: Analyzing LSB steganography embeddings
+# ============================================================

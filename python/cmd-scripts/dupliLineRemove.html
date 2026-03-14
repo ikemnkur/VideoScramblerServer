@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Detect & Remove Duplicated Rows/Cols</title>
+  <style>
+    :root { --bg:#0b1220; --card:#111827; --muted:#9ca3af; --text:#e5e7eb; --border:#1f2937; }
+    body { margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,sans-serif;
+      background:linear-gradient(180deg,#0b1220,#0f172a); color:var(--text); }
+    .wrap { max-width:1200px; margin:0 auto; padding:18px; }
+    .grid { display:grid; grid-template-columns: 380px 1fr; gap:14px; align-items:start; }
+    .card { background:rgba(17,24,39,0.92); border:1px solid var(--border); border-radius:16px; padding:14px;
+      box-shadow:0 10px 30px rgba(0,0,0,0.25); }
+    label { display:block; font-size:12px; color:var(--muted); margin:10px 0 6px; }
+    input[type="file"], input[type="number"], input[type="range"], button, textarea { width:100%; box-sizing:border-box; }
+    input[type="number"], textarea { padding:10px; border-radius:12px; border:1px solid var(--border); background:#0b1220; color:var(--text); outline:none; }
+    textarea { min-height:80px; resize:vertical; }
+    button { margin-top:10px; padding:10px 12px; border-radius:12px; border:1px solid var(--border); background:#0b1220; color:var(--text); cursor:pointer; }
+    button:disabled { opacity:0.6; cursor:not-allowed; }
+    .row { display:flex; gap:10px; }
+    .row > button { flex:1; }
+    .small { font-size:12px; color:var(--muted); line-height:1.35; }
+    .pill { display:inline-block; padding:2px 8px; border:1px solid var(--border); border-radius:999px; font-size:12px; color:var(--muted); }
+    .canvases { display:grid; grid-template-columns: 1fr 1fr; gap:14px; }
+    canvas { width:100%; height:auto; background:#0b1220; border:1px solid var(--border); border-radius:14px; }
+    .status { font-size:12px; color:var(--muted); margin-top:10px; white-space:pre-wrap; }
+    .kv { display:grid; grid-template-columns: 1fr auto; gap:8px; align-items:center; }
+    .kv span { font-size:12px; color:var(--muted); }
+    .kv b { font-size:12px; color:var(--text); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h2 style="margin:0 0 12px;">Detect & Remove Duplicated Rows/Columns</h2>
+
+    <div class="grid">
+      <div class="card">
+        <label>Upload image</label>
+        <input id="file" type="file" accept="image/*" />
+
+        <div class="kv" style="margin-top:10px;">
+          <span>Match mode</span>
+          <b class="pill">adjacent line similarity</b>
+        </div>
+
+        <label>Per-channel tolerance (0 = exact match)</label>
+        <input id="tol" type="range" min="0" max="30" step="1" value="0" />
+        <div class="kv">
+          <span>tolerance</span><b id="tolVal">0</b>
+        </div>
+
+        <label>Max fraction of pixels allowed to differ (0 = none)</label>
+        <input id="diffFrac" type="range" min="0" max="0.05" step="0.001" value="0" />
+        <div class="kv">
+          <span>allowed mismatch fraction</span><b id="diffFracVal">0</b>
+        </div>
+
+        <label>Scan options</label>
+        <div class="row">
+          <button id="scan" disabled>Scan for duplicates</button>
+          <button id="remove" disabled>Remove detected lines</button>
+        </div>
+
+        <div class="row">
+          <button id="download" disabled>Download cleaned PNG</button>
+          <button id="reset" disabled>Reset</button>
+        </div>
+
+        <label>Detected duplicate rows (indices to remove)</label>
+        <textarea id="rowsOut" spellcheck="false" readonly></textarea>
+
+        <label>Detected duplicate cols (indices to remove)</label>
+        <textarea id="colsOut" spellcheck="false" readonly></textarea>
+
+        <div id="status" class="status"></div>
+
+        <p class="small" style="margin-top:10px;">
+          How detection works:
+          it checks each <b>pair of adjacent rows</b> (y and y+1). If they are identical (or near-identical),
+          the second one (y+1) is treated as an inserted duplicate row. Same idea for columns.
+          <br><br>
+          If your duplicated lines were inserted non-adjacently or got re-encoded/noisy, increase tolerance and mismatch fraction.
+        </p>
+      </div>
+
+      <div class="card">
+        <div class="canvases">
+          <div>
+            <div class="small" style="margin:0 0 6px;">Original / Input</div>
+            <canvas id="srcCanvas"></canvas>
+          </div>
+          <div>
+            <div class="small" style="margin:0 0 6px;">Cleaned / Output</div>
+            <canvas id="outCanvas"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+(() => {
+  const fileEl = document.getElementById('file');
+  const tolEl = document.getElementById('tol');
+  const tolValEl = document.getElementById('tolVal');
+  const diffFracEl = document.getElementById('diffFrac');
+  const diffFracValEl = document.getElementById('diffFracVal');
+
+  const scanBtn = document.getElementById('scan');
+  const removeBtn = document.getElementById('remove');
+  const downloadBtn = document.getElementById('download');
+  const resetBtn = document.getElementById('reset');
+
+  const rowsOutEl = document.getElementById('rowsOut');
+  const colsOutEl = document.getElementById('colsOut');
+  const statusEl = document.getElementById('status');
+
+  const srcCanvas = document.getElementById('srcCanvas');
+  const outCanvas = document.getElementById('outCanvas');
+  const sctx = srcCanvas.getContext('2d', { willReadFrequently: true });
+  const octx = outCanvas.getContext('2d', { willReadFrequently: true });
+
+  let loaded = false;
+  let srcImageData = null;      // ImageData of input
+  let detectedRows = [];
+  let detectedCols = [];
+  let lastOutDataURL = null;
+
+  function setStatus(msg) { statusEl.textContent = msg || ''; }
+  function setTextAreas() {
+    rowsOutEl.value = JSON.stringify(detectedRows);
+    colsOutEl.value = JSON.stringify(detectedCols);
+  }
+
+  tolEl.addEventListener('input', () => tolValEl.textContent = tolEl.value);
+  diffFracEl.addEventListener('input', () => diffFracValEl.textContent = diffFracEl.value);
+
+  function drawToSrcCanvas(img) {
+    srcCanvas.width = img.naturalWidth;
+    srcCanvas.height = img.naturalHeight;
+    outCanvas.width = img.naturalWidth;
+    outCanvas.height = img.naturalHeight;
+
+    sctx.clearRect(0,0,srcCanvas.width,srcCanvas.height);
+    octx.clearRect(0,0,outCanvas.width,outCanvas.height);
+
+    sctx.drawImage(img, 0, 0);
+    octx.drawImage(img, 0, 0);
+
+    srcImageData = sctx.getImageData(0,0,srcCanvas.width,srcCanvas.height);
+
+    loaded = true;
+    scanBtn.disabled = false;
+    resetBtn.disabled = false;
+    removeBtn.disabled = true;
+    downloadBtn.disabled = true;
+    lastOutDataURL = null;
+    detectedRows = [];
+    detectedCols = [];
+    setTextAreas();
+
+    setStatus(`Loaded ${img.naturalWidth} × ${img.naturalHeight}`);
+  }
+
+  fileEl.addEventListener('change', () => {
+    const f = fileEl.files && fileEl.files[0];
+    if (!f) return;
+
+    const url = URL.createObjectURL(f);
+    const img = new Image();
+    img.onload = () => { URL.revokeObjectURL(url); drawToSrcCanvas(img); };
+    img.onerror = () => { URL.revokeObjectURL(url); setStatus('Failed to load image.'); };
+    img.src = url;
+  });
+
+  // Compare two rows yA and yB (adjacent typically). Return true if "same enough".
+  function rowsSimilar(data, w, yA, yB, tol, allowedDiffFrac) {
+    const rowA = yA * w * 4;
+    const rowB = yB * w * 4;
+
+    const maxDiffPixels = Math.floor(w * allowedDiffFrac);
+    let diffPixels = 0;
+
+    for (let x = 0; x < w; x++) {
+      const iA = rowA + x * 4;
+      const iB = rowB + x * 4;
+
+      // If any channel differs beyond tol, count this pixel as different.
+      if (
+        Math.abs(data[iA]   - data[iB])   > tol ||
+        Math.abs(data[iA+1] - data[iB+1]) > tol ||
+        Math.abs(data[iA+2] - data[iB+2]) > tol ||
+        Math.abs(data[iA+3] - data[iB+3]) > tol
+      ) {
+        diffPixels++;
+        if (diffPixels > maxDiffPixels) return false;
+      }
+    }
+    return true;
+  }
+
+  // Compare two columns xA and xB. Return true if "same enough".
+  function colsSimilar(data, w, h, xA, xB, tol, allowedDiffFrac) {
+    const maxDiffPixels = Math.floor(h * allowedDiffFrac);
+    let diffPixels = 0;
+
+    for (let y = 0; y < h; y++) {
+      const iA = (y * w + xA) * 4;
+      const iB = (y * w + xB) * 4;
+
+      if (
+        Math.abs(data[iA]   - data[iB])   > tol ||
+        Math.abs(data[iA+1] - data[iB+1]) > tol ||
+        Math.abs(data[iA+2] - data[iB+2]) > tol ||
+        Math.abs(data[iA+3] - data[iB+3]) > tol
+      ) {
+        diffPixels++;
+        if (diffPixels > maxDiffPixels) return false;
+      }
+    }
+    return true;
+  }
+
+  function detectDuplicates() {
+    if (!loaded || !srcImageData) return;
+
+    const { data, width: w, height: h } = srcImageData;
+    const tol = Number(tolEl.value);
+    const allowedDiffFrac = Number(diffFracEl.value);
+
+    const dupRows = [];
+    for (let y = 0; y < h - 1; y++) {
+      // If row y and y+1 are the same, treat y+1 as the inserted duplicate row
+      if (rowsSimilar(data, w, y, y + 1, tol, allowedDiffFrac)) {
+        dupRows.push(y + 1);
+        y += 0; // keep scanning; if there are runs, next comparison will still work
+      }
+    }
+
+    const dupCols = [];
+    for (let x = 0; x < w - 1; x++) {
+      // If col x and x+1 are the same, treat x+1 as the inserted duplicate column
+      if (colsSimilar(data, w, h, x, x + 1, tol, allowedDiffFrac)) {
+        dupCols.push(x + 1);
+        x += 0;
+      }
+    }
+
+    detectedRows = Array.from(new Set(dupRows)).sort((a,b)=>a-b);
+    detectedCols = Array.from(new Set(dupCols)).sort((a,b)=>a-b);
+    setTextAreas();
+
+    removeBtn.disabled = (detectedRows.length === 0 && detectedCols.length === 0);
+
+    setStatus(
+      `Scan complete.\n` +
+      `Detected duplicate rows: ${detectedRows.length}\n` +
+      `Detected duplicate cols: ${detectedCols.length}\n` +
+      `Tolerance: ${tol}, Allowed mismatch fraction: ${allowedDiffFrac}`
+    );
+  }
+
+  function removeDetectedLines() {
+    if (!loaded || !srcImageData) return;
+
+    const { data, width: w, height: h } = srcImageData;
+
+    const removeRowSet = new Set(detectedRows);
+    const removeColSet = new Set(detectedCols);
+
+    const newH = h - removeRowSet.size;
+    const newW = w - removeColSet.size;
+
+    if (newH <= 0 || newW <= 0) {
+      setStatus('Removal would make image empty. Check detections / settings.');
+      return;
+    }
+
+    const out = new Uint8ClampedArray(newW * newH * 4);
+
+    let outY = 0;
+    for (let y = 0; y < h; y++) {
+      if (removeRowSet.has(y)) continue;
+
+      let outX = 0;
+      for (let x = 0; x < w; x++) {
+        if (removeColSet.has(x)) continue;
+
+        const s = (y * w + x) * 4;
+        const d = (outY * newW + outX) * 4;
+
+        out[d]   = data[s];
+        out[d+1] = data[s+1];
+        out[d+2] = data[s+2];
+        out[d+3] = data[s+3];
+
+        outX++;
+      }
+      outY++;
+    }
+
+    outCanvas.width = newW;
+    outCanvas.height = newH;
+
+    const outImgData = new ImageData(out, newW, newH);
+    octx.putImageData(outImgData, 0, 0);
+
+    lastOutDataURL = outCanvas.toDataURL('image/png');
+    downloadBtn.disabled = false;
+
+    setStatus(
+      `Removed ${removeRowSet.size} rows and ${removeColSet.size} cols.\n` +
+      `Old: ${w} × ${h}\nNew: ${newW} × ${newH}`
+    );
+  }
+
+  scanBtn.addEventListener('click', () => {
+    try { detectDuplicates(); }
+    catch (e) { setStatus('Scan error: ' + (e?.message || e)); }
+  });
+
+  removeBtn.addEventListener('click', () => {
+    try { removeDetectedLines(); }
+    catch (e) { setStatus('Remove error: ' + (e?.message || e)); }
+  });
+
+  downloadBtn.addEventListener('click', () => {
+    if (!lastOutDataURL) return;
+    const a = document.createElement('a');
+    a.href = lastOutDataURL;
+    a.download = 'cleaned.png';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  });
+
+  resetBtn.addEventListener('click', () => {
+    if (!loaded || !srcImageData) return;
+    outCanvas.width = srcCanvas.width;
+    outCanvas.height = srcCanvas.height;
+    octx.putImageData(srcImageData, 0, 0);
+    detectedRows = [];
+    detectedCols = [];
+    setTextAreas();
+    removeBtn.disabled = true;
+    downloadBtn.disabled = true;
+    lastOutDataURL = null;
+    setStatus(`Reset output to original.`);
+  });
+})();
+</script>
+</body>
+</html>

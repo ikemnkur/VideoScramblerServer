@@ -2,8 +2,7 @@
 .env
 
 # Logs
-logs
-*.log
+
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
@@ -37,9 +36,9 @@ service-account.json
 .env
 
 python/.venv
-python/env
-python/cmd-scripts
-python/*/
+# python/.env
+# python/cmd-scripts
+# python/*/
 
 python/venv
 
@@ -49,3 +48,9 @@ leak-uploads/*
 
 
 .env.example
+
+logs/*
+
+python/Trash/*
+
+python/__pycache__/*

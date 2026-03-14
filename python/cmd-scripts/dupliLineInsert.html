@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Insert Duplicate Rows/Cols</title>
+  <style>
+    :root { --bg:#0b1220; --card:#111827; --muted:#9ca3af; --text:#e5e7eb; --border:#1f2937; }
+    body { margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,sans-serif; background:linear-gradient(180deg,#0b1220,#0f172a); color:var(--text); }
+    .wrap { max-width:1100px; margin:0 auto; padding:20px; }
+    .grid { display:grid; grid-template-columns: 360px 1fr; gap:16px; align-items:start; }
+    .card { background:rgba(17,24,39,0.9); border:1px solid var(--border); border-radius:16px; padding:14px; box-shadow:0 10px 30px rgba(0,0,0,0.25); }
+    label { display:block; font-size:12px; color:var(--muted); margin:10px 0 6px; }
+    input[type="file"], textarea, button { width:100%; box-sizing:border-box; }
+    textarea { min-height:72px; resize:vertical; padding:10px; border-radius:12px; border:1px solid var(--border); background:#0b1220; color:var(--text); outline:none; }
+    button { margin-top:12px; padding:10px 12px; border-radius:12px; border:1px solid var(--border); background:#0b1220; color:var(--text); cursor:pointer; }
+    button:disabled { opacity:0.6; cursor:not-allowed; }
+    .row { display:flex; gap:10px; }
+    .row > button { flex:1; }
+    .small { font-size:12px; color:var(--muted); line-height:1.35; }
+    .canvases { display:grid; grid-template-columns: 1fr 1fr; gap:16px; }
+    canvas { width:100%; height:auto; background:#0b1220; border:1px solid var(--border); border-radius:14px; }
+    .status { font-size:12px; color:var(--muted); margin-top:10px; white-space:pre-wrap; }
+    code { background:#0b1220; border:1px solid var(--border); padding:2px 6px; border-radius:8px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h2 style="margin:0 0 12px;">Duplicate & Insert Rows / Columns</h2>
+    <div class="grid">
+      <div class="card">
+        <label>Image upload</label>
+        <input id="file" type="file" accept="image/*" />
+
+        <label>Rows array (duplicate row r, insert beneath it)</label>
+        <textarea id="rows" spellcheck="false">[2, 305, 50, 6]</textarea>
+
+        <label>Cols array (duplicate col c, insert to the right of it)</label>
+        <textarea id="cols" spellcheck="false">[23, 4, 128]</textarea>
+
+        <div class="row">
+          <button id="run" disabled>Process</button>
+          <button id="download" disabled>Download PNG</button>
+        </div>
+
+        <p class="small">
+          Output size will be:
+          <br>
+          <code>newWidth = oldWidth + cols.length</code>
+          <br>
+          <code>newHeight = oldHeight + rows.length</code>
+          <br><br>
+          Notes:
+          <br>• Indices are 0-based (top row is 0, left col is 0)
+          <br>• Indices outside bounds are ignored
+        </p>
+
+        <div id="status" class="status"></div>
+      </div>
+
+      <div class="card">
+        <div class="canvases">
+          <div>
+            <div class="small" style="margin:0 0 6px;">Original</div>
+            <canvas id="srcCanvas"></canvas>
+          </div>
+          <div>
+            <div class="small" style="margin:0 0 6px;">Output</div>
+            <canvas id="outCanvas"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+(() => {
+  const fileEl = document.getElementById('file');
+  const rowsEl = document.getElementById('rows');
+  const colsEl = document.getElementById('cols');
+  const runBtn = document.getElementById('run');
+  const dlBtn = document.getElementById('download');
+  const statusEl = document.getElementById('status');
+
+  const srcCanvas = document.getElementById('srcCanvas');
+  const outCanvas = document.getElementById('outCanvas');
+  const sctx = srcCanvas.getContext('2d', { willReadFrequently: true });
+  const octx = outCanvas.getContext('2d', { willReadFrequently: true });
+
+  let loaded = false;
+  let lastOutDataURL = null;
+
+  function setStatus(msg) { statusEl.textContent = msg || ''; }
+
+  function parseArray(text) {
+    // Accept JSON-ish arrays: [1,2,3] or "1,2,3"
+    const t = text.trim();
+    if (!t) return [];
+    let arr;
+    try {
+      arr = JSON.parse(t.startsWith('[') ? t : `[${t}]`);
+    } catch (e) {
+      throw new Error('Could not parse arrays. Use like: [2, 305, 50, 6]');
+    }
+    if (!Array.isArray(arr)) throw new Error('Input is not an array.');
+    // Keep only finite integers
+    return arr
+      .map(v => Number(v))
+      .filter(v => Number.isFinite(v))
+      .map(v => Math.trunc(v));
+  }
+
+  function uniqSortedValid(indices, maxInclusive) {
+    // Filter to [0, maxInclusive], remove duplicates, sort ascending
+    const set = new Set();
+    for (const v of indices) {
+      if (v >= 0 && v <= maxInclusive) set.add(v);
+    }
+    return Array.from(set).sort((a,b) => a-b);
+  }
+
+  function insertDuplicateRows(srcRGBA, w, h, rowsToInsertAsc) {
+    // Inserts 1 extra row after each specified row index.
+    const newH = h + rowsToInsertAsc.length;
+    const out = new Uint8ClampedArray(w * newH * 4);
+
+    let srcY = 0;
+    let outY = 0;
+    let rPtr = 0;
+
+    while (srcY < h) {
+      // copy current src row -> out
+      const srcOff = srcY * w * 4;
+      const outOff = outY * w * 4;
+      out.set(srcRGBA.subarray(srcOff, srcOff + w * 4), outOff);
+
+      // if this row should be duplicated, insert another identical row beneath it
+      if (rPtr < rowsToInsertAsc.length && rowsToInsertAsc[rPtr] === srcY) {
+        const outOff2 = (outY + 1) * w * 4;
+        out.set(srcRGBA.subarray(srcOff, srcOff + w * 4), outOff2);
+        outY += 2;
+        rPtr++;
+      } else {
+        outY += 1;
+      }
+
+      srcY += 1;
+    }
+
+    return { data: out, w, h: newH };
+  }
+
+  function insertDuplicateCols(srcRGBA, w, h, colsToInsertAsc) {
+    // Inserts 1 extra col after each specified col index.
+    const newW = w + colsToInsertAsc.length;
+    const out = new Uint8ClampedArray(newW * h * 4);
+
+    for (let y = 0; y < h; y++) {
+      let srcX = 0;
+      let outX = 0;
+      let cPtr = 0;
+
+      while (srcX < w) {
+        // copy pixel (srcX,y)
+        const s = (y * w + srcX) * 4;
+        const d = (y * newW + outX) * 4;
+        out[d]   = srcRGBA[s];
+        out[d+1] = srcRGBA[s+1];
+        out[d+2] = srcRGBA[s+2];
+        out[d+3] = srcRGBA[s+3];
+
+        // duplicate if needed: insert same pixel to the right
+        if (cPtr < colsToInsertAsc.length && colsToInsertAsc[cPtr] === srcX) {
+          const d2 = (y * newW + (outX + 1)) * 4;
+          out[d2]   = srcRGBA[s];
+          out[d2+1] = srcRGBA[s+1];
+          out[d2+2] = srcRGBA[s+2];
+          out[d2+3] = srcRGBA[s+3];
+          outX += 2;
+          cPtr++;
+        } else {
+          outX += 1;
+        }
+
+        srcX += 1;
+      }
+    }
+
+    return { data: out, w: newW, h };
+  }
+
+  function drawImageToCanvas(img) {
+    srcCanvas.width = img.naturalWidth;
+    srcCanvas.height = img.naturalHeight;
+    outCanvas.width = img.naturalWidth;
+    outCanvas.height = img.naturalHeight;
+
+    sctx.clearRect(0,0,srcCanvas.width,srcCanvas.height);
+    octx.clearRect(0,0,outCanvas.width,outCanvas.height);
+
+    sctx.drawImage(img, 0, 0);
+    octx.drawImage(img, 0, 0);
+
+    loaded = true;
+    runBtn.disabled = false;
+    setStatus(`Loaded ${img.naturalWidth} × ${img.naturalHeight}`);
+  }
+
+  fileEl.addEventListener('change', async () => {
+    const f = fileEl.files && fileEl.files[0];
+    if (!f) return;
+
+    const url = URL.createObjectURL(f);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      drawImageToCanvas(img);
+      dlBtn.disabled = true;
+      lastOutDataURL = null;
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      setStatus('Failed to load image.');
+    };
+    img.src = url;
+  });
+
+  runBtn.addEventListener('click', () => {
+    if (!loaded) return;
+
+    try {
+      const rowsRaw = parseArray(rowsEl.value);
+      const colsRaw = parseArray(colsEl.value);
+
+      const w = srcCanvas.width;
+      const h = srcCanvas.height;
+
+      // Use 0..h-1 for rows, 0..w-1 for cols
+      const rowsToInsert = uniqSortedValid(rowsRaw, h - 1);
+      const colsToInsert = uniqSortedValid(colsRaw, w - 1);
+
+      const srcImgData = sctx.getImageData(0, 0, w, h);
+      const srcRGBA = srcImgData.data; // Uint8ClampedArray
+
+      // Apply row inserts first (height changes), then column inserts (width changes)
+      const afterRows = insertDuplicateRows(srcRGBA, w, h, rowsToInsert);
+      const afterCols = insertDuplicateCols(afterRows.data, afterRows.w, afterRows.h, colsToInsert);
+
+      outCanvas.width = afterCols.w;
+      outCanvas.height = afterCols.h;
+
+      const outImgData = new ImageData(afterCols.data, afterCols.w, afterCols.h);
+      octx.putImageData(outImgData, 0, 0);
+
+      lastOutDataURL = outCanvas.toDataURL('image/png');
+      dlBtn.disabled = false;
+
+      setStatus(
+        `Inserted rows: ${rowsToInsert.length} (from input ${rowsRaw.length})\n` +
+        `Inserted cols: ${colsToInsert.length} (from input ${colsRaw.length})\n` +
+        `Old: ${w} × ${h}\nNew: ${afterCols.w} × ${afterCols.h}\n` +
+        `Expected: ${w + colsToInsert.length} × ${h + rowsToInsert.length}`
+      );
+    } catch (err) {
+      setStatus(String(err && err.message ? err.message : err));
+    }
+  });
+
+  dlBtn.addEventListener('click', () => {
+    if (!lastOutDataURL) return;
+    const a = document.createElement('a');
+    a.href = lastOutDataURL;
+    a.download = 'inserted_rows_cols.png';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  });
+})();
+</script>
+</body>
+</html>

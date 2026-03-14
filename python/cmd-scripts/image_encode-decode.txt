@@ -1,0 +1,3 @@
+python embed_code_image.py --input original.png --output emmbedCode.jpg -u HelloEarth
+
+python decode_code_image.py --input emmbedCode.jpg --tolerance 1 --diff-fraction 0.02
