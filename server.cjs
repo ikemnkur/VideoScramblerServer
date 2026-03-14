@@ -147,15 +147,21 @@ const corsOptions = {
     if (!origin || allowedOrigins.indexOf(origin) !== -1) {
       callback(null, true);
     } else {
+      console.log('❌ CORS blocked origin:', origin);
       callback(new Error('Not allowed by CORS'));
     }
   },
   credentials: true,
+  // Explicitly allow these HTTP methods
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   // Allow Authorization header and other custom headers
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
   // Expose headers that the client can access
   exposedHeaders: ['Authorization'],
-  optionsSuccessStatus: 200
+  // Some legacy browsers choke on 204
+  optionsSuccessStatus: 200,
+  // Enable preflight caching (in seconds) - reduce preflight requests
+  maxAge: 86400
 };
 
 server.use(cors(corsOptions));

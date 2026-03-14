@@ -28,24 +28,17 @@ dist-ssr
 # service-accounts
 service-accounts/*.json
 
-.env
-
 service-account.json
 
-.env
-.env
-
 python/.venv
-# python/.env
-# python/cmd-scripts
-# python/*/
 
 python/venv
 
 leak-uploads/*
 
-/leak_uploads
-
+/leak_uploads/audio/*
+/leak_uploads/images/*
+/leak_uploads/video/*
 
 .env.example
 
@@ -54,3 +47,5 @@ logs/*
 python/Trash/*
 
 python/__pycache__/*
+python/inputs/*
+python/outputs/*
