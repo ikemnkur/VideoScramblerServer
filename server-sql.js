@@ -7752,8 +7752,10 @@ async function stripeBuySubscription(data) {
       //   'SELECT * FROM buyCredits WHERE transactionHash = ?',
       //   [transactionId]
       // );
-      const existing = await knex('buyCredits')
-        .where('transactionId', transactionId);
+      const [existing] = await pool.execute(
+        'SELECT * FROM buyCredits WHERE transactionId = ?',
+        [transactionId]
+      );
       if (existing.length > 0) {
         console.log('⚠️  Duplicate transaction ID detected:', transactionId);
         return ({ error: 'Duplicate transaction ID' });
@@ -7797,24 +7799,26 @@ async function stripeBuySubscription(data) {
       const currentTime = Date.now();
       const periodEndTime = currentTime + 30 * 24 * 60 * 60 * 1000;
 
-      const [subscriptionInsertId] = await knex('subscriptions').insert({
-        username,
-        user_id: userId,
-        stripe_subscription_id,
-        stripe_customer_id,
-        plan_id: priceId,
-        plan_name: label,
-        status: 'active',
-        current_period_start: toMySQLDateTime(currentTime),
-        current_period_end: toMySQLDateTime(periodEndTime),
-        cancel_at_period_end: 0,
-        canceled_at: null,
-        trial_start: null,
-        trial_end: null,
-        created_at: toMySQLDateTime(currentTime),
-        updated_at: toMySQLDateTime(currentTime)
-      });
-      const subscription = { insertId: subscriptionInsertId };
+      const [subscription] = await pool.execute(
+        'INSERT into subscriptions (username, user_id, stripe_subscription_id, stripe_customer_id, plan_id, plan_name, status, current_period_start, current_period_end, cancel_at_period_end, canceled_at, trial_start, trial_end, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [
+          username,
+          userId,
+          stripe_subscription_id,  // Fixed: was using transactionId
+          stripe_customer_id,
+          priceId,
+          label,
+          'active',
+          toMySQLDateTime(currentTime),
+          toMySQLDateTime(periodEndTime),
+          0,
+          null,
+          null,
+          null,
+          toMySQLDateTime(currentTime),
+          toMySQLDateTime(currentTime)
+        ]
+      );
 
       function convertUTCtoMySQLDatetime(utcSeconds) {
         const date = new Date(utcSeconds * 1000);
@@ -7822,30 +7826,32 @@ async function stripeBuySubscription(data) {
       }
 
 
-      const [purchaseInsertId] = await knex('buyCredits').insert({
-        username,
-        id: Math.random().toString(36).substring(2, 10),
-        name,
-        email,
-        walletAddress: " Bonus credits",
-        transactionHash: transactionId,
-        blockExplorerLink: "www.stripe.com/subscriptions",
-        currency,
-        amount: Math.floor(credits) / 2,
-        cryptoAmount,
-        rate,
-        date: Date.now(),
-        time: new Date().toISOString(),
-        session_id,
-        orderLoggingEnabled,
-        userAgent,
-        ip,
-        credits: credits !== undefined && credits !== null ? Math.floor(credits) / 2 : 0,
-        created_at: convertUTCtoMySQLDatetime(stripe_subscription_id),
-        paymentMethod: "stripe_subscription",
-        package: dollars + "$ " + planType + '_subscription'
-      });
-      const purchases = { insertId: purchaseInsertId };
+      const [purchases] = await pool.execute(
+        'INSERT into buyCredits (username, id, name, email, walletAddress, transactionHash, blockExplorerLink, currency, amount, cryptoAmount, rate, date, time, session_id, orderLoggingEnabled, userAgent, ip, credits, created_at, paymentMethod, package) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [
+          username,
+          Math.random().toString(36).substring(2, 10),
+          name,
+          email,
+          " Bonus credits", //walletAddress,
+          transactionId,
+          "www.stripe.com/subscriptions",
+          currency,
+          Math.floor(credits) / 2, // log half the amount as credits, the other half will be bonus credits
+          cryptoAmount, // keep the same cryptoAmount for reference
+          rate,  // keep the same rate for reference 1 usd = 1000 credits
+          Date.now(),
+          new Date().toISOString(),
+          session_id,
+          orderLoggingEnabled,
+          userAgent,
+          ip,
+          credits !== undefined && credits !== null ? Math.floor(credits) / 2 : 0,
+          convertUTCtoMySQLDatetime(stripe_subscription_id),
+          "stripe_subscription",
+          dollars + "$ " + planType + '_subscription',
+        ]
+      );
 
       await CreateNotification(
         'credits_purchased',
@@ -7859,12 +7865,10 @@ async function stripeBuySubscription(data) {
 
       // Update user credits
       if (credits !== undefined && credits !== null && credits > 0) {
-        await knex('userData')
-          .where('username', username)
-          .update({
-            credits: knex.raw('credits + ?', [Math.floor(credits) / 2]),
-            accountType: planType
-          });
+        await pool.execute(
+          'UPDATE userData SET credits = credits + ?, accountType = ? WHERE username = ?',
+          [Math.floor(credits) / 2, planType, username]
+        );
       }
 
       return ({ success: true, purchases, subscription });
@@ -7900,7 +7904,7 @@ const PORT = process.env.PORT || 3001;
 server.listen(PORT, async () => {
   try {
     // Test database connection
-    await knex.raw('SELECT 1');
+    await pool.execute('SELECT 1');
     console.log('🚀 Express Server with MySQL is running on port', PORT);
     console.log('�️  Database: KeyChingDB (MySQL)');
     console.log('🌐 API Base URL: http://localhost:' + PORT + PROXY + '/api');
@@ -7932,13 +7936,13 @@ server.listen(PORT, async () => {
 // Graceful shutdown
 process.on('SIGTERM', async () => {
   console.log('🛑 Received SIGTERM, shutting down gracefully...');
-  await knex.destroy();
+  await pool.end();
   process.exit(0);
 });
 
 process.on('SIGINT', async () => {
   console.log('🛑 Received SIGINT, shutting down gracefully...');
-  await knex.destroy();
+  await pool.end();
   process.exit(0);
 });
 
