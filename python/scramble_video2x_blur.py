@@ -427,6 +427,218 @@ def hpf_params_to_json(seed: int, n: int, m: int, perm_dest_to_src_0: List[int],
 # Rect, cell_rects
 
 
+# ── Watermark marker helpers (mirrors watermark-encoder-v2.html) ─────────────
+
+def wm_to_binary(num: int, bits: int = 16) -> List[int]:
+    """Convert integer to MSB-first binary list (matches JS toBinaryArray)."""
+    return [(num >> i) & 1 for i in range(bits - 1, -1, -1)]
+
+
+def wm_get_positions(
+    frame_idx: int,
+    frames_per_pos: int,
+    count: int,
+    width: int,
+    height: int,
+    marker_w: int,
+    marker_h: int,
+    mode: str,
+    margin_min_pct: float,
+    margin_max_pct: float,
+) -> List[tuple]:
+    """
+    Compute up to `count` non-overlapping (x, y) marker positions for frame_idx.
+    Mirrors getMarkerPositions() in watermark-encoder-v2.html.
+    """
+    epoch = frame_idx // max(1, frames_per_pos)
+    seed  = (epoch * 99991 + count * 31337 + 7) & 0xFFFFFFFF
+    rng   = mulberry32(seed)
+
+    positions: List[tuple] = []
+    attempts   = 0
+    max_tries  = 200
+
+    while len(positions) < count and attempts < max_tries:
+        attempts += 1
+        x, y = 0.0, 0.0
+
+        if mode == "random":
+            margin = round(min(width, height) * 0.05)
+            x = margin + rng() * (width  - 2 * margin - marker_w)
+            y = margin + rng() * (height - 2 * margin - marker_h)
+
+        elif mode == "corners":
+            corner    = int(rng() * 4)
+            pad       = round(min(width, height) * 0.05)
+            jitter_x  = rng() * min(width  * 0.12, 40)
+            jitter_y  = rng() * min(height * 0.12, 40)
+            if   corner == 0: x, y = pad + jitter_x,                       pad + jitter_y
+            elif corner == 1: x, y = width  - pad - marker_w - jitter_x,   pad + jitter_y
+            elif corner == 2: x, y = pad + jitter_x,                       height - pad - marker_h - jitter_y
+            else:             x, y = width  - pad - marker_w - jitter_x,   height - pad - marker_h - jitter_y
+
+        elif mode == "edges":
+            edge = int(rng() * 4)
+            pad  = round(min(width, height) * 0.03)
+            if edge == 0:    # top
+                x = pad + rng() * (width - 2 * pad - marker_w)
+                y = pad + rng() * height * 0.12
+            elif edge == 1:  # bottom
+                x = pad + rng() * (width - 2 * pad - marker_w)
+                y = height - marker_h - pad - rng() * height * 0.12
+            elif edge == 2:  # left
+                x = pad + rng() * width * 0.12
+                y = pad + rng() * (height - 2 * pad - marker_h)
+            else:            # right
+                x = width - marker_w - pad - rng() * width * 0.12
+                y = pad + rng() * (height - 2 * pad - marker_h)
+
+        elif mode == "center":
+            zone_w = width  * 0.5
+            zone_h = height * 0.5
+            x = (width  - zone_w) / 2 + rng() * (zone_w - marker_w)
+            y = (height - zone_h) / 2 + rng() * (zone_h - marker_h)
+
+        else:  # custom
+            min_m = margin_min_pct / 100.0
+            max_m = margin_max_pct / 100.0
+            band  = int(rng() * 4)
+            if band == 0:
+                x = width  * min_m + rng() * (width  * (1 - 2 * min_m) - marker_w)
+                y = height * min_m + rng() * (height * (max_m - min_m))
+            elif band == 1:
+                x = width  * min_m + rng() * (width  * (1 - 2 * min_m) - marker_w)
+                y = height * (1 - max_m) + rng() * (height * (max_m - min_m) - marker_h)
+            elif band == 2:
+                x = width  * min_m + rng() * (width  * (max_m - min_m))
+                y = height * min_m + rng() * (height * (1 - 2 * min_m) - marker_h)
+            else:
+                x = width  * (1 - max_m) + rng() * (width  * (max_m - min_m) - marker_w)
+                y = height * min_m + rng() * (height * (1 - 2 * min_m) - marker_h)
+
+        ix = int(max(0, min(width  - marker_w,  x)))
+        iy = int(max(0, min(height - marker_h, y)))
+
+        # AABB overlap check (4-px padding)
+        overlap = any(
+            ix < px + marker_w + 4 and ix + marker_w + 4 > px and
+            iy < py + marker_h + 4 and iy + marker_h + 4 > py
+            for px, py in positions
+        )
+        if not overlap:
+            positions.append((ix, iy))
+
+    return positions
+
+
+_WM_FINDER = [
+    [1, 1, 1],
+    [1, 0, 1],
+    [1, 1, 1],
+]
+
+_WM_BIT_MAP: Optional[Dict[str, int]] = None
+
+
+def _wm_bit_map() -> Dict[str, int]:
+    global _WM_BIT_MAP
+    if _WM_BIT_MAP is None:
+        bmap: Dict[str, int] = {}
+        idx = 0
+        for row in range(5):
+            for col in range(5):
+                if not (1 <= row <= 3 and 1 <= col <= 3):
+                    bmap[f"{row}-{col}"] = idx
+                    idx += 1
+        _WM_BIT_MAP = bmap
+    return _WM_BIT_MAP
+
+
+def draw_wm_marker(
+    frame: np.ndarray,
+    x: int,
+    y: int,
+    binary_data: List[int],
+    alpha: float,
+    scale: float,
+) -> None:
+    """
+    Blend a 5×5 binary-grid watermark marker onto `frame` (in-place, BGR).
+    Mirrors drawMarker() in watermark-encoder-v2.html.
+    """
+    cell = max(1, int(8 * scale))
+    size = cell * 5
+    bit_map = _wm_bit_map()
+    frame_h, frame_w = frame.shape[:2]
+
+    # Build marker patch
+    marker = np.zeros((size, size, 3), dtype=np.uint8)
+    for row in range(5):
+        for col in range(5):
+            is_finder = 1 <= row <= 3 and 1 <= col <= 3
+            if is_finder:
+                val   = _WM_FINDER[row - 1][col - 1]
+                color = (0, 0, 0) if val else (255, 255, 255)
+            else:
+                bit_idx = bit_map[f"{row}-{col}"]
+                bit     = binary_data[bit_idx] if bit_idx < len(binary_data) else 0
+                color   = (255, 255, 255) if bit else (0, 0, 0)
+            r0, c0 = row * cell, col * cell
+            marker[r0:r0 + cell, c0:c0 + cell] = color
+
+    # Gray border
+    cv2.rectangle(marker, (0, 0), (size - 1, size - 1), (128, 128, 128), 1)
+
+    # Clip to frame bounds
+    x1 = min(x + size, frame_w)
+    y1 = min(y + size, frame_h)
+    mw, mh = x1 - x, y1 - y
+    if mw <= 0 or mh <= 0:
+        return
+
+    # Alpha-blend
+    roi     = frame[y:y1, x:x1].astype(np.float32)
+    patch   = marker[:mh, :mw].astype(np.float32)
+    blended = roi * (1.0 - alpha) + patch * alpha
+    frame[y:y1, x:x1] = blended.astype(np.uint8)
+
+
+def apply_watermark(
+    frame: np.ndarray,
+    frame_idx: int,
+    wm_id: int,
+    wm_alpha: float,
+    wm_scale: float,
+    wm_count: int,
+    wm_duration: int,
+    wm_placement: str,
+    wm_min_margin: float,
+    wm_max_margin: float,
+) -> np.ndarray:
+    """
+    Overlay watermark markers on a copy of `frame`.
+    All parameters mirror the controls in watermark-encoder-v2.html.
+    """
+    out    = frame.copy()
+    binary = wm_to_binary(wm_id, 16)
+    cell   = max(1, int(8 * wm_scale))
+    mw     = cell * 5
+    mh     = cell * 5
+    h, w   = out.shape[:2]
+
+    positions = wm_get_positions(
+        frame_idx, wm_duration, wm_count,
+        w, h, mw, mh,
+        wm_placement, wm_min_margin, wm_max_margin,
+    )
+    for (px, py) in positions:
+        draw_wm_marker(out, px, py, binary, wm_alpha, wm_scale)
+
+    return out
+
+# ── end watermark helpers ─────────────────────────────────────────────────────
+
+
 def scramble_frame(frame: np.ndarray,
                    n: int,
                    m: int,
@@ -487,17 +699,34 @@ def process_video(input_path: str,
                   algorithm: str = "spatial",
                   max_hue_shift: int = 128,
                   blur_ksize: int = 15,
-                  watermark_rows: int = 1) -> str:
+                  watermark_rows: int = 1,
+                  # ── watermark marker options ──
+                  wm_id: Optional[int] = None,
+                  wm_alpha: float = 0.15,
+                  wm_scale: float = 1.0,
+                  wm_count: int = 1,
+                  wm_duration: int = 30,
+                  wm_placement: str = "random",
+                  wm_min_margin: float = 5.0,
+                  wm_max_margin: float = 30.0) -> str:
     """
     Process a video: scramble or unscramble according to mode and algorithm.
-    
+
     Args:
         algorithm: "spatial" for position scrambling, "color" for hue shifting,
                    "hpf" for high-pass frequency decomposition scrambling
         max_hue_shift: Maximum hue shift amount (0-128) for color scrambling
         blur_ksize: Gaussian blur kernel size (odd integer) for HPF algorithm
         watermark_rows: Number of empty tile rows on top and bottom for watermarks (HPF only)
-    
+        wm_id: 16-bit tracking ID (0-65535) to embed as a visible marker; None = no marker
+        wm_alpha: Marker opacity (0.01 – 0.50)
+        wm_scale: Marker size multiplier (0.5 – 4.0)
+        wm_count: Number of simultaneous markers per frame (1 – 8)
+        wm_duration: Frames each marker position is held before moving (1 – 300)
+        wm_placement: Placement zone — "random", "corners", "edges", "center", "custom"
+        wm_min_margin: Min edge margin % for custom placement (0 – 45)
+        wm_max_margin: Max edge margin % for custom placement (5 – 50)
+
     Returns path to params JSON (for scramble mode).
     """
 
@@ -648,11 +877,23 @@ def process_video(input_path: str,
                                                  hpf_tile_h, hpf_tile_w,
                                                  hpf_orig_h, hpf_orig_w)
 
+        # Apply watermark marker overlay (if requested)
+        if wm_id is not None:
+            processed = apply_watermark(
+                processed, frame_idx,
+                wm_id, wm_alpha, wm_scale,
+                wm_count, wm_duration, wm_placement,
+                wm_min_margin, wm_max_margin,
+            )
+
         out.write(processed)
         frame_idx += 1
+        if frame_idx % 100 == 0:
+            print(f"  processed {frame_idx} frames…")
 
     cap.release()
     out.release()
+    print(f"✓ {frame_idx} frames processed → {output_path}")
 
     # Save params JSON (only for scramble mode)
     params_path = ""
@@ -971,6 +1212,26 @@ def main():
                         help="Number of empty tile rows on top and bottom for watermarks/attribution (HPF algorithm only, default: 1)")
     parser.add_argument("--percentage", type=int,
                         help="Percentage of tiles to scramble (0-100). Only for spatial algorithm.")
+
+    # ── watermark marker args ──────────────────────────────────────────────────
+    parser.add_argument("--wm-id", type=int, default=None,
+                        help="Watermark tracking ID to embed (0-65535, 16-bit). Omit to skip watermark.")
+    parser.add_argument("--wm-alpha", type=float, default=0.15,
+                        help="Watermark marker opacity (0.01-0.50, default: 0.15)")
+    parser.add_argument("--wm-scale", type=float, default=1.0,
+                        help="Watermark marker size scale multiplier (0.5-4.0, default: 1.0)")
+    parser.add_argument("--wm-numbers", type=int, default=1,
+                        help="Number of simultaneous watermark markers per frame (1-8, default: 1)")
+    parser.add_argument("--wm-duration", type=int, default=30,
+                        help="Frames each marker position is held before moving (1-300, default: 30)")
+    parser.add_argument("--wm-placement", type=str, default="random",
+                        choices=["random", "corners", "edges", "center", "custom"],
+                        help="Marker placement zone (default: random)")
+    parser.add_argument("--wm-min-margin", type=float, default=5.0,
+                        help="Min edge margin %% for custom placement (0-45, default: 5)")
+    parser.add_argument("--wm-max-margin", type=float, default=30.0,
+                        help="Max edge margin %% for custom placement (5-50, default: 30)")
+
     args = parser.parse_args()
 
     # Validate max-hue-shift range
@@ -1012,6 +1273,14 @@ def main():
                 max_hue_shift=args.max_hue_shift,
                 blur_ksize=args.blur_ksize,
                 watermark_rows=args.watermark_rows,
+                wm_id=args.wm_id,
+                wm_alpha=args.wm_alpha,
+                wm_scale=args.wm_scale,
+                wm_count=args.wm_numbers,
+                wm_duration=args.wm_duration,
+                wm_placement=args.wm_placement,
+                wm_min_margin=args.wm_min_margin,
+                wm_max_margin=args.wm_max_margin,
             )
         print(f"Done. Output video: {args.output}")
         if args.mode == "scramble" and params_path:

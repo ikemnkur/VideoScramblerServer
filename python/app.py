@@ -6,6 +6,8 @@ import subprocess
 from time import time
 from flask import Flask, send_from_directory, current_app, request, jsonify, redirect, url_for
 from flask_cors import CORS
+# from scramble_photo2x_blur
+# from scramble_video2x_blur
 from werkzeug.utils import secure_filename
 from config import UPLOAD_FOLDER, OUTPUTS_FOLDER
 import secrets
@@ -530,6 +532,8 @@ def audio_stegano_extract():
         }), 500
 
 
+# STANDARD SERVICE ENDPOINT FOR VIDEO SCRAMBLING (similar to photo scrambling but with video-specific parameters and scripts)
+
 
 @app.route('/scramble-photo', methods=['POST'])
 def scramble_photo():
@@ -607,13 +611,9 @@ def scramble_photo():
         cmd = []
         
         print(f"\n🔧 FLASK: Building command for algorithm: {algorithm}")
-        
-        if algorithm == 'position':
-            # Position scrambling (default tile shuffling)
-            rows = data.get('rows', 6)
-            cols = data.get('cols', 6)
-            print(f"  - Position algorithm: rows={rows}, cols={cols}")
-            cmd = [
+        rows = data.get('rows', 6)
+        cols = data.get('cols', 6)
+        cmd = [
                 PYTHON_CMD, 'scramble_photo.py',
                 '--input', input_path,
                 '--output', output_path,
@@ -628,89 +628,109 @@ def scramble_photo():
                 
             ]
         
-        elif algorithm == 'color':
-            # Color scrambling (hue shifting)
-            max_hue_shift = data.get('max_hue_shift', 64)
-            print(f"  - Color algorithm: max_hue_shift={max_hue_shift}")
-            cmd = [
-                PYTHON_CMD, 'scramble_photo.py',
-                '--input', input_path,
-                '--output', output_path,
-                '--algorithm', 'color',
-                '--max-hue-shift', str(max_hue_shift),
-                '--seed', str(seed),
-                '--mode', mode,
-                '--percentage', str(percentage),
-                '--noise_seed', str(noise_seed),
-                '--noise_intensity', str(noise_intensity),
-                '--noise_mode', str(noise_mode),
+        # if algorithm == 'position':
+        #     # Position scrambling (default tile shuffling)
+        #     rows = data.get('rows', 6)
+        #     cols = data.get('cols', 6)
+        #     print(f"  - Position algorithm: rows={rows}, cols={cols}")
+        #     cmd = [
+        #         PYTHON_CMD, 'scramble_photo.py',
+        #         '--input', input_path,
+        #         '--output', output_path,
+        #         '--seed', str(seed),
+        #         '--rows', str(rows),
+        #         '--cols', str(cols),
+        #         '--mode', mode,
+        #         '--percentage', str(percentage),
+        #         '--noise_seed', str(noise_seed),
+        #         '--noise_intensity', str(noise_intensity),
+        #         '--noise_mode', str(noise_mode),
                 
-            ]
+        #     ]
         
-        elif algorithm == 'rotation':
-            # Rotation scrambling
-            rows = data.get('rows', 6)
-            cols = data.get('cols', 6)
-            print(f"  - Rotation algorithm: rows={rows}, cols={cols}")
-            cmd = [
-                PYTHON_CMD, 'scramble_photo_rotate.py',
-                '--input', input_path,
-                '--output', output_path,
-                '--seed', str(seed),
-                '--rows', str(rows),
-                '--cols', str(cols),
-                '--mode', mode,
-                '--algorithm', 'rotation',
-                '--percentage', str(percentage),
-                '--noise_seed', str(noise_seed),
-                '--noise_intensity', str(noise_intensity),
-                '--noise_mode', str(noise_mode),
+        # elif algorithm == 'color':
+        #     # Color scrambling (hue shifting)
+        #     max_hue_shift = data.get('max_hue_shift', 64)
+        #     print(f"  - Color algorithm: max_hue_shift={max_hue_shift}")
+        #     cmd = [
+        #         PYTHON_CMD, 'scramble_photo.py',
+        #         '--input', input_path,
+        #         '--output', output_path,
+        #         '--algorithm', 'color',
+        #         '--max-hue-shift', str(max_hue_shift),
+        #         '--seed', str(seed),
+        #         '--mode', mode,
+        #         '--percentage', str(percentage),
+        #         '--noise_seed', str(noise_seed),
+        #         '--noise_intensity', str(noise_intensity),
+        #         '--noise_mode', str(noise_mode),
                 
-            ]
+        #     ]
         
-        elif algorithm == 'mirror':
-            # Mirror scrambling
-            rows = data.get('rows', 6)
-            cols = data.get('cols', 6)
-            print(f"  - Mirror algorithm: rows={rows}, cols={cols}")
-            cmd = [
-                PYTHON_CMD, 'scramble_photo_mirror.py',
-                '--input', input_path,
-                '--output', output_path,
-                '--seed', str(seed),
-                '--rows', str(rows),
-                '--cols', str(cols),
-                '--mode', mode,
-                '--algorithm', 'mirror',
-                '--percentage', str(percentage),
-                '--noise_seed', str(noise_seed),
-                '--noise_intensity', str(noise_intensity),
-                '--noise_mode', str(noise_mode),
+        # elif algorithm == 'rotation':
+        #     # Rotation scrambling
+        #     rows = data.get('rows', 6)
+        #     cols = data.get('cols', 6)
+        #     print(f"  - Rotation algorithm: rows={rows}, cols={cols}")
+        #     cmd = [
+        #         PYTHON_CMD, 'scramble_photo_rotate.py',
+        #         '--input', input_path,
+        #         '--output', output_path,
+        #         '--seed', str(seed),
+        #         '--rows', str(rows),
+        #         '--cols', str(cols),
+        #         '--mode', mode,
+        #         '--algorithm', 'rotation',
+        #         '--percentage', str(percentage),
+        #         '--noise_seed', str(noise_seed),
+        #         '--noise_intensity', str(noise_intensity),
+        #         '--noise_mode', str(noise_mode),
                 
-            ]
+        #     ]
         
-        elif algorithm == 'intensity':
-            # Intensity scrambling
-            max_intensity_shift = data.get('max_intensity_shift', 128)
-            print(f"  - Intensity algorithm: max_intensity_shift={max_intensity_shift}")
-            cmd = [
-                PYTHON_CMD, 'scramble_photo_intensity.py',
-                '--input', input_path,
-                '--output', output_path,
-                '--algorithm', 'intensity',
-                '--max-intensity-shift', str(max_intensity_shift),
-                '--seed', str(seed),
-                '--mode', mode,
-                '--percentage', str(percentage),
-                '--noise_seed', str(noise_seed),
-                '--noise_intensity', str(noise_intensity),
-                '--noise_mode', str(noise_mode),
+        # elif algorithm == 'mirror':
+        #     # Mirror scrambling
+        #     rows = data.get('rows', 6)
+        #     cols = data.get('cols', 6)
+        #     print(f"  - Mirror algorithm: rows={rows}, cols={cols}")
+        #     cmd = [
+        #         PYTHON_CMD, 'scramble_photo_mirror.py',
+        #         '--input', input_path,
+        #         '--output', output_path,
+        #         '--seed', str(seed),
+        #         '--rows', str(rows),
+        #         '--cols', str(cols),
+        #         '--mode', mode,
+        #         '--algorithm', 'mirror',
+        #         '--percentage', str(percentage),
+        #         '--noise_seed', str(noise_seed),
+        #         '--noise_intensity', str(noise_intensity),
+        #         '--noise_mode', str(noise_mode),
                 
-            ]
+        #     ]
         
-        else:
-            print(f"❌ FLASK ERROR: Unknown algorithm: {algorithm}")
-            return jsonify({'error': f'Unknown algorithm: {algorithm}'}), 400
+        # elif algorithm == 'intensity':
+        #     # Intensity scrambling
+        #     max_intensity_shift = data.get('max_intensity_shift', 128)
+        #     print(f"  - Intensity algorithm: max_intensity_shift={max_intensity_shift}")
+        #     cmd = [
+        #         PYTHON_CMD, 'scramble_photo_intensity.py',
+        #         '--input', input_path,
+        #         '--output', output_path,
+        #         '--algorithm', 'intensity',
+        #         '--max-intensity-shift', str(max_intensity_shift),
+        #         '--seed', str(seed),
+        #         '--mode', mode,
+        #         '--percentage', str(percentage),
+        #         '--noise_seed', str(noise_seed),
+        #         '--noise_intensity', str(noise_intensity),
+        #         '--noise_mode', str(noise_mode),
+                
+        #     ]
+        
+        # else:
+        #     print(f"❌ FLASK ERROR: Unknown algorithm: {algorithm}")
+        #     return jsonify({'error': f'Unknown algorithm: {algorithm}'}), 400
 
         print(f"\n🚀 FLASK: Executing command:")
         print(f"  Command: {' '.join(cmd)}")
@@ -842,9 +862,6 @@ def unscramble_photo():
         print("="*60 + "\n")
         return jsonify({'error': str(e)}), 500
     
-
-
-
 @app.route('/scramble-video', methods=['POST'])
 def scramble_video():
     """
@@ -917,104 +934,129 @@ def scramble_video():
         cmd = []
         
         print(f"\n🔧 FLASK: Building command for algorithm: {algorithm}")
-        
-        if algorithm == 'position':
-            # Position scrambling (default tile shuffling)
-            rows = data.get('rows', 6)
-            cols = data.get('cols', 6)
-            print(f"  - Position algorithm: rows={rows}, cols={cols}")
-            if percentage < 100:
-                print("⚠️  FLASK WARNING: Partial percentage scrambling for videos may lead to unexpected results.")
-                cmd = [
-                    PYTHON_CMD, 'scramble_video.py',
-                    '--input', input_path,
-                    '--output', output_path,
-                    '--seed', str(seed),
-                    '--rows', str(rows),
-                    '--cols', str(cols),
-                    '--mode', mode,
-                    '--percentage', str(percentage)
-                ]
-            else:
-                print("✅ FLASK: Full percentage scrambling for videos.")
-                cmd = [
-                    PYTHON_CMD, 'scramble_video.py',
-                    '--input', input_path,
-                    '--output', output_path,
-                    '--seed', str(seed),
-                    '--rows', str(rows),
-                    '--cols', str(cols),
-                    '--mode', mode,
-                    
-                ]
-        
-        elif algorithm == 'color':
-            # Color scrambling (hue shifting)
-            max_hue_shift = data.get('max_hue_shift', 64)
-            print(f"  - Color algorithm: max_hue_shift={max_hue_shift}")
+        rows = data.get('rows', 6)
+        cols = data.get('cols', 6)
+        if percentage < 100:
+            print("⚠️  FLASK WARNING: Partial percentage scrambling for videos may lead to unexpected results.")
             cmd = [
                 PYTHON_CMD, 'scramble_video.py',
                 '--input', input_path,
                 '--output', output_path,
-                '--algorithm', 'color',
-                '--max-hue-shift', str(max_hue_shift),
-                '--seed', str(seed),
-                '--mode', mode,
-                '--percentage', str(percentage)
-            ]
-        
-        elif algorithm == 'rotation':
-            # Rotation scrambling
-            rows = data.get('rows', 6)
-            cols = data.get('cols', 6)
-            print(f"  - Rotation algorithm: rows={rows}, cols={cols}")
-            cmd = [
-                PYTHON_CMD, 'scramble_video_rotate.py',
-                '--input', input_path,
-                '--output', output_path,
                 '--seed', str(seed),
                 '--rows', str(rows),
                 '--cols', str(cols),
                 '--mode', mode,
-                '--algorithm', 'rotation',
                 '--percentage', str(percentage)
             ]
-        
-        elif algorithm == 'mirror':
-            # Mirror scrambling
-            rows = data.get('rows', 6)
-            cols = data.get('cols', 6)
-            print(f"  - Mirror algorithm: rows={rows}, cols={cols}")
-            cmd = [
-                PYTHON_CMD, 'scramble_video_mirror.py',
-                '--input', input_path,
-                '--output', output_path,
-                '--seed', str(seed),
-                '--rows', str(rows),
-                '--cols', str(cols),
-                '--mode', mode,
-                '--algorithm', 'mirror',
-                '--percentage', str(percentage)
-            ]
-        
-        elif algorithm == 'intensity':
-            # Intensity scrambling
-            max_intensity_shift = data.get('max_intensity_shift', 128)
-            print(f"  - Intensity algorithm: max_intensity_shift={max_intensity_shift}")
-            cmd = [
-                PYTHON_CMD, 'scramble_video_intensity.py',
-                '--input', input_path,
-                '--output', output_path,
-                '--algorithm', 'intensity',
-                '--max-intensity-shift', str(max_intensity_shift),
-                '--seed', str(seed),
-                '--mode', mode,
-                '--percentage', str(percentage)
-            ]
-        
         else:
-            print(f"❌ FLASK ERROR: Unknown algorithm: {algorithm}")
-            return jsonify({'error': f'Unknown algorithm: {algorithm}'}), 400
+            print("✅ FLASK: Full percentage scrambling for videos.")
+            cmd = [
+                PYTHON_CMD, 'scramble_video.py',
+                '--input', input_path,
+                '--output', output_path,
+                '--seed', str(seed),
+                '--rows', str(rows),
+                '--cols', str(cols),
+                '--mode', mode,
+                
+            ]
+        # if algorithm == 'position':
+        #     # Position scrambling (default tile shuffling)
+        #     rows = data.get('rows', 6)
+        #     cols = data.get('cols', 6)
+        #     print(f"  - Position algorithm: rows={rows}, cols={cols}")
+        #     if percentage < 100:
+        #         print("⚠️  FLASK WARNING: Partial percentage scrambling for videos may lead to unexpected results.")
+        #         cmd = [
+        #             PYTHON_CMD, 'scramble_video.py',
+        #             '--input', input_path,
+        #             '--output', output_path,
+        #             '--seed', str(seed),
+        #             '--rows', str(rows),
+        #             '--cols', str(cols),
+        #             '--mode', mode,
+        #             '--percentage', str(percentage)
+        #         ]
+        #     else:
+        #         print("✅ FLASK: Full percentage scrambling for videos.")
+        #         cmd = [
+        #             PYTHON_CMD, 'scramble_video.py',
+        #             '--input', input_path,
+        #             '--output', output_path,
+        #             '--seed', str(seed),
+        #             '--rows', str(rows),
+        #             '--cols', str(cols),
+        #             '--mode', mode,
+                    
+        #         ]
+        
+        # elif algorithm == 'color':
+        #     # Color scrambling (hue shifting)
+        #     max_hue_shift = data.get('max_hue_shift', 64)
+        #     print(f"  - Color algorithm: max_hue_shift={max_hue_shift}")
+        #     cmd = [
+        #         PYTHON_CMD, 'scramble_video.py',
+        #         '--input', input_path,
+        #         '--output', output_path,
+        #         '--algorithm', 'color',
+        #         '--max-hue-shift', str(max_hue_shift),
+        #         '--seed', str(seed),
+        #         '--mode', mode,
+        #         '--percentage', str(percentage)
+        #     ]
+        
+        # elif algorithm == 'rotation':
+        #     # Rotation scrambling
+        #     rows = data.get('rows', 6)
+        #     cols = data.get('cols', 6)
+        #     print(f"  - Rotation algorithm: rows={rows}, cols={cols}")
+        #     cmd = [
+        #         PYTHON_CMD, 'scramble_video_rotate.py',
+        #         '--input', input_path,
+        #         '--output', output_path,
+        #         '--seed', str(seed),
+        #         '--rows', str(rows),
+        #         '--cols', str(cols),
+        #         '--mode', mode,
+        #         '--algorithm', 'rotation',
+        #         '--percentage', str(percentage)
+        #     ]
+        
+        # elif algorithm == 'mirror':
+        #     # Mirror scrambling
+        #     rows = data.get('rows', 6)
+        #     cols = data.get('cols', 6)
+        #     print(f"  - Mirror algorithm: rows={rows}, cols={cols}")
+        #     cmd = [
+        #         PYTHON_CMD, 'scramble_video_mirror.py',
+        #         '--input', input_path,
+        #         '--output', output_path,
+        #         '--seed', str(seed),
+        #         '--rows', str(rows),
+        #         '--cols', str(cols),
+        #         '--mode', mode,
+        #         '--algorithm', 'mirror',
+        #         '--percentage', str(percentage)
+        #     ]
+        
+        # elif algorithm == 'intensity':
+        #     # Intensity scrambling
+        #     max_intensity_shift = data.get('max_intensity_shift', 128)
+        #     print(f"  - Intensity algorithm: max_intensity_shift={max_intensity_shift}")
+        #     cmd = [
+        #         PYTHON_CMD, 'scramble_video_intensity.py',
+        #         '--input', input_path,
+        #         '--output', output_path,
+        #         '--algorithm', 'intensity',
+        #         '--max-intensity-shift', str(max_intensity_shift),
+        #         '--seed', str(seed),
+        #         '--mode', mode,
+        #         '--percentage', str(percentage)
+        #     ]
+        
+        # else:
+        #     print(f"❌ FLASK ERROR: Unknown algorithm: {algorithm}")
+        #     return jsonify({'error': f'Unknown algorithm: {algorithm}'}), 400
 
         print(f"\n🚀 FLASK: Executing command:")
         print(f"  Command: {' '.join(cmd)}")
@@ -1106,11 +1148,6 @@ def scramble_video():
         print(f"  Traceback: {traceback.format_exc()}")
         print("="*60 + "\n")
         return jsonify({'error': str(e), 'type': type(e).__name__}), 500
-    
-
-
-
-
 
 @app.route('/unscramble-video', methods=['POST'])
 def unscramble_video():
@@ -1184,6 +1221,534 @@ def unscramble_video():
         print("="*60 + "\n")
         return jsonify({'error': str(e)}), 500
 
+
+# PREMIUM SERVICE ENDPOINT FOR VIDEO SCRAMBLING
+
+
+@app.route('/scramble-photo-pro', methods=['POST'])
+def scramble_photo_pro():
+    """
+    Scramble a photo using various algorithms
+    Expects JSON with: input, output, seed, mode, algorithm, and algorithm-specific params
+    """
+    print("\n" + "="*60)
+    print("📸 FLASK: Scramble photo request received")
+    print("="*60)
+
+    try:
+        data = request.json
+        if not data:
+            print("❌ FLASK ERROR: No JSON data provided")
+            return jsonify({'error': 'No JSON data provided'}), 400
+        
+        print(f"📋 FLASK: Received payload: {json.dumps(data, indent=2)}")
+        
+        # Extract common parameters
+        input_file = data.get('input')
+        output_file = data.get('output')
+        rows = data.get('rows', 6)
+        cols = data.get('cols', 6)
+        seed = data.get('seed', 123456)
+        mode = data.get('mode', 'scramble')
+        # algorithm = data.get('algorithm', 'position')
+        percentage = data.get('percentage', 100)
+        noise_seed = data.get('noise_seed')
+        noise_intensity = data.get('noise_intensity')
+        # noise_mode = data.get('noise_mode')
+        noise_prng = data.get('noise_prng')
+        creator = data.get('creator')
+        user_id = data.get('user_id')
+        user_name = data.get('username')
+        metadata = data.get('metadata')
+        
+        print(f"\n📝 FLASK: Extracted parameters:")
+        print(f"  - Input file: {input_file}")
+        print(f"  - Output file: {output_file}")
+        print(f"  - Seed: {seed}")
+        print(f"  - Mode: {mode}")
+        print(f"  - Rows: {rows}")
+        print(f"  - Cols: {cols}")
+        # print(f"  - Algorithm: {algorithm}")
+        print(f"  - Blur Percentage: {percentage}")
+        print(f"  - Creator: {creator}")
+        print(f"  - User ID: {user_id}")
+        print(f"  - Username: {user_name}")
+        print(f"  - Metadata: {metadata}")
+
+
+        if not input_file or not output_file:
+            print("❌ FLASK ERROR: Missing input or output filename")
+            return jsonify({'error': 'input and output filenames required'}), 400
+
+        # Build file paths
+        input_path = os.path.join(app.config['UPLOAD_FOLDER'], input_file)
+        output_path = os.path.join(app.config['OUTPUTS_FOLDER'], output_file)
+
+        print(f"\n📁 FLASK: File paths:")
+        print(f"  - Input path: {input_path}")
+        print(f"  - Output path: {output_path}")
+        print(f"  - Upload folder: {app.config['UPLOAD_FOLDER']}")
+        print(f"  - Outputs folder: {app.config['OUTPUTS_FOLDER']}")
+
+        if not os.path.exists(input_path):
+            print(f"❌ FLASK ERROR: Input file not found at: {input_path}")
+            # List files in directory to help debug
+            try:
+                files_in_dir = os.listdir(app.config['UPLOAD_FOLDER'])
+                print(f"📂 Files in upload folder: {files_in_dir}")
+            except Exception as e:
+                print(f"⚠️  Could not list directory: {e}")
+        
+        print(f"✅ FLASK: Input file exists")
+
+        # Build command based on algorithm
+        cmd = []
+        
+        print(f"\n🔧 FLASK: Building command for algorithm: HPF")
+        
+        # if algorithm == 'position':
+        # Position scrambling (default tile shuffling)
+        rows = data.get('rows', 6)
+        cols = data.get('cols', 6)
+        print(f"  - Position algorithm: rows={rows}, cols={cols}")
+        cmd = [
+            PYTHON_CMD, 'scramble_photo2x_blur.py',
+            '--input', input_path,
+            '--output', output_path,
+            '--seed', str(seed),
+            '--rows', str(rows),
+            '--cols', str(cols),
+            '--mode', mode,
+            '--blur-ksize', str(percentage),
+            '--noise_seed', str(noise_seed),
+            '--noise_intensity', str(noise_intensity),
+            # '--noise_mode', str(noise_mode),
+            # '--algorithm', 'hpf',
+            '--watermark-rows', '2'
+            
+        ]
+       
+
+        print(f"\n🚀 FLASK: Executing command:")
+        print(f"  Command: {' '.join(cmd)}")
+        
+        # Execute the scrambling command
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        
+        print(f"\n📤 FLASK: Command execution completed")
+        print(f"  - Return code: {result.returncode}")
+        if result.stdout:
+            print(f"  - STDOUT: {result.stdout}")
+        if result.stderr:
+            print(f"  - STDERR: {result.stderr}")
+        
+        if result.returncode != 0:
+            print(f"❌ FLASK ERROR: Scrambling command failed")
+            return jsonify({
+                'error': 'Scrambling failed',
+                'details': result.stderr,
+                'stdout': result.stdout,
+                'returncode': result.returncode
+            }), 500
+
+        # Check if output file was created
+        if not os.path.exists(output_path):
+            print(f"❌ FLASK ERROR: Output file was not created at: {output_path}")
+            return jsonify({'error': 'Output file was not created'}), 500
+        
+        print(f"✅ FLASK: Output file created successfully at: {output_path}")
+
+        response_data = {
+            'message': 'Photo scrambled successfully',
+            'output_file': output_file,
+            # 'algorithm': algorithm,
+            'seed': seed,
+            'download_url': f'/download/{output_file}'
+        }
+
+        
+
+        
+        print(f"\n✅ FLASK: Sending success response:")
+        print(f"  {json.dumps(response_data, indent=2)}")
+        print("="*60 + "\n")
+        
+        return jsonify(response_data), 200
+
+    except subprocess.TimeoutExpired:
+        print(f"❌ FLASK ERROR: Scrambling operation timed out")
+        print("="*60 + "\n")
+        return jsonify({'error': 'Scrambling operation timed out'}), 500
+    except Exception as e:
+        print(f"❌ FLASK ERROR: Unexpected exception: {str(e)}")
+        import traceback
+        print(f"  Traceback: {traceback.format_exc()}")
+        print("="*60 + "\n")
+        return jsonify({'error': str(e), 'type': type(e).__name__}), 500
+
+@app.route('/unscramble-photo-pro', methods=['POST'])
+def unscramble_photo_pro():
+    """
+    Unscramble a photo using the same algorithms
+    Expects JSON with: input, output, seed, algorithm, and algorithm-specific params
+    OR { localFileName, localFilePath, params } format from Node.js backend
+    """
+    print("\n" + "="*60)
+    print("🔓 FLASK: Unscramble photo request received")
+    print("="*60)
+    
+    try:
+        data = request.json
+        if not data:
+            print("❌ FLASK ERROR: No JSON data provided")
+            return jsonify({'error': 'No JSON data provided'}), 400
+
+        print(f"📋 FLASK: Received payload: {json.dumps(data, indent=2)}")
+
+        # Normalize payload if it comes from Node.js backend
+        # Format: { localFileName, localFilePath, params, mode }
+        if 'localFileName' in data or 'localFilePath' in data:
+            print("🔄 FLASK: Normalizing Node.js backend payload format")
+            params = data.get('params', {}) or {}
+            # Use localFileName first (actual saved filename with timestamp), not params.input
+            input_name = data.get('localFileName') or os.path.basename(data.get('localFilePath', ''))
+            output_name = params.get('output') or f"unscrambled_{input_name}"
+
+            creator = data.get('creator')
+            user_id = data.get('user_id')
+            user_name = data.get('username')
+            metadata = data.get('metadata')
+            print(f"🐛 DEBUG: Creator = {creator}, User ID = {user_id}, Username = {user_name}, Metadata = {metadata}")
+            
+            normalized = {
+                'input': input_name,
+                'output': output_name,
+                'seed': params.get('seed', 123456),
+                'mode': 'unscramble',
+                # 'algorithm': params.get('algorithm', 'hpf'),
+                'blur-ksize': params.get('percentage', 100),
+                'rows': params.get('rows'),
+                'cols': params.get('cols'),
+                'max_hue_shift': params.get('max_hue_shift'),
+                'max_intensity_shift': params.get('max_intensity_shift'),
+                'noise_seed': params.get('noise_seed'),
+                'noise_intensity': params.get('noise_intensity'),
+                # 'noise_mode': params.get('noise_mode'),
+                'noise_prng': params.get('noise_prng'),
+                'wm-id': params.get('watermark_id'),
+                'wm-alpha': params.get('wm_alpha', 0.025),
+                'wm-scale': params.get('wm_scale', 1.0),
+                'wm-numbers': params.get('wm_numbers', 4),
+                'wm-duration': params.get('wm_duration', 10),
+                'wm-placement': params.get('wm_placement', 'custom'),
+                'wm-max-margin': params.get('wm_max_margin', 30),
+                'wm-min-margin': params.get('wm_min_margin', 5),
+                'watermark_rows': params.get('watermark_rows', 2)
+            }
+
+            # Remove None values
+            normalized = {k: v for k, v in normalized.items() if v is not None}
+            
+            print(f"✅ FLASK: Normalized payload: {json.dumps(normalized, indent=2)}")
+            
+            # Replace request.json with normalized data
+            request._cached_json = (normalized, normalized)
+            data = normalized
+        else:
+            # Standard format, just set mode to unscramble
+            data['mode'] = 'unscramble'
+        
+        # Reuse the scramble_photo_pro logic
+        return scramble_photo_pro()
+
+    except Exception as e:
+        print(f"❌ FLASK ERROR: Unexpected exception in unscramble_photo_pro: {str(e)}")
+        import traceback
+        print(f"  Traceback: {traceback.format_exc()}")
+        print("="*60 + "\n")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/scramble-video-pro', methods=['POST'])
+def scramble_video_pro():
+    """
+    Scramble a video using various algorithms
+    Expects JSON with: input, output, seed, mode, algorithm, and algorithm-specific params
+    """
+    print("\n" + "="*60)
+    print("🎥 FLASK: scramble-video-pro request received")
+    print("="*60) 
+
+    try:
+        data = request.json
+        if not data:
+            print("❌ FLASK ERROR: No JSON data provided")
+            return jsonify({'error': 'No JSON data provided'}), 400
+        
+        print(f"📋 FLASK: Received payload: {json.dumps(data, indent=2)}")
+        
+        # Extract common parameters
+        # input_file = data.get('i')
+        # output_file = data.get('o') 
+        input_file = data.get('input')
+        output_file = data.get('output')
+        seed = data.get('seed', 123456)
+        mode = data.get('mode', 'scramble')
+        # algorithm = data.get('algorithm', 'position')
+        # percentage = data.get('percentage', 100)
+        wm_id = data.get('watermark_idNumber', 12345)
+        blur_ksize = data.get('blur_ksize')
+        creator = data.get('creator')
+        user_id = data.get('user_id')
+        user_name = data.get('username')
+        metadata = data.get('metadata')
+        
+        print(f"\n📝 FLASK: Extracted parameters:")
+        print(f"  - Input file: {input_file}")
+        print(f"  - Output file: {output_file}")
+        print(f"  - Seed: {seed}")
+        print(f"  - Mode: {mode}")
+        # print(f"  - Algorithm: {algorithm}")
+        # print(f"  - Percentage: {percentage}")
+        print(f"  - Watermark ID: {wm_id}")
+        print(f"  - Blur ksize: {blur_ksize}")
+        print(f"  - Creator: {creator}")
+        print(f"  - User ID: {user_id}")
+        print(f"  - Username: {user_name}")
+        print(f"  - Metadata: {metadata}")
+
+        if not input_file or not output_file:
+            print("❌ FLASK ERROR: Missing input or output filename")
+            return jsonify({'error': 'input and output filenames required'}), 400
+
+        # Build file paths
+        input_path = os.path.join(app.config['UPLOAD_FOLDER'], input_file)
+        output_path = os.path.join(app.config['OUTPUTS_FOLDER'], output_file)
+
+        print(f"\n📁 FLASK: File paths:")
+        print(f"  - Input path: {input_path}")
+        print(f"  - Output path: {output_path}")
+        print(f"  - Upload folder: {app.config['UPLOAD_FOLDER']}")
+        print(f"  - Outputs folder: {app.config['OUTPUTS_FOLDER']}")
+
+        if not os.path.exists(input_path):
+            print(f"❌ FLASK ERROR: Input file not found at: {input_path}")
+            # List files in directory to help debug
+            try:
+                files_in_dir = os.listdir(app.config['UPLOAD_FOLDER'])
+                print(f"📂 Files in upload folder: {files_in_dir}")
+            except Exception as e:
+                print(f"⚠️  Could not list directory: {e}")
+            return jsonify({'error': f'Input file {input_file} not found'}), 404
+        
+        print(f"✅ FLASK: Input file exists")
+
+        # Build command based on algorithm
+        cmd = []
+        
+        # print(f"\n🔧 FLASK: Building command for algorithm: {algorithm}")
+    
+        # Position scrambling (default tile shuffling)
+        rows = data.get('rows', 6)
+        cols = data.get('cols', 6)
+        print(f"  - Position algorithm: rows={rows}, cols={cols}")
+        # if percentage < 100:
+            # print("⚠️  FLASK WARNING: Partial percentage scrambling for videos may lead to unexpected results.")
+        cmd = [
+            PYTHON_CMD, 'scramble_video2x_blur.py',
+
+            # HPF with all options
+            # -i video.mp4 
+            # -o hpf_scrambled.mp4 
+            # --algorithm hpf 
+            # --rows 4 
+            # --cols 4 
+            # --blur-ksize 21 
+            # --watermark-rows 3, 
+            # --seed 7777
+            '-i', input_path,
+            '-o', output_path,
+            '--algorithm', 'hpf',
+            '--seed', str(seed),
+            '--rows', str(rows),
+            '--cols', str(cols),
+            '--mode', mode,
+            '--watermark-rows', '2',
+            '--blur-ksize', str(blur_ksize if blur_ksize is not None else 50),
+            # # '--percentage', str(percentage if percentage is not None else 50),
+            # # '--mode', 'scramble'
+        ]
+
+
+        print(f"\n🚀 FLASK: Executing command:")
+        print(f"  Command: {' '.join(cmd)}")
+        
+        # Execute the scrambling command with longer timeout for video processing
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        
+        print(f"\n📤 FLASK: Command execution completed")
+        print(f"  - Return code: {result.returncode}")
+        if result.stdout:
+            print(f"  - STDOUT: {result.stdout}")
+        if result.stderr:
+            print(f"  - STDERR: {result.stderr}")
+        
+        if result.returncode != 0:
+            print(f"❌ FLASK ERROR: Scrambling command failed")
+            return jsonify({
+                'error': 'Scrambling failed',
+                'details': result.stderr,
+                'stdout': result.stdout,
+                'returncode': result.returncode
+            }), 500
+
+        # Check if output file was created
+        if not os.path.exists(output_path):
+            print(f"❌ FLASK ERROR: Output file was not created at: {output_path}")
+            return jsonify({'error': 'Output file was not created'}), 500
+        
+        print(f"✅ FLASK: Output file created successfully at: {output_path}")
+
+        # Create WebM version if output is a video and not already WebM
+        webm_file = None
+        if not output_file.lower().endswith('.webm'):
+            try:
+                print(f"\n🔄 FLASK: Creating WebM version...")
+                webm_filename = os.path.splitext(output_file)[0] + '.webm'
+                webm_path = os.path.join(app.config['OUTPUTS_FOLDER'], webm_filename)
+                
+                # Convert to WebM using ffmpeg
+                convert_cmd = [
+                    'ffmpeg', '-i', output_path,
+                    '-c:v', 'libvpx-vp9',  # VP9 codec
+                    '-crf', '30',           # Quality (lower = better, 23-32 recommended)
+                    '-b:v', '0',            # Variable bitrate
+                    '-c:a', 'libopus',      # Opus audio codec
+                    '-y',                   # Overwrite output file
+                    webm_path
+                ]
+                
+                print(f"  Command: {' '.join(convert_cmd)}")
+                convert_result = subprocess.run(convert_cmd, capture_output=True, text=True, timeout=300)
+                
+                if convert_result.returncode == 0 and os.path.exists(webm_path):
+                    print(f"✅ FLASK: WebM version created: {webm_filename}")
+                    webm_file = webm_filename
+                else:
+                    print(f"⚠️  FLASK WARNING: WebM conversion failed, continuing without it")
+                    if convert_result.stderr:
+                        print(f"  Error: {convert_result.stderr[:200]}")
+            except Exception as e:
+                print(f"⚠️  FLASK WARNING: WebM conversion error: {str(e)}")
+
+        response_data = {
+            'message': 'Video scrambled successfully',
+            'output_file': output_file,
+            # 'algorithm': algorithm,
+            'seed': seed,
+            'download_url': f'/download/{output_file}'
+        }
+        
+        # Add WebM download URL if available
+        if webm_file:
+            response_data['webm_file'] = webm_file
+            response_data['webm_download_url'] = f'/download/{webm_file}'
+        
+        print(f"\n✅ FLASK: Sending success response:")
+        print(f"  {json.dumps(response_data, indent=2)}")
+        print("="*60 + "\n")
+        
+        return jsonify(response_data), 200
+
+    except subprocess.TimeoutExpired:
+        print(f"❌ FLASK ERROR: Scrambling operation timed out")
+        print("="*60 + "\n")
+        return jsonify({'error': 'Scrambling operation timed out'}), 500
+    except Exception as e:
+        print(f"❌ FLASK ERROR: Unexpected exception: {str(e)}")
+        import traceback
+        print(f"  Traceback: {traceback.format_exc()}")
+        print("="*60 + "\n")
+        return jsonify({'error': str(e), 'type': type(e).__name__}), 500
+
+@app.route('/unscramble-video-pro', methods=['POST'])
+def unscramble_video_pro():
+    """
+    Unscramble a video using the same algorithms
+    Expects JSON with: input, output, seed, algorithm, and algorithm-specific params
+    OR { localFileName, localFilePath, params } format from Node.js backend
+    """
+    print("\n" + "="*60)
+    print("🔓 FLASK: Unscramble-video-pro request received")
+    print("="*60)
+    
+    try:
+        data = request.json
+        if not data:
+            print("❌ FLASK ERROR: No JSON data provided")
+            return jsonify({'error': 'No JSON data provided'}), 400
+
+        print(f"📋 FLASK: Received payload: {json.dumps(data, indent=2)}")
+
+        # Normalize payload if it comes from Node.js backend
+        # Format: { localFileName, localFilePath, params, mode }
+        if 'localFileName' in data or 'localFilePath' in data:
+            print("🔄 FLASK: Normalizing Node.js backend payload format")
+            params = data.get('params', {}) or {}
+            # Use localFileName first (actual saved filename with timestamp), not params.input
+            input_name = data.get('localFileName') or os.path.basename(data.get('localFilePath', ''))
+            print(f"🐛 DEBUG: input_name after extraction = {input_name}")
+            print(f"🐛 DEBUG: data.get('localFileName') = {data.get('localFileName')}")
+            print(f"🐛 DEBUG: params.get('input') = {params.get('input')}")
+            output_name = params.get('output') or f"unscrambled_{input_name}"
+
+            creator = data.get('creator')
+            user_id = data.get('user_id')
+            user_name = data.get('username')
+            metadata = data.get('metadata')
+            print(f"🐛 DEBUG: Creator = {creator}, User ID = {user_id}, Username = {user_name}, Metadata = {metadata}")
+            
+                
+            normalized = {
+                'input': input_name,
+                'output': output_name,
+                'seed': params.get('seed', 123456),
+                'mode': 'unscramble',
+                'algorithm': params.get('algorithm', 'hpf'),
+                'blur_ksize': params.get('blur_ksize', 50),
+                'rows': params.get('rows'),
+                'cols': params.get('cols'),
+                'wm-id': params.get('watermark_id'),
+                'wm-alpha': params.get('wm_alpha', 0.025),
+                'wm-scale': params.get('wm_scale', 1.0),
+                'wm-numbers': params.get('wm_numbers', 4),
+                'wm-duration': params.get('wm_duration', 10),
+                'wm-placement': params.get('wm_placement', 'custom'),
+                'wm-max-margin': params.get('wm_max_margin', 30),
+                'wm-min-margin': params.get('wm_min_margin', 5),
+                'watermark_rows': params.get('watermark_rows', 2)
+            }
+
+            # Remove None values
+            normalized = {k: v for k, v in normalized.items() if v is not None}
+            
+            print(f"✅ FLASK: Normalized payload: {json.dumps(normalized, indent=2)}")
+            
+            # Replace request.json with normalized data
+            request._cached_json = (normalized, normalized)
+            data = normalized
+        else:
+            # Standard format, just set mode to unscramble
+            data['mode'] = 'unscramble'
+        
+        # Reuse the scramble_video_pro logic
+        return scramble_video_pro()
+
+    except Exception as e:
+        print(f"❌ FLASK ERROR: Unexpected exception in unscramble_video: {str(e)}")
+        import traceback
+        print(f"  Traceback: {traceback.format_exc()}")
+        print("="*60 + "\n")
+        return jsonify({'error': str(e)}), 500
 
 
 

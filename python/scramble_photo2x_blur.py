@@ -541,6 +541,130 @@ def hpf_params_to_json(seed: int, n: int, m: int, perm_dest_to_src_0: List[int],
 # Rect, cell_rects
 
 
+# ─── Watermark Marker Helpers ────────────────────────────────────────────────
+_WM_FINDER_P2 = [
+    [1,1,1,1,1],
+    [1,0,0,0,1],
+    [1,0,1,0,1],
+    [1,0,0,0,1],
+    [1,1,1,1,1],
+]
+_WM_BIT_MAP_P2 = None
+
+def _wm_bit_map_p2(wm_id: int) -> list:
+    bits = [(wm_id >> (15 - i)) & 1 for i in range(16)]
+    grid = [row[:] for row in _WM_FINDER_P2]
+    data_pos = [(0,1),(0,2),(0,3),(1,0),(2,0),(3,0),(4,0),(4,1),(4,2),(4,3),(3,4),(2,4),(1,4),(0,4),(1,3),(1,1)]
+    for idx, (r, c) in enumerate(data_pos):
+        grid[r][c] = bits[idx]
+    return grid
+
+def wm_to_binary_p2(wm_id: int, wm_count: int) -> list:
+    return [_wm_bit_map_p2(wm_id) for _ in range(wm_count)]
+
+def wm_get_positions_p2(frame_w: int, frame_h: int, marker_size: int,
+                        count: int, frame_idx: int, duration: int,
+                        placement: str, min_margin: float, max_margin: float) -> list:
+    def mulb(seed):
+        def r():
+            nonlocal seed
+            seed = (seed + 0x6D2B79F5) & 0xFFFFFFFF
+            z = seed
+            z = ((z ^ (z >> 15)) * (z | 1)) & 0xFFFFFFFF
+            z = (z ^ (z + ((z ^ (z >> 7)) * (z | 61)))) & 0xFFFFFFFF
+            return ((z ^ (z >> 14)) & 0xFFFFFFFF) / 0xFFFFFFFF
+        return r
+    epoch = frame_idx // max(1, duration)
+    positions = []
+    reserved = []
+    for i in range(count):
+        seed = (epoch * 99991 + i * 31337 + 7) & 0xFFFFFFFF
+        rand = mulb(seed)
+        pad = marker_size // 2
+        if placement == "corners":
+            corners = [(pad, pad), (frame_w - pad - marker_size, pad),
+                       (pad, frame_h - pad - marker_size),
+                       (frame_w - pad - marker_size, frame_h - pad - marker_size)]
+            px, py = corners[i % 4]
+        elif placement == "edges":
+            edge = i % 4
+            if edge == 0:   px, py = int(rand() * (frame_w - marker_size)), pad
+            elif edge == 1: px, py = int(rand() * (frame_w - marker_size)), frame_h - pad - marker_size
+            elif edge == 2: px, py = pad, int(rand() * (frame_h - marker_size))
+            else:           px, py = frame_w - pad - marker_size, int(rand() * (frame_h - marker_size))
+        elif placement == "center":
+            cx, cy = frame_w // 2, frame_h // 2
+            spread = min(frame_w, frame_h) // 4
+            px = cx - spread // 2 + int(rand() * spread)
+            py = cy - spread // 2 + int(rand() * spread)
+        elif placement == "custom":
+            min_x = int(frame_w * min_margin / 100)
+            max_x = int(frame_w * max_margin / 100)
+            min_y = int(frame_h * min_margin / 100)
+            max_y = int(frame_h * max_margin / 100)
+            px = min_x + int(rand() * max(1, max_x - min_x - marker_size))
+            py = min_y + int(rand() * max(1, max_y - min_y - marker_size))
+        else:  # random
+            margin_x = int(frame_w * 0.05)
+            margin_y = int(frame_h * 0.05)
+            px = margin_x + int(rand() * (frame_w - 2 * margin_x - marker_size))
+            py = margin_y + int(rand() * (frame_h - 2 * margin_y - marker_size))
+        px = max(0, min(px, frame_w - marker_size))
+        py = max(0, min(py, frame_h - marker_size))
+        for _ in range(5):
+            overlap = False
+            for rx, ry, rs in reserved:
+                if abs(px - rx) < rs and abs(py - ry) < rs:
+                    overlap = True
+                    px = int(rand() * (frame_w - marker_size))
+                    py = int(rand() * (frame_h - marker_size))
+                    px = max(0, min(px, frame_w - marker_size))
+                    py = max(0, min(py, frame_h - marker_size))
+                    break
+            if not overlap:
+                break
+        reserved.append((px, py, marker_size))
+        positions.append((px, py))
+    return positions
+
+def draw_wm_marker_p2(img: np.ndarray, grid: list, x: int, y: int,
+                      cell: int, alpha: float) -> np.ndarray:
+    out = img.astype(np.float32)
+    for r, row in enumerate(grid):
+        for c, val in enumerate(row):
+            color = 255.0 if val == 1 else 0.0
+            y0, y1 = y + r * cell, y + (r + 1) * cell
+            x0, x1 = x + c * cell, x + (c + 1) * cell
+            y0, y1 = max(0, y0), min(img.shape[0], y1)
+            x0, x1 = max(0, x0), min(img.shape[1], x1)
+            if y0 >= y1 or x0 >= x1:
+                continue
+            roi = out[y0:y1, x0:x1]
+            patch = np.full_like(roi, color)
+            out[y0:y1, x0:x1] = roi * (1 - alpha) + patch * alpha
+    return out.astype(np.uint8)
+
+def apply_watermark_p2(frame: np.ndarray, frame_idx: int,
+                       wm_id: int, wm_alpha: float, wm_scale: float,
+                       wm_count: int, wm_duration: int, wm_placement: str,
+                       wm_min_margin: float, wm_max_margin: float) -> np.ndarray:
+    global _WM_BIT_MAP_P2
+    if _WM_BIT_MAP_P2 is None or _WM_BIT_MAP_P2[0] != wm_id:
+        _WM_BIT_MAP_P2 = (wm_id, wm_to_binary_p2(wm_id, wm_count))
+    grids = _WM_BIT_MAP_P2[1]
+    cell = max(1, int(round(wm_scale * max(frame.shape[0], frame.shape[1]) / 100)))
+    marker_size = 5 * cell
+    h, w = frame.shape[:2]
+    positions = wm_get_positions_p2(w, h, marker_size, wm_count, frame_idx,
+                                    wm_duration, wm_placement, wm_min_margin, wm_max_margin)
+    out = frame.copy()
+    for i, (px, py) in enumerate(positions):
+        grid = grids[i % len(grids)]
+        out = draw_wm_marker_p2(out, grid, px, py, cell, wm_alpha)
+    return out
+# ─────────────────────────────────────────────────────────────────────────────
+
+
 def scramble_frame(frame: np.ndarray,
                    n: int,
                    m: int,
@@ -610,8 +734,6 @@ def process_photo(input_path: str,
                   rows: Optional[int] = None,
                   cols: Optional[int] = None,
                   mode: str = "scramble",
-                  algorithm: str = "spatial",
-                  percentage: Optional[int] = 100,
                   noise_intensity: Optional[int] = 0,
                   noise_tile_size: Optional[int] = 16,
                   noise_seed: Optional[int] = None,
@@ -620,212 +742,27 @@ def process_photo(input_path: str,
                   blur_ksize: int = 15,
                   watermark_rows: int = 1,
                   username: Optional[str] = None,
-                  user_id: Optional[int] = None) -> str:
+                  user_id: Optional[int] = None,
+                  wm_id: Optional[int] = None,
+                  wm_alpha: float = 0.15,
+                  wm_scale: float = 2.0,
+                  wm_count: int = 1,
+                  wm_duration: int = 30,
+                  wm_placement: str = "random",
+                  wm_min_margin: float = 5.0,
+                  wm_max_margin: float = 30.0) -> str:
     """
-    Process a photo: scramble or unscramble according to mode and algorithm.
-    Returns path to params JSON (for scramble mode).
-    
+    Process a photo using HPF frequency decomposition: scramble or unscramble.
+
+    Noise (if enabled) is applied as an extra encryption layer:
+      - Scramble:   HPF scramble first, then add noise (last step)
+      - Unscramble: remove noise first, then HPF unscramble
+
     Args:
-        algorithm: "spatial" for position scrambling, "hpf" for high-pass frequency decomposition
-        noise_intensity: If > 0, adds tileable noise before scrambling (0 = no noise, spatial only)
+        noise_intensity: If > 0, applies tileable noise overlay (0 = no noise)
         noise_tile_size: Size of noise tile pattern (default 16x16)
-        blur_ksize: Gaussian blur kernel size (odd integer) for HPF algorithm
-        watermark_rows: Number of empty tile rows on top and bottom for watermarks (HPF only)
-    """
-
-    if not os.path.isfile(input_path):
-        raise FileNotFoundError(f"Input photo not found: {input_path}")
-
-    # Read the image
-    frame = cv2.imread(input_path)
-    if frame is None:
-        raise RuntimeError(f"Could not read image: {input_path}")
-
-    height, width, channels = frame.shape
-
-    if width <= 0 or height <= 0:
-        raise RuntimeError("Invalid photo dimensions")
-    
-    # Generate noise offsets if noise is enabled (spatial algorithm only)
-    noise_offsets = None
-    if noise_intensity > 0 and algorithm == "spatial":
-        # Use a different seed for noise (seed + 999) to keep it separate from scrambling
-        noise_seed = (seed if seed is not None else gen_random_seed()) + 999
-        noise_offsets = generate_noise_tile_offsets(noise_tile_size, noise_seed, noise_intensity)
-        print(f"Noise enabled: intensity={noise_intensity}, tile_size={noise_tile_size}")
-
-    # If rows/cols missing, choose them based on aspect ratio
-    if rows is None or cols is None:
-        dims = auto_grid_for_aspect(width, height)
-        if rows is None:
-            rows = dims.n
-        if cols is None:
-            cols = dims.m
-
-    n, m = rows, cols
-    N = n * m
-
-    # seed management
-    if seed is None:
-        seed = gen_random_seed()
-
-    # Prepare algorithm-specific data
-    if algorithm == "spatial":
-        if mode == "scramble":
-            perm_dest_to_src_0 = seeded_permutation(N, seed)
-        elif mode == "unscramble":
-            perm_dest_to_src_0 = seeded_permutation(N, seed)
-        else:
-            raise ValueError("mode must be 'scramble' or 'unscramble'")
-        
-        # Precompute rectangles for spatial scrambling
-        src_rects = cell_rects(width, height, n, m)
-        dest_rects = cell_rects(width, height, n, m)
-        out_width = width
-        out_height = height
-
-    elif algorithm == "hpf":
-        # HPF frequency decomposition scrambling
-        # Ensure blur_ksize is odd
-        if blur_ksize % 2 == 0:
-            blur_ksize += 1
-
-        # Ensure watermark_rows is positive
-        watermark_rows = max(1, watermark_rows)
-
-        perm_dest_to_src_0 = seeded_permutation(N, seed)
-
-        # Compute tile dimensions and border layout
-        hpf_k_lr = compute_lr_border_cols(n, m)
-        hpf_k_tb = watermark_rows
-        hpf_border_positions = get_lr_border_positions(n, m, hpf_k_lr, hpf_k_tb)
-        hpf_rows_out = n + 2 * hpf_k_tb
-        hpf_cols_out = m + 2 * hpf_k_lr
-
-        if mode == "scramble":
-            hpf_tile_h = height // n
-            hpf_tile_w = width // m
-            out_width = hpf_cols_out * hpf_tile_w
-            out_height = hpf_rows_out * hpf_tile_h
-            hpf_orig_h = height
-            hpf_orig_w = width
-            print(f"HPF scramble: {n}x{m} grid, blur_ksize={blur_ksize}")
-            print(f"  Border: {hpf_k_lr} cols (L/R for HPF), {hpf_k_tb} rows (T/B for watermarks)")
-            print(f"  Tile: {hpf_tile_w}x{hpf_tile_h}")
-            print(f"  Input:  {width}x{height}")
-            print(f"  Output: {out_width}x{out_height} "
-                  f"(~{(out_width * out_height) / (width * height):.2f}x area)")
-        else:  # unscramble
-            # Input is the scrambled (larger) photo
-            hpf_tile_h = height // hpf_rows_out
-            hpf_tile_w = width // hpf_cols_out
-            hpf_orig_h = n * hpf_tile_h
-            hpf_orig_w = m * hpf_tile_w
-            out_width = hpf_orig_w
-            out_height = hpf_orig_h
-            print(f"HPF unscramble: {n}x{m} grid")
-            print(f"  Border: {hpf_k_lr} cols (L/R), {hpf_k_tb} rows (T/B)")
-            print(f"  Tile: {hpf_tile_w}x{hpf_tile_h}")
-            print(f"  Input (scrambled):  {width}x{height}")
-            print(f"  Output (restored):  {out_width}x{out_height}")
-    else:
-        raise ValueError("algorithm must be 'spatial' or 'hpf'")
-
-    # Process the single frame based on algorithm
-    if algorithm == "spatial":
-        if mode == "scramble":
-            # Apply noise BEFORE scrambling
-            if noise_offsets is not None:
-                frame = apply_noise_add_mod256(frame, noise_offsets, noise_tile_size)
-            
-            processed = scramble_frame(frame, n, m, perm_dest_to_src_0, src_rects, dest_rects)
-        else:
-            # Unscramble first
-            processed = unscramble_frame(frame, n, m, perm_dest_to_src_0, src_rects, dest_rects)
-            
-            # Remove noise AFTER unscrambling
-            if noise_offsets is not None:
-                processed = apply_noise_sub_mod256(processed, noise_offsets, noise_tile_size)
-
-    elif algorithm == "hpf":
-        if mode == "scramble":
-            processed = hpf_scramble_frame(frame, n, m, perm_dest_to_src_0,
-                                          blur_ksize, hpf_k_lr, hpf_k_tb,
-                                          hpf_border_positions,
-                                          hpf_tile_h, hpf_tile_w)
-        else:
-            processed = hpf_unscramble_frame(frame, n, m, perm_dest_to_src_0,
-                                             hpf_k_lr, hpf_k_tb, hpf_border_positions,
-                                             hpf_tile_h, hpf_tile_w,
-                                             hpf_orig_h, hpf_orig_w)
-
-    # Write the output image
-    cv2.imwrite(output_path, processed)
-    
-    # Embed user tracking code after writing the image (only for unscramble mode)
-    if mode == "unscramble" and user_id and len(str(user_id)) == 10:
-        print(f"  - Embedding user tracking code for user_id: {user_id}")
-        embed_script = os.path.join(os.path.dirname(__file__), 'embed_code_image.py')
-        cmd = [
-            PYTHON_CMD, embed_script,
-            '--input', output_path,
-            '--output', output_path,
-            '--user-id', str(user_id),
-        ]
-        try:
-            subprocess.run(cmd, check=True, capture_output=True, text=True)
-            print(f"  - User tracking code embedded successfully")
-        except subprocess.CalledProcessError as e:
-            print(f"  - Warning: Failed to embed tracking code: {e.stderr}")
-    elif mode == "unscramble":
-        print(f"  - Skipping user tracking code embedding (user_id not valid or not 10 chars)")
-
-    # Save params JSON (only for scramble mode)
-    params_path = ""
-    if mode == "scramble":
-        if algorithm == "spatial":
-            params = params_to_json(seed, n, m, perm_dest_to_src_0)
-            if noise_intensity > 0:
-                params["noise_intensity"] = noise_intensity
-                params["noise_tile_size"] = noise_tile_size
-        elif algorithm == "hpf":
-            params = hpf_params_to_json(seed, n, m, perm_dest_to_src_0,
-                                       blur_ksize, hpf_k_lr, hpf_k_tb,
-                                       hpf_tile_h, hpf_tile_w,
-                                       hpf_orig_h, hpf_orig_w)
-
-        base, ext = os.path.splitext(output_path)
-        params_path = base + ".params.json"
-        with open(params_path, "w", encoding="utf-8") as f:
-            json.dump(params, f, indent=2)
-
-    return params_path
-
-def process_photo_by_percentage(input_path: str,
-                  output_path: str,
-                  seed: Optional[int] = None,
-                  rows: Optional[int] = None,
-                  cols: Optional[int] = None,
-                  mode: str = "scramble",
-                  algorithm: str = "spatial",
-                  percentage: Optional[int] = 100,
-                  noise_intensity: Optional[int] = 0,
-                  noise_tile_size: Optional[int] = None,
-                  noise_seed: Optional[int] = None,
-                  noise_mode: Optional[str] = None,
-                  noise_prng: Optional[float] = None,
-                  username: Optional[str] = None,
-                  user_id: Optional[int] = None) -> str:
-    """
-    Process a photo: scramble or unscramble according to mode.
-    Only scrambles a certain percentage of tiles based on the percentage parameter.
-    Note: Percentage mode only works with spatial algorithm.
-    Returns path to params JSON (for scramble mode).
-    
-    Args:
-        algorithm: Only "spatial" supported for percentage mode
-        noise_intensity: If > 0, adds tileable noise before scrambling (0 = no noise)
-        noise_tile_size: Size of noise tile pattern (default 16x16)
+        blur_ksize: Gaussian blur kernel size (odd integer) for HPF decomposition
+        watermark_rows: Number of empty tile rows on top/bottom for watermarks
     """
 
     if not os.path.isfile(input_path):
@@ -844,9 +781,10 @@ def process_photo_by_percentage(input_path: str,
     # Generate noise offsets if noise is enabled
     noise_offsets = None
     if noise_intensity > 0:
+        noise_tile_size = noise_tile_size or 16
         # Use a different seed for noise (seed + 999) to keep it separate from scrambling
-        noise_seed = (seed if seed is not None else gen_random_seed()) + 999
-        noise_offsets = generate_noise_tile_offsets(noise_tile_size, noise_seed, noise_intensity)
+        _noise_seed = (seed if seed is not None else gen_random_seed()) + 999
+        noise_offsets = generate_noise_tile_offsets(noise_tile_size, _noise_seed, noise_intensity)
         print(f"Noise enabled: intensity={noise_intensity}, tile_size={noise_tile_size}")
 
     # If rows/cols missing, choose them based on aspect ratio
@@ -860,106 +798,79 @@ def process_photo_by_percentage(input_path: str,
     n, m = rows, cols
     N = n * m
 
-    # Validate percentage
-    if percentage is None:
-        percentage = 100
-    percentage = max(0, min(100, percentage))  # Clamp between 0 and 100
-
     # seed management
     if seed is None:
         seed = gen_random_seed()
 
-    # Calculate how many tiles to scramble based on percentage
-    tiles_to_scramble = max(1, int(N * percentage / 100.0))
-    
-    print(f"Scrambling {tiles_to_scramble} out of {N} tiles ({percentage}%)")
+    # HPF frequency decomposition setup
+    if blur_ksize % 2 == 0:
+        blur_ksize += 1
+    watermark_rows = max(1, watermark_rows)
+
+    perm_dest_to_src_0 = seeded_permutation(N, seed)
+
+    hpf_k_lr = compute_lr_border_cols(n, m)
+    hpf_k_tb = watermark_rows
+    hpf_border_positions = get_lr_border_positions(n, m, hpf_k_lr, hpf_k_tb)
+    hpf_rows_out = n + 2 * hpf_k_tb
+    hpf_cols_out = m + 2 * hpf_k_lr
 
     if mode == "scramble":
-        # Use the seed to select which tiles to scramble
-        rand = mulberry32(seed & 0xFFFFFFFF)
-        
-        # Create a list of all tile indices and shuffle it to randomly select which to scramble
-        tile_indices = list(range(N))
-        for i in range(N - 1, 0, -1):
-            j = math.floor(rand() * (i + 1))
-            tile_indices[i], tile_indices[j] = tile_indices[j], tile_indices[i]
-        
-        # Select the first 'tiles_to_scramble' indices to be scrambled
-        scrambled_indices = sorted(tile_indices[:tiles_to_scramble])
-        
-        print(f"Tiles to scramble (0-indexed): {scrambled_indices}")
-        
-        # Generate a permutation ONLY for the scrambled tiles
-        # Use a different seed offset to get a different permutation
-        scrambled_perm = seeded_permutation(len(scrambled_indices), seed + 1)
-        
-        # Create the full permutation: identity for most, scrambled for selected tiles
-        partial_perm = list(range(N))  # Start with identity permutation
-        
-        # Apply the scrambled permutation to only the selected tiles
-        # scrambled_indices[i] should map to scrambled_indices[scrambled_perm[i]]
-        for i, src_idx in enumerate(scrambled_indices):
-            dest_tile = scrambled_indices[scrambled_perm[i]]
-            partial_perm[src_idx] = dest_tile
-        
-        perm_dest_to_src_0 = partial_perm
-        
-        # Verify it's a valid permutation
-        perm_set = set(partial_perm)
-        if len(perm_set) != N:
-            print(f"WARNING: Invalid permutation! Expected {N} unique values, got {len(perm_set)}")
-            print(f"Permutation: {partial_perm}")
-            duplicates = [x for x in range(N) if partial_perm.count(x) > 1]
-            missing = [x for x in range(N) if x not in perm_set]
-            print(f"Duplicate values: {duplicates}")
-            print(f"Missing values: {missing}")
-        else:
-            print(f"✓ Valid permutation generated")
-        
+        hpf_tile_h = height // n
+        hpf_tile_w = width // m
+        out_width = hpf_cols_out * hpf_tile_w
+        out_height = hpf_rows_out * hpf_tile_h
+        hpf_orig_h = height
+        hpf_orig_w = width
+        print(f"HPF scramble: {n}x{m} grid, blur_ksize={blur_ksize}")
+        print(f"  Border: {hpf_k_lr} cols (L/R for HPF), {hpf_k_tb} rows (T/B for watermarks)")
+        print(f"  Tile: {hpf_tile_w}x{hpf_tile_h}")
+        print(f"  Input:  {width}x{height}")
+        print(f"  Output: {out_width}x{out_height} "
+              f"(~{(out_width * out_height) / (width * height):.2f}x area)")
     elif mode == "unscramble":
-        # For unscramble, we need to reverse the same partial scramble
-        # Use the EXACT same logic as scramble to generate the same permutation
-        rand = mulberry32(seed & 0xFFFFFFFF)
-        tile_indices = list(range(N))
-        for i in range(N - 1, 0, -1):
-            j = math.floor(rand() * (i + 1))
-            tile_indices[i], tile_indices[j] = tile_indices[j], tile_indices[i]
-        
-        scrambled_indices = sorted(tile_indices[:tiles_to_scramble])
-        print(f"Tiles to unscramble (0-indexed): {scrambled_indices}")
-        
-        # Generate the SAME permutation for scrambled tiles
-        scrambled_perm = seeded_permutation(len(scrambled_indices), seed + 1)
-        
-        # Create the same partial permutation as scrambling
-        partial_perm = list(range(N))
-        for i, src_idx in enumerate(scrambled_indices):
-            dest_tile = scrambled_indices[scrambled_perm[i]]
-            partial_perm[src_idx] = dest_tile
-        
-        perm_dest_to_src_0 = partial_perm
-        print(f"✓ Valid permutation generated for unscrambling")
+        hpf_tile_h = height // hpf_rows_out
+        hpf_tile_w = width // hpf_cols_out
+        hpf_orig_h = n * hpf_tile_h
+        hpf_orig_w = m * hpf_tile_w
+        out_width = hpf_orig_w
+        out_height = hpf_orig_h
+        print(f"HPF unscramble: {n}x{m} grid")
+        print(f"  Border: {hpf_k_lr} cols (L/R), {hpf_k_tb} rows (T/B)")
+        print(f"  Tile: {hpf_tile_w}x{hpf_tile_h}")
+        print(f"  Input (scrambled):  {width}x{height}")
+        print(f"  Output (restored):  {out_width}x{out_height}")
     else:
         raise ValueError("mode must be 'scramble' or 'unscramble'")
 
-    # Precompute rectangles for the photo (src and dest shapes are same)
-    src_rects = cell_rects(width, height, n, m)
-    dest_rects = cell_rects(width, height, n, m)
-
-    # Process the single frame
+    # Process the single frame (HPF algorithm)
     if mode == "scramble":
-        # Apply noise BEFORE scrambling
+        processed = hpf_scramble_frame(frame, n, m, perm_dest_to_src_0,
+                                       blur_ksize, hpf_k_lr, hpf_k_tb,
+                                       hpf_border_positions,
+                                       hpf_tile_h, hpf_tile_w)
+        # Apply noise AFTER scrambling (last encryption step)
         if noise_offsets is not None:
-            frame = apply_noise_add_mod256(frame, noise_offsets, noise_tile_size)
-        
-        processed = scramble_frame(frame, n, m, perm_dest_to_src_0, src_rects, dest_rects)
+            processed = apply_noise_add_mod256(processed, noise_offsets, noise_tile_size)
     else:
-        # Unscramble first
-        processed = unscramble_frame(frame, n, m, perm_dest_to_src_0, src_rects, dest_rects)
-        
-        # Remove noise AFTER unscrambling
+        # Remove noise FIRST (reverse the last encryption step before HPF unscramble)
         if noise_offsets is not None:
-            processed = apply_noise_sub_mod256(processed, noise_offsets, noise_tile_size)
+            frame = apply_noise_sub_mod256(frame, noise_offsets, noise_tile_size)
+        processed = hpf_unscramble_frame(frame, n, m, perm_dest_to_src_0,
+                                         hpf_k_lr, hpf_k_tb, hpf_border_positions,
+                                         hpf_tile_h, hpf_tile_w,
+                                         hpf_orig_h, hpf_orig_w)
+
+    # Apply watermark marker overlay (single-frame: frame_idx=0 gives a fixed position)
+    if wm_id is not None:
+        processed = apply_watermark_p2(
+            processed, 0,
+            wm_id, wm_alpha, wm_scale,
+            wm_count, wm_duration, wm_placement,
+            wm_min_margin, wm_max_margin,
+        )
+        print(f"  - Watermark marker embedded (ID={wm_id}, alpha={wm_alpha}, scale={wm_scale}, "
+              f"count={wm_count}, placement={wm_placement})")
 
     # Write the output image
     cv2.imwrite(output_path, processed)
@@ -985,15 +896,14 @@ def process_photo_by_percentage(input_path: str,
     # Save params JSON (only for scramble mode)
     params_path = ""
     if mode == "scramble":
-        params = params_to_json(seed, n, m, perm_dest_to_src_0)
-        # Add percentage info to params
-        params["percentage"] = percentage
-        params["tiles_scrambled"] = tiles_to_scramble
-        params["total_tiles"] = N
+        params = hpf_params_to_json(seed, n, m, perm_dest_to_src_0,
+                                    blur_ksize, hpf_k_lr, hpf_k_tb,
+                                    hpf_tile_h, hpf_tile_w,
+                                    hpf_orig_h, hpf_orig_w)
         if noise_intensity > 0:
             params["noise_intensity"] = noise_intensity
             params["noise_tile_size"] = noise_tile_size
-        
+
         base, ext = os.path.splitext(output_path)
         params_path = base + ".params.json"
         with open(params_path, "w", encoding="utf-8") as f:
@@ -1002,31 +912,43 @@ def process_photo_by_percentage(input_path: str,
     return params_path
 
 
+
+
 def main():
-    parser = argparse.ArgumentParser(description="Scramble/unscramble a photo using grid permutation or HPF decomposition.")
+    parser = argparse.ArgumentParser(
+        description="Scramble/unscramble a photo using HPF (high-pass frequency) decomposition.")
     parser.add_argument("--input", "-i", required=True, help="Input photo path")
     parser.add_argument("--output", "-o", required=True, help="Output photo path")
     parser.add_argument("--seed", type=int, help="Random seed (32-bit). If omitted, one is generated.")
     parser.add_argument("--rows", type=int, help="Grid rows (n). If omitted, auto-chosen from aspect ratio.")
     parser.add_argument("--cols", type=int, help="Grid cols (m). If omitted, auto-chosen from aspect ratio.")
-    parser.add_argument("--algorithm", choices=["spatial", "hpf"], default="spatial",
-                        help="Scrambling algorithm: 'spatial' for position swapping, 'hpf' for high-pass frequency decomposition (default: spatial)")
-    parser.add_argument("--percentage", type=int, default=100, help="Percentage of tiles to scramble (default: 100). Only for spatial algorithm.")
     parser.add_argument("--mode", choices=["scramble", "unscramble"], default="scramble",
                         help="Operation mode (default: scramble). Unscramble assumes same seed/n/m.")
     parser.add_argument("--noise_intensity", type=int, default=0,
-                        help="Noise intensity (0-128). 0 = no noise, 64 = moderate. Adds tileable noise before scrambling (spatial only).")
+                        help="Noise intensity (0-128). 0 = no noise, 64 = moderate. "
+                             "Added AFTER HPF scramble / removed BEFORE HPF unscramble.")
     parser.add_argument("--noise_seed", type=int, default=0,
                         help="Noise seed for generating tileable noise pattern.")
-    parser.add_argument("--noise_mode", type=str, default="add_mod256_tile",
-                        help="Noise mode for applying tileable noise before scrambling.")
     parser.add_argument("--blur-ksize", type=int, default=15,
-                        help="Gaussian blur kernel size (odd integer) for HPF algorithm. Larger = more blur in LPF, more detail in HPF tiles (default: 15)")
+                        help="Gaussian blur kernel size (odd integer) for HPF decomposition (default: 15)")
     parser.add_argument("--watermark-rows", type=int, default=1,
-                        help="Number of empty tile rows on top and bottom for watermarks/attribution (HPF algorithm only, default: 1)")
-    
-    # parser.add_argument("--noise_tile_size", type=int, default=16,
-    #                     help="Size of noise tile pattern in pixels (default: 16).")
+                        help="Empty tile rows on top/bottom for watermarks (default: 1)")
+    parser.add_argument("--wm-id", type=int, default=None,
+                        help="Watermark marker ID (0-65535). If omitted, no watermark is embedded.")
+    parser.add_argument("--wm-alpha", type=float, default=0.15,
+                        help="Watermark marker opacity (0.01-0.5, default: 0.15)")
+    parser.add_argument("--wm-scale", type=float, default=2.0,
+                        help="Watermark marker scale as %% of image max dimension per cell (default: 2.0)")
+    parser.add_argument("--wm-numbers", type=int, default=1,
+                        help="Number of watermark markers to embed (1-8, default: 1)")
+    parser.add_argument("--wm-duration", type=int, default=30,
+                        help="Frames each marker position is held (default: 30, photos use frame 0)")
+    parser.add_argument("--wm-placement", choices=["random","corners","edges","center","custom"],
+                        default="random", help="Marker placement strategy (default: random)")
+    parser.add_argument("--wm-min-margin", type=float, default=5.0,
+                        help="Min edge margin %% for custom placement (default: 5)")
+    parser.add_argument("--wm-max-margin", type=float, default=30.0,
+                        help="Max edge margin %% for custom placement (default: 30)")
 
     args = parser.parse_args()
 
@@ -1039,42 +961,29 @@ def main():
         print(f"Note: --blur-ksize adjusted to {args.blur_ksize} (must be odd)")
 
     try:
-        # Use percentage-based processing if percentage is less than 100 and spatial algorithm
-        if args.percentage < 100 and args.algorithm == "spatial":
-            params_path = process_photo_by_percentage(
-                input_path=args.input,
-                output_path=args.output,
-                seed=args.seed,
-                rows=args.rows,
-                cols=args.cols,
-                percentage=args.percentage,
-                algorithm=args.algorithm,
-                mode=args.mode,
-                noise_intensity=args.noise_intensity,
-                # noise_tile_size=args.noise_tile_size,
-            )
-        else:
-            # Use the standard photo processing function for 100% scrambling or HPF algorithm
-            params_path = process_photo(
-                input_path=args.input,
-                output_path=args.output,
-                seed=args.seed,
-                rows=args.rows,
-                cols=args.cols,
-                algorithm=args.algorithm,
-                mode=args.mode,
-                noise_intensity=args.noise_intensity,
-                blur_ksize=args.blur_ksize,
-                watermark_rows=args.watermark_rows,
-                # noise_tile_size=args.noise_tile_size,
-            )
-        
+        params_path = process_photo(
+            input_path=args.input,
+            output_path=args.output,
+            seed=args.seed,
+            rows=args.rows,
+            cols=args.cols,
+            mode=args.mode,
+            noise_intensity=args.noise_intensity,
+            blur_ksize=args.blur_ksize,
+            watermark_rows=args.watermark_rows,
+            wm_id=args.wm_id,
+            wm_alpha=args.wm_alpha,
+            wm_scale=args.wm_scale,
+            wm_count=args.wm_numbers,
+            wm_duration=args.wm_duration,
+            wm_placement=args.wm_placement,
+            wm_min_margin=args.wm_min_margin,
+            wm_max_margin=args.wm_max_margin,
+        )
         print(f"Done. Output photo: {args.output}")
         if args.mode == "scramble" and params_path:
             print(f"Scramble params saved to: {params_path}")
-            print(f"Algorithm used: {args.algorithm}")
-            if args.algorithm == "hpf":
-                print(f"Blur kernel size: {args.blur_ksize}")
+            print(f"Blur kernel size: {args.blur_ksize}")
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)

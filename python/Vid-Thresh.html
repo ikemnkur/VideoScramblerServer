@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>5-Panel 4-Bit Video Lab</title>
+    <style>
+        body { font-family: sans-serif; background: #121212; color: white; display: flex; flex-direction: column; align-items: center; padding: 20px; margin: 0; }
+        .controls { background: #1e1e1e; padding: 15px; border-radius: 10px; margin-bottom: 20px; width: 100%; max-width: 900px; border: 1px solid #333; }
+        .control-row { display: flex; flex-wrap: wrap; gap: 20px; align-items: center; justify-content: center; margin-bottom: 10px; }
+        
+        /* Layout Grid */
+        .layout-grid { display: grid; gap: 15px; width: 100%; max-width: 1200px; }
+        .top-row { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+        .bottom-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; }
+        
+        .panel { text-align: center; background: #1a1a1a; padding: 10px; border-radius: 8px; border: 1px solid #333; }
+        canvas { width: 100%; border-radius: 4px; background: #000; transition: filter 0.1s; }
+        video { display: none; }
+        
+        /* UI Elements */
+        label { font-weight: bold; color: #888; font-size: 0.7em; display: block; margin-bottom: 5px; text-transform: uppercase; }
+        button { background: #444; color: white; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #555; }
+        input[type="range"] { cursor: pointer; vertical-align: middle; }
+        .error-log { position: fixed; bottom: 0; width: 100%; background: #600; color: #ffcccc; font-size: 11px; padding: 5px 20px; display: none; z-index: 1000; }
+    </style>
+</head>
+<body>
+
+    <div class="controls">
+        <div class="control-row">
+            <input type="file" id="upload" accept="video/*">
+            <button id="playPause">Play / Pause</button>
+            <div style="flex-grow: 1; margin: 0 15px;">
+                <input type="range" id="seeker" min="0" value="0" step="0.1" style="width: 100%;">
+            </div>
+        </div>
+        
+        <div class="control-row">
+            <div>
+                <label id="levelLabel">4-Bit Threshold: 16 Levels</label>
+                <input type="range" id="threshold" min="2" max="256" value="16">
+            </div>
+            <div>
+                <label id="blurLabel">Global Blur: 0px</label>
+                <input type="range" id="blurRange" min="0" max="20" value="0">
+            </div>
+        </div>
+    </div>
+
+    <div class="layout-grid">
+        <!-- Top Row: Original and Gray -->
+        <div class="top-row">
+            <div class="panel"><canvas id="origCanvas"></canvas><label>ORIGINAL VIDEO</label></div>
+            <div class="panel"><canvas id="grayCanvas"></canvas><label>GRAYSCALE (FILTERED)</label></div>
+        </div>
+        <!-- Bottom Row: RGB Channels -->
+        <div class="bottom-row">
+            <div class="panel"><canvas id="redCanvas"></canvas><label>RED CHANNEL</label></div>
+            <div class="panel"><canvas id="greenCanvas"></canvas><label>GREEN CHANNEL</label></div>
+            <div class="panel"><canvas id="blueCanvas"></canvas><label>BLUE CHANNEL</label></div>
+        </div>
+    </div>
+
+    <video id="video" muted loop crossorigin="anonymous"></video>
+    <div id="errorLog" class="error-log"></div>
+
+    <script>
+        const upload = document.getElementById('upload');
+        const video = document.getElementById('video');
+        const playPause = document.getElementById('playPause');
+        const seeker = document.getElementById('seeker');
+        const blurRange = document.getElementById('blurRange');
+        const thresholdInput = document.getElementById('threshold');
+        const errorLog = document.getElementById('errorLog');
+
+        const canvasIds = ['orig', 'gray', 'red', 'green', 'blue'];
+        const canvases = Object.fromEntries(canvasIds.map(id => [id, document.getElementById(id + 'Canvas')]));
+        const contexts = Object.fromEntries(canvasIds.map(id => [id, canvases[id].getContext('2d', {willReadFrequently: true})]));
+
+        let levels = 16;
+
+        function logError(msg) {
+            errorLog.style.display = 'block';
+            errorLog.innerText = `[${new Date().toLocaleTimeString()}] ${msg}`;
+        }
+
+        playPause.addEventListener('click', () => video.paused ? video.play() : video.pause());
+
+        blurRange.addEventListener('input', (e) => {
+            const val = e.target.value;
+            document.getElementById('blurLabel').innerText = `Global Blur: ${val}px`;
+            Object.values(canvases).forEach(c => c.style.filter = `blur(${val}px)`);
+        });
+
+        thresholdInput.addEventListener('input', (e) => {
+            levels = parseInt(e.target.value);
+            document.getElementById('levelLabel').innerText = `Threshold: ${levels} Levels`;
+        });
+
+        video.addEventListener('loadedmetadata', () => seeker.max = video.duration);
+        video.addEventListener('timeupdate', () => seeker.value = video.currentTime);
+        seeker.addEventListener('input', () => video.currentTime = seeker.value);
+
+        upload.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                video.src = URL.createObjectURL(file);
+                video.play().catch(() => logError("Playback failed. Please try another video."));
+            }
+        });
+
+        function process() {
+            if (!video.paused && !video.ended) {
+                const w = video.videoWidth, h = video.videoHeight;
+                if (!w) { requestAnimationFrame(process); return; }
+
+                // Ensure all canvases match video resolution
+                canvasIds.forEach(id => {
+                    if (canvases[id].width !== w) {
+                        canvases[id].width = w; canvases[id].height = h;
+                    }
+                });
+
+                // 1. Draw Original
+                contexts.orig.drawImage(video, 0, 0);
+                
+                // 2. Process Filters
+                const frame = contexts.orig.getImageData(0, 0, w, h);
+                const pixels = frame.data;
+                const step = 255 / (levels - 1);
+                const q = (v) => Math.round(Math.round(v / step) * step);
+
+                const dataSets = { 
+                    gray: new Uint8ClampedArray(pixels), 
+                    red: new Uint8ClampedArray(pixels), 
+                    green: new Uint8ClampedArray(pixels), 
+                    blue: new Uint8ClampedArray(pixels) 
+                };
+
+                for (let i = 0; i < pixels.length; i += 4) {
+                    const r = pixels[i], g = pixels[i+1], b = pixels[i+2];
+                    
+                    // Grayscale
+                    const grayVal = q(r * 0.299 + g * 0.587 + b * 0.114);
+                    dataSets.gray[i] = dataSets.gray[i+1] = dataSets.gray[i+2] = grayVal;
+
+                    // RGB Isolation + Threshold
+                    dataSets.red[i] = q(r); dataSets.red[i+1] = dataSets.red[i+2] = 0;
+                    dataSets.green[i] = dataSets.green[i+2] = 0; dataSets.green[i+1] = q(g);
+                    dataSets.blue[i] = dataSets.blue[i+1] = 0; dataSets.blue[i+2] = q(b);
+                }
+
+                // Push processed pixels to their respective canvases
+                ['gray', 'red', 'green', 'blue'].forEach(k => {
+                    contexts[k].putImageData(new ImageData(dataSets[k], w, h), 0, 0);
+                });
+            }
+            requestAnimationFrame(process);
+        }
+        requestAnimationFrame(process);
+    </script>
+</body>
+</html>
