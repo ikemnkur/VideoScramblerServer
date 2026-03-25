@@ -4674,7 +4674,7 @@ const py_storage = multer.diskStorage({
 const upload = multer({
   storage: py_storage,
   dest: 'python/inputs',
-  limits: { fileSize: 250 * 1024 * 1024 }, // 10MB limit
+  limits: { fileSize: 250 * 1024 * 1024 }, // 250MB limit
   fileFilter: function (req, file, cb) {
     // Accept images, videos, and audio only
     if (!file.mimetype.startsWith('image/') && !file.mimetype.startsWith('video/') && !file.mimetype.startsWith('audio/')) {

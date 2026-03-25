@@ -72,6 +72,35 @@ echo ""
 echo "💾 Saving PM2 configuration..."
 pm2 save
 
+# ============================================
+# Update Nginx configuration
+# ============================================
+echo ""
+echo "🌐 Updating Nginx configuration..."
+echo "----------------------------"
+
+NGINX_CONF="$PROJECT_ROOT/deploy/nginx-videoscrambler.conf"
+NGINX_DEST="/etc/nginx/sites-available/videoscrambler"
+NGINX_LINK="/etc/nginx/sites-enabled/videoscrambler"
+
+if [ -f "$NGINX_CONF" ]; then
+    cp "$NGINX_CONF" "$NGINX_DEST"
+    # Create symlink if it doesn't exist
+    if [ ! -L "$NGINX_LINK" ]; then
+        ln -s "$NGINX_DEST" "$NGINX_LINK"
+        echo "✅ Created Nginx sites-enabled symlink"
+    fi
+    # Test and reload
+    if nginx -t 2>/dev/null; then
+        systemctl reload nginx
+        echo "✅ Nginx configuration reloaded (client_max_body_size 500M active)"
+    else
+        echo "⚠️  Nginx config test failed – skipping reload. Run: sudo nginx -t"
+    fi
+else
+    echo "⚠️  Nginx config not found at $NGINX_CONF – skipping"
+fi
+
 echo ""
 echo "✅ Deployment complete!"
 echo "=================================================="
