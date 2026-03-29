@@ -437,8 +437,23 @@ def scramble_frame(frame: np.ndarray,
         dy0, dy1 = dR.y0, dR.y1
         dx0, dx1 = dR.x0, dR.x1
 
+        # Apply mirroring based on XOR of src and dest permutation indices.
+        # Using XOR gives more varied distribution than src alone, and is symmetric
+        # so unscramble_frame (which calls this with inv_perm) automatically
+        # re-applies the same flip, undoing it correctly.
+        # 0: no mirror, 1: horizontal, 2: vertical, 3: both
+        mirror_mode = (src_idx ^ dest_idx) % 4
+        src_region = frame[sy0:sy1, sx0:sx1, :]
+
+        if mirror_mode == 1:
+            src_region = src_region[:, ::-1, :]
+        elif mirror_mode == 2:
+            src_region = src_region[::-1, :, :]
+        elif mirror_mode == 3:
+            src_region = src_region[::-1, ::-1, :]
+
         # Copy region (height, width, channels)
-        out[dy0:dy1, dx0:dx1, :] = frame[sy0:sy1, sx0:sx1, :]
+        out[dy0:dy1, dx0:dx1, :] = src_region
 
     return out
 

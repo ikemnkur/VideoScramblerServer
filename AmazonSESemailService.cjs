@@ -5,7 +5,8 @@ require("dotenv").config();
 
 const TEMPLATE_DIR = path.join(__dirname, "email-templates");
 
-// Amazon SES SMTP Configuration
+// Amazon SES SMTP Configuration - not used anymore since we switched to Sendlush, but keeping this here in case we need to switch back or use SES directly for some reason
+// Sendlush is used in production, but these env vars can be set to use SES directly if needed
 const SES_SMTP_HOST = process.env.SES_SMTP_HOST || "email-smtp.us-east-1.amazonaws.com";
 const SES_SMTP_PORT = parseInt(process.env.SES_SMTP_PORT || "587", 10);
 const SES_SMTP_USER = process.env.SES_SMTP_USER || "";

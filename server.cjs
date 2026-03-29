@@ -18,7 +18,8 @@ const emailService = require('./AmazonSESemailService.cjs');
 
 // const authenticateToken = require('../middleware/auth');
 const authenticateToken = require('./middleware/auth');
-
+const createAdminRouter = require('./server-admin');
+const pythonService = require('./python-service.cjs');
 
 const server = express();
 
@@ -138,6 +139,7 @@ const corsOptions = {
       "https://whale-app-trf6r.ondigitalocean.app",
       "http://142.93.82.161",
       "https://server.videoscrambler.com",
+      "https://server.scramblurr.com",
       "https://www.scramblurr.com",
       "https://scramblurr.com",
       // "https://scramblurr.com",
@@ -240,10 +242,6 @@ overrideConsole();
 console.log("Console logging is now being redirected to the webpage endpoint.");
 console.warn("This is a sample warning message!");
 console.error("This is a sample error message!");
-
-
-
-
 
 
 // ###########################################################
@@ -355,1016 +353,6 @@ server.get('/generate-activity', (req, res) => {
   res.send('Activity logged using console.log()! Check your main page.');
 });
 
-// Server landing page route
-server.get('/server', async (req, res) => {
-  try {
-    const uptime = process.uptime();
-    const uptimeFormatted = {
-      days: Math.floor(uptime / 86400),
-      hours: Math.floor((uptime % 86400) / 3600),
-      minutes: Math.floor((uptime % 3600) / 60),
-      seconds: Math.floor(uptime % 60)
-    };
-
-    const memoryUsage = process.memoryUsage();
-    const memoryFormatted = {
-      rss: `${Math.round(memoryUsage.rss / 1024 / 1024)} MB`,
-      heapTotal: `${Math.round(memoryUsage.heapTotal / 1024 / 1024)} MB`,
-      heapUsed: `${Math.round(memoryUsage.heapUsed / 1024 / 1024)} MB`,
-      external: `${Math.round(memoryUsage.external / 1024 / 1024)} MB`
-    };
-
-    // Get database stats
-    const dbStats = await knex.raw('SHOW STATUS LIKE "Threads_connected"');
-    const dbConnections = dbStats[0]?.[0]?.Value || 'N/A';
-
-    const html = `
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Key-Ching Server - Dashboard</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      color: #333;
-      min-height: 100vh;
-      padding: 20px;
-    }
-    .container {
-      max-width: 1200px;
-      margin: 0 auto;
-    }
-    .header {
-      text-align: center;
-      color: white;
-      margin-bottom: 40px;
-    }
-    .header h1 {
-      font-size: 3em;
-      margin-bottom: 10px;
-      text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
-    }
-    .header p {
-      font-size: 1.2em;
-      opacity: 0.9;
-    }
-    .stats-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-      gap: 20px;
-      margin-bottom: 30px;
-    }
-    .stat-card {
-      background: white;
-      border-radius: 12px;
-      padding: 25px;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-      transition: transform 0.3s ease;
-    }
-    .stat-card:hover {
-      transform: translateY(-5px);
-    }
-    .stat-card h3 {
-      color: #667eea;
-      margin-bottom: 15px;
-      font-size: 1.1em;
-      text-transform: uppercase;
-      letter-spacing: 1px;
-    }
-    .stat-value {
-      font-size: 2em;
-      font-weight: bold;
-      color: #333;
-      margin: 10px 0;
-    }
-    .stat-label {
-      color: #666;
-      font-size: 0.9em;
-    }
-    .console-box {
-      background: #1e1e1e;
-      border-radius: 12px;
-      padding: 20px;
-      color: #d4d4d4;
-      font-family: 'Courier New', monospace;
-      font-size: 0.9em;
-      max-height: 400px;
-      overflow-y: auto;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.3);
-    }
-    .console-box h3 {
-      color: #4ec9b0;
-      margin-bottom: 15px;
-    }
-    .log-entry {
-      padding: 5px 0;
-      border-bottom: 1px solid #333;
-    }
-    .log-time {
-      color: #858585;
-    }
-    .log-error {
-      color: #f48771;
-    }
-    .log-info {
-      color: #4ec9b0;
-    }
-    .log-warn {
-      color: #dcdcaa;
-    }
-    .status-indicator {
-      display: inline-block;
-      width: 12px;
-      height: 12px;
-      border-radius: 50%;
-      background: #4caf50;
-      animation: pulse 2s infinite;
-      margin-right: 8px;
-    }
-    @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.5; }
-    }
-    .endpoints {
-      background: white;
-      border-radius: 12px;
-      padding: 25px;
-      margin-top: 20px;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-    }
-    .endpoints h3 {
-      color: #667eea;
-      margin-bottom: 15px;
-    }
-    .endpoint-item {
-      padding: 10px;
-      margin: 5px 0;
-      background: #f5f5f5;
-      border-radius: 6px;
-      font-family: monospace;
-    }
-    .method {
-      display: inline-block;
-      padding: 3px 8px;
-      border-radius: 4px;
-      font-weight: bold;
-      margin-right: 10px;
-      font-size: 0.85em;
-    }
-    .get { background: #61affe; color: white; }
-    .post { background: #49cc90; color: white; }
-    .patch { background: #fca130; color: white; }
-    .delete { background: #f93e3e; color: white; }
-    .request-count {
-      float: right;
-      background: #667eea;
-      color: white;
-      padding: 3px 10px;
-      border-radius: 12px;
-      font-size: 0.85em;
-      font-weight: bold;
-    }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="header">
-      <h1>🔑 Key-Ching Server</h1>
-      <p><span class="status-indicator"></span>Server is running</p>
-    </div>
-
-    <div class="stats-grid">
-      <div class="stat-card">
-        <h3>⏱️ Uptime</h3>
-        <div class="stat-value">${uptimeFormatted.days}d ${uptimeFormatted.hours}h ${uptimeFormatted.minutes}m</div>
-        <div class="stat-label">${Math.floor(uptime)} seconds total</div>
-      </div>
-
-      <div class="stat-card">
-        <h3>💾 Memory Usage</h3>
-        <div class="stat-value">${memoryFormatted.heapUsed}</div>
-        <div class="stat-label">Heap: ${memoryFormatted.heapTotal}</div>
-      </div>
-
-      <div class="stat-card">
-        <h3>🔌 Database</h3>
-        <div class="stat-value">${dbConnections}</div>
-        <div class="stat-label">Active connections</div>
-      </div>
-
-      <div class="stat-card">
-        <h3>🌐 Environment</h3>
-        <div class="stat-value">${process.env.NODE_ENV || 'development'}</div>
-        <div class="stat-label">Port: ${PORT}</div>
-      </div>
-
-      <div class="stat-card">
-        <h3>👥 Visitors</h3>
-        <div class="stat-value">${analytics.visitors.size}</div>
-        <div class="stat-label">Unique IP addresses</div>
-      </div>
-
-      <div class="stat-card">
-        <h3>👤 Users</h3>
-        <div class="stat-value">${analytics.users.size}</div>
-        <div class="stat-label">Registered accounts accessed</div>
-      </div>
-
-      <div class="stat-card">
-        <h3>📊 Total Requests</h3>
-        <div class="stat-value">${analytics.totalRequests.toLocaleString()}</div>
-        <div class="stat-label">Since server start</div>
-      </div>
-
-      <div class="stat-card">
-        <h3>📤 Data Transmitted</h3>
-        <div class="stat-value">${(analytics.dataTx / 1024 / 1024).toFixed(2)} MB</div>
-        <div class="stat-label">Total sent: ${(analytics.dataTx / 1024).toFixed(2)} KB</div>
-      </div>
-
-      <div class="stat-card">
-        <h3>📥 Data Received</h3>
-        <div class="stat-value">${(analytics.dataRx / 1024 / 1024).toFixed(2)} MB</div>
-        <div class="stat-label">Total received: ${(analytics.dataRx / 1024).toFixed(2)} KB</div>
-      </div>
-    </div>
-
-    <div class="console-box">
-      <h3>📋 Server Console</h3>
-      <div id="console-logs">
-        <div class="log-entry">
-          <span class="log-time">[${new Date().toISOString()}]</span>
-          <span class="log-info">INFO:</span> Server started successfully
-        </div>
-        <div class="log-entry">
-          <span class="log-time">[${new Date().toISOString()}]</span>
-          <span class="log-info">INFO:</span> Database connection established
-        </div>
-        <div class="log-entry">
-          <span class="log-time">[${new Date().toISOString()}]</span>
-          <span class="log-info">INFO:</span> CORS configured for multiple origins
-        </div>
-      </div>
-    </div>
-
-    <div class="endpoints">
-      <h3>🛣️ Active API Endpoints</h3>
-      ${Object.entries(analytics.endpointCalls)
-        .sort((a, b) => b[1] - a[1])
-        .map(([endpoint, count]) => {
-          const [method, ...pathParts] = endpoint.split(' ');
-          const path = pathParts.join(' ');
-          const methodClass = method.toLowerCase();
-          return `<div class="endpoint-item">
-            <span class="method ${methodClass}">${method}</span> ${path}
-            <span class="request-count">${count}</span>
-          </div>`;
-        }).join('')}
-    </div>
-
-     <div class="endpoints">
-      <h3>🛣️ Available API Endpoints</h3>
-      <div class="endpoint-item"><span class="method get">GET</span> /health - Health check</div>
-      <div class="endpoint-item"><span class="method post">POST</span> /api/auth/login - User login</div>
-      <div class="endpoint-item"><span class="method post">POST</span> /api/auth/register - User registration</div>
-      <div class="endpoint-item"><span class="method post">POST</span> /api/auth/logout - User logout</div>
-      <div class="endpoint-item"><span class="method get">GET</span> /api/wallet/balance/:username - Get wallet balance</div>
-      <div class="endpoint-item"><span class="method post">POST</span> /api/unlock/:keyId - Unlock a key</div>
-      <div class="endpoint-item"><span class="method get">GET</span> /api/listings/:username - User listings</div>
-      <div class="endpoint-item"><span class="method post">POST</span> /api/create-key - Create new key listing</div>
-      <div class="endpoint-item"><span class="method get">GET</span> /api/notifications/:username - Get notifications</div>
-      <div class="endpoint-item"><span class="method get">GET</span> /api/purchases/:username - Get purchase history</div>
-      <div class="endpoint-item"><span class="method post">POST</span> /api/profile-picture/:username - Upload profile picture</div>
-    </div>
-  </div>
-
-  <script>
-    // Auto-refresh every 30 seconds
-    setTimeout(() => location.reload(), 30000);
-  </script>
-</body>
-</html>
-    `;
-
-    res.send(html);
-  } catch (error) {
-    console.error('Landing page error:', error);
-    res.status(500).send('<h1>Error loading dashboard</h1>');
-  }
-});
-
-// Logs viewer route
-server.get('/logs', (req, res) => {
-  const type = req.query.type || 'all'; // Filter by type: all, info, error, warn
-  const limit = parseInt(req.query.limit) || 100;
-
-  let filteredLogs = logs.entries;
-  if (type !== 'all') {
-    filteredLogs = logs.entries.filter(log => log.type === type);
-  }
-
-  const displayLogs = filteredLogs.slice(-limit).reverse();
-
-  const html = `
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Server Logs - KeyChing</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, monospace;
-      background: #1e1e1e;
-      color: #d4d4d4;
-      padding: 20px;
-    }
-    .container {
-      max-width: 1400px;
-      margin: 0 auto;
-    }
-    .header {
-      background: #252526;
-      padding: 20px;
-      border-radius: 8px;
-      margin-bottom: 20px;
-      border-left: 4px solid #007acc;
-    }
-    .header h1 {
-      color: #4ec9b0;
-      margin-bottom: 10px;
-    }
-    .stats {
-      display: flex;
-      gap: 20px;
-      font-size: 14px;
-    }
-    .stat-item {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    .badge {
-      padding: 4px 10px;
-      border-radius: 12px;
-      font-weight: bold;
-      font-size: 12px;
-    }
-    .badge.info { background: #007acc; color: white; }
-    .badge.error { background: #f48771; color: white; }
-    .badge.warn { background: #dcdcaa; color: #1e1e1e; }
-    .badge.all { background: #4ec9b0; color: #1e1e1e; }
-    .controls {
-      background: #252526;
-      padding: 15px 20px;
-      border-radius: 8px;
-      margin-bottom: 20px;
-      display: flex;
-      gap: 15px;
-      align-items: center;
-      flex-wrap: wrap;
-    }
-    .controls label {
-      color: #858585;
-      font-size: 14px;
-    }
-    .controls select,
-    .controls input {
-      background: #3c3c3c;
-      border: 1px solid #555;
-      color: #d4d4d4;
-      padding: 8px 12px;
-      border-radius: 4px;
-      font-size: 14px;
-    }
-    .controls button {
-      background: #007acc;
-      color: white;
-      border: none;
-      padding: 8px 16px;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 14px;
-      transition: background 0.3s;
-    }
-    .controls button:hover {
-      background: #005a9e;
-    }
-    .controls button.clear {
-      background: #f48771;
-    }
-    .controls button.clear:hover {
-      background: #d9534f;
-    }
-    .log-container {
-      background: #252526;
-      border-radius: 8px;
-      padding: 15px;
-      max-height: calc(100vh - 300px);
-      overflow-y: auto;
-    }
-    .log-entry {
-      padding: 10px 12px;
-      border-left: 3px solid transparent;
-      margin-bottom: 8px;
-      border-radius: 4px;
-      background: #1e1e1e;
-      font-family: 'Courier New', monospace;
-      font-size: 13px;
-      line-height: 1.6;
-    }
-    .log-entry.info {
-      border-left-color: #4ec9b0;
-    }
-    .log-entry.error {
-      border-left-color: #f48771;
-      background: #2d1f1f;
-    }
-    .log-entry.warn {
-      border-left-color: #dcdcaa;
-      background: #2d2d1f;
-    }
-    .log-time {
-      color: #858585;
-      font-size: 11px;
-      margin-right: 10px;
-    }
-    .log-type {
-      display: inline-block;
-      padding: 2px 8px;
-      border-radius: 3px;
-      font-size: 10px;
-      font-weight: bold;
-      margin-right: 10px;
-      text-transform: uppercase;
-    }
-    .log-type.info { background: #007acc; color: white; }
-    .log-type.error { background: #f48771; color: white; }
-    .log-type.warn { background: #dcdcaa; color: #1e1e1e; }
-    .log-message {
-      color: #d4d4d4;
-      word-wrap: break-word;
-    }
-    .no-logs {
-      text-align: center;
-      padding: 40px;
-      color: #858585;
-    }
-    .auto-refresh {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    .auto-refresh input[type="checkbox"] {
-      width: 16px;
-      height: 16px;
-      cursor: pointer;
-    }
-    .scroll-to-bottom {
-      position: fixed;
-      bottom: 30px;
-      right: 30px;
-      background: #007acc;
-      color: white;
-      border: none;
-      padding: 12px 20px;
-      border-radius: 50px;
-      cursor: pointer;
-      font-size: 14px;
-      box-shadow: 0 4px 12px rgba(0, 122, 204, 0.4);
-      transition: all 0.3s;
-    }
-    .scroll-to-bottom:hover {
-      background: #005a9e;
-      transform: translateY(-2px);
-    }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="header">
-      <h1>📋 Server Logs</h1>
-      <div class="stats">
-        <div class="stat-item">
-          <span class="badge all">${logs.entries.length}</span>
-          <span>Total Logs</span>
-        </div>
-        <div class="stat-item">
-          <span class="badge info">${logs.entries.filter(l => l.type === 'info').length}</span>
-          <span>Info</span>
-        </div>
-        <div class="stat-item">
-          <span class="badge warn">${logs.entries.filter(l => l.type === 'warn').length}</span>
-          <span>Warnings</span>
-        </div>
-        <div class="stat-item">
-          <span class="badge error">${logs.entries.filter(l => l.type === 'error').length}</span>
-          <span>Errors</span>
-        </div>
-      </div>
-    </div>
-
-    <div class="controls">
-      <label>Filter:</label>
-      <select id="typeFilter" onchange="filterLogs()">
-        <option value="all" ${type === 'all' ? 'selected' : ''}>All Types</option>
-        <option value="info" ${type === 'info' ? 'selected' : ''}>Info Only</option>
-        <option value="warn" ${type === 'warn' ? 'selected' : ''}>Warnings Only</option>
-        <option value="error" ${type === 'error' ? 'selected' : ''}>Errors Only</option>
-      </select>
-      
-      <label>Limit:</label>
-      <input type="number" id="limitInput" value="${limit}" min="10" max="500" step="10" onchange="filterLogs()">
-      
-      <div class="auto-refresh">
-        <input type="checkbox" id="autoRefresh" onchange="toggleAutoRefresh()">
-        <label for="autoRefresh">Auto-refresh (5s)</label>
-      </div>
-      
-      <button onclick="location.reload()">🔄 Refresh</button>
-      <button class="clear" onclick="clearLogs()">🗑️ Clear Logs</button>
-      <button onclick="exportLogs()">📥 Export</button>
-    </div>
-
-    <div class="log-container" id="logContainer">
-      ${displayLogs.length === 0 ? '<div class="no-logs">No logs to display</div>' : displayLogs.map(log => `
-        <div class="log-entry ${log.type}">
-          <span class="log-time">${new Date(log.timestamp).toLocaleString()}</span>
-          <span class="log-type ${log.type}">${log.type}</span>
-          <span class="log-message">${escapeHtml(log.message)}</span>
-        </div>
-      `).join('')}
-    </div>
-
-    <button class="scroll-to-bottom" onclick="scrollToBottom()">↓ Scroll to Bottom</button>
-  </div>
-
-  <script>
-    let autoRefreshInterval = null;
-
-    function filterLogs() {
-      const type = document.getElementById('typeFilter').value;
-      const limit = document.getElementById('limitInput').value;
-      window.location.href = \`/logs?type=\${type}&limit=\${limit}\`;
-    }
-
-    function toggleAutoRefresh() {
-      const checkbox = document.getElementById('autoRefresh');
-      if (checkbox.checked) {
-        autoRefreshInterval = setInterval(() => location.reload(), 5000);
-      } else {
-        if (autoRefreshInterval) {
-          clearInterval(autoRefreshInterval);
-          autoRefreshInterval = null;
-        }
-      }
-    }
-
-    function scrollToBottom() {
-      const container = document.getElementById('logContainer');
-      container.scrollTop = container.scrollHeight;
-    }
-
-    function clearLogs() {
-      if (confirm('Are you sure you want to clear all logs?')) {
-        fetch('/api/logs/clear', { method: 'POST' })
-          .then(() => location.reload())
-          .catch(err => alert('Error clearing logs: ' + err));
-      }
-    }
-
-    function exportLogs() {
-      fetch('/api/logs/export')
-        .then(res => res.json())
-        .then(data => {
-          const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = \`server-logs-\${new Date().toISOString()}.json\`;
-          a.click();
-          URL.revokeObjectURL(url);
-        })
-        .catch(err => alert('Error exporting logs: ' + err));
-    }
-
-    // Auto-scroll to bottom on load
-    window.addEventListener('load', () => {
-      scrollToBottom();
-    });
-  </script>
-</body>
-</html>
-  `;
-
-  function escapeHtml(text) {
-    const map = {
-      '&': '&amp;',
-      '<': '&lt;',
-      '>': '&gt;',
-      '"': '&quot;',
-      "'": '&#039;'
-    };
-    return text.replace(/[&<>"']/g, m => map[m]);
-  }
-
-  res.send(html);
-});
-
-// API endpoint to clear logs
-server.post('/api/logs/clear', (req, res) => {
-  logs.entries = [];
-  res.json({ success: true, message: 'Logs cleared' });
-});
-
-// API endpoint to export logs
-server.get('/api/logs/export', (req, res) => {
-  res.json({
-    exportDate: new Date().toISOString(),
-    totalLogs: logs.entries.length,
-    logs: logs.entries
-  });
-});
-
-// API endpoint to get logs as JSON
-server.get('/api/logs', (req, res) => {
-  const type = req.query.type || 'all';
-  const limit = parseInt(req.query.limit) || 100;
-
-  let filteredLogs = logs.entries;
-  if (type !== 'all') {
-    filteredLogs = logs.entries.filter(log => log.type === type);
-  }
-
-  res.json({
-    total: filteredLogs.length,
-    logs: filteredLogs.slice(-limit).reverse()
-  });
-});
-
-// Health check endpoint
-server.get('/health', (req, res) => {
-  const uptimeSeconds = process.uptime();
-  const uptimeFormatted = {
-    days: Math.floor(uptimeSeconds / 86400),
-    hours: Math.floor((uptimeSeconds % 86400) / 3600),
-    minutes: Math.floor((uptimeSeconds % 3600) / 60),
-    seconds: Math.floor(uptimeSeconds % 60)
-  };
-
-  const memoryUsage = process.memoryUsage();
-  const memoryFormatted = {
-    rss: `${Math.round(memoryUsage.rss / 1024 / 1024)} MB`,
-    heapTotal: `${Math.round(memoryUsage.heapTotal / 1024 / 1024)} MB`,
-    heapUsed: `${Math.round(memoryUsage.heapUsed / 1024 / 1024)} MB`
-  };
-
-  const html = `
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Health Check - Key-Ching Server</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 20px;
-    }
-    .container {
-      background: white;
-      border-radius: 16px;
-      padding: 40px;
-      max-width: 600px;
-      width: 100%;
-      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-    }
-    .status-badge {
-      display: inline-flex;
-      align-items: center;
-      background: #10b981;
-      color: white;
-      padding: 12px 24px;
-      border-radius: 50px;
-      font-weight: bold;
-      font-size: 1.2em;
-      margin-bottom: 30px;
-    }
-    .status-indicator {
-      width: 12px;
-      height: 12px;
-      background: white;
-      border-radius: 50%;
-      margin-right: 10px;
-      animation: pulse 2s infinite;
-    }
-    @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.5; }
-    }
-    h1 {
-      color: #333;
-      margin-bottom: 30px;
-      font-size: 2em;
-    }
-    .info-grid {
-      display: grid;
-      gap: 20px;
-    }
-    .info-item {
-      background: #f8fafc;
-      padding: 20px;
-      border-radius: 12px;
-      border-left: 4px solid #667eea;
-    }
-    .info-label {
-      color: #64748b;
-      font-size: 0.85em;
-      text-transform: uppercase;
-      letter-spacing: 1px;
-      margin-bottom: 8px;
-    }
-    .info-value {
-      color: #1e293b;
-      font-size: 1.3em;
-      font-weight: 600;
-    }
-    .timestamp {
-      text-align: center;
-      color: #64748b;
-      font-size: 0.9em;
-      margin-top: 30px;
-      padding-top: 20px;
-      border-top: 1px solid #e2e8f0;
-    }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="status-badge">
-      <span class="status-indicator"></span>
-      System Healthy
-    </div>
-    
-    <h1>🔑 Key-Ching Server</h1>
-    
-    <div class="info-grid">
-      <div class="info-item">
-        <div class="info-label">Environment</div>
-        <div class="info-value">${process.env.NODE_ENV || 'development'}</div>
-      </div>
-      
-      <div class="info-item">
-        <div class="info-label">Server Uptime</div>
-        <div class="info-value">${uptimeFormatted.days}d ${uptimeFormatted.hours}h ${uptimeFormatted.minutes}m ${uptimeFormatted.seconds}s</div>
-      </div>
-      
-      <div class="info-item">
-        <div class="info-label">Memory Usage</div>
-        <div class="info-value">${memoryFormatted.heapUsed} / ${memoryFormatted.heapTotal}</div>
-      </div>
-      
-      <div class="info-item">
-        <div class="info-label">Database</div>
-        <div class="info-value">Configured (${dbConfig.database})</div>
-      </div>
-      
-      <div class="info-item">
-        <div class="info-label">Port</div>
-        <div class="info-value">${PORT}</div>
-      </div>
-    </div>
-    
-    <div class="timestamp">
-      Last checked: ${new Date().toISOString()}
-    </div>
-  </div>
-  
-  <script>
-    (function() {
-      const RELOAD_INTERVAL = 30000;
-
-      function scheduleReload() {
-        return setTimeout(() => {
-          if (document.visibilityState === 'visible') {
-            location.reload();
-          }
-        }, RELOAD_INTERVAL);
-      }
-
-      let reloadTimeoutId = scheduleReload();
-
-      document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible') {
-          clearTimeout(reloadTimeoutId);
-          reloadTimeoutId = scheduleReload();
-        } else {
-          clearTimeout(reloadTimeoutId);
-        }
-      });
-    })();
-  </script>
-</body>
-</html>
-  `;
-
-  res.send(html);
-});
-
-
-// ============================================
-// DATABASE MANAGEMENT ENDPOINTS
-// ============================================
-
-// Serve database manager HTML page
-server.get('/db/manager', (req, res) => {
-  res.sendFile(__dirname + '/public/db-manager.html');
-});
-
-// Get database statistics
-server.get('/db/stats', async (req, res) => {
-  try {
-    // Get database size
-    const sizeResult = await knex('information_schema.TABLES')
-      .where('table_schema', dbConfig.database)
-      .select(knex.raw('ROUND(SUM(data_length + index_length) / 1024 / 1024, 2) AS size_mb'));
-
-    // Get total tables
-    const tablesResult = await knex('information_schema.TABLES')
-      .where('table_schema', dbConfig.database)
-      .count('* as count');
-
-    // Get active connections
-    const connectionsResult = await knex('information_schema.PROCESSLIST')
-      .where('DB', dbConfig.database)
-      .count('* as count');
-
-    // Get total records across all tables
-    const allTables = await knex('information_schema.TABLES')
-      .where('table_schema', dbConfig.database)
-      .select('table_name');
-
-    let totalRecords = 0;
-    for (const table of allTables) {
-      const countResult = await knex(table.table_name).count('* as count');
-      totalRecords += countResult[0].count;
-    }
-
-    // Get table details
-    const tableDetails = await knex('information_schema.TABLES')
-      .where('table_schema', dbConfig.database)
-      .select(
-        'table_name',
-        'table_rows',
-        knex.raw('ROUND((data_length + index_length) / 1024 / 1024, 2) AS size_mb'),
-        'engine',
-        'table_collation'
-      )
-      .orderBy('table_name');
-
-    res.json({
-      databaseSize: sizeResult[0].size_mb,
-      totalTables: tablesResult[0].count,
-      activeConnections: connectionsResult[0].count,
-      totalRecords: totalRecords,
-      tables: tableDetails,
-      databaseName: dbConfig.database,
-      host: dbConfig.host,
-      port: dbConfig.port
-    });
-  } catch (error) {
-    console.error('Database stats error:', error);
-    res.status(500).json({ error: 'Failed to retrieve database statistics', message: error.message });
-  }
-});
-
-// Get list of tables with details
-server.get('/db/tables', async (req, res) => {
-  try {
-    const tables = await knex('information_schema.TABLES')
-      .where('table_schema', dbConfig.database)
-      .select(
-        'table_name as name',
-        'table_rows as rows',
-        knex.raw('ROUND((data_length + index_length) / 1024 / 1024, 2) AS size'),
-        'engine',
-        'create_time',
-        'update_time'
-      )
-      .orderBy('table_name');
-
-    const formattedTables = tables.map(table => ({
-      name: table.name,
-      rows: table.rows,
-      size: `${table.size} MB`,
-      engine: table.engine,
-      created: table.create_time,
-      updated: table.update_time
-    }));
-
-    res.json({ tables: formattedTables });
-  } catch (error) {
-    console.error('Get tables error:', error);
-    res.status(500).json({ error: 'Failed to retrieve tables', message: error.message });
-  }
-});
-
-// Get records from a specific table with pagination and search
-server.get('/db/table/:tableName', async (req, res) => {
-  try {
-    const { tableName } = req.params;
-    const limit = parseInt(req.query.limit) || 50;
-    const offset = parseInt(req.query.offset) || 0;
-    const search = req.query.search || '';
-
-    // Validate table name exists
-    const tableCheck = await knex('information_schema.TABLES')
-      .where({ table_schema: dbConfig.database, table_name: tableName })
-      .select('table_name');
-
-    if (tableCheck.length === 0) {
-      return res.status(404).json({ error: 'Table not found' });
-    }
-
-    let countQuery = knex(tableName);
-    let dataQuery = knex(tableName);
-
-    // Add search filter if provided
-    if (search) {
-      // Get column names
-      const columns = await knex('information_schema.COLUMNS')
-        .where({ table_schema: dbConfig.database, table_name: tableName })
-        .select('COLUMN_NAME');
-
-      countQuery = countQuery.where(function () {
-        for (const col of columns) {
-          this.orWhere(col.COLUMN_NAME, 'like', `%${search}%`);
-        }
-      });
-      dataQuery = dataQuery.where(function () {
-        for (const col of columns) {
-          this.orWhere(col.COLUMN_NAME, 'like', `%${search}%`);
-        }
-      });
-    }
-
-    // Get total count
-    const countResult = await countQuery.clone().count('* as total');
-    const total = countResult[0].total;
-
-    // Get records with pagination
-    const records = await dataQuery.limit(limit).offset(offset);
-
-    res.json({
-      records,
-      total,
-      limit,
-      offset
-    });
-  } catch (error) {
-    console.error('Get records error:', error);
-    res.status(500).json({ error: 'Failed to retrieve records', message: error.message });
-  }
-});
-
-// Execute raw SQL query (SELECT only for safety)
-server.post('/db/query', async (req, res) => {
-  try {
-    const { query } = req.body;
-
-    if (!query) {
-      return res.status(400).json({ error: 'Query is required' });
-    }
-
-    // Only allow SELECT queries for safety
-    const trimmedQuery = query.trim().toUpperCase();
-    if (!trimmedQuery.startsWith('SELECT') && !trimmedQuery.startsWith('SHOW') && !trimmedQuery.startsWith('DESCRIBE')) {
-      return res.status(403).json({ error: 'Only SELECT, SHOW, and DESCRIBE queries are allowed' });
-    }
-
-    const results = await knex.raw(query);
-
-    res.json({
-      success: true,
-      results: results[0],
-      rowCount: results[0].length
-    });
-  } catch (error) {
-    console.error('Query execution error:', error);
-    res.status(500).json({ error: 'Query execution failed', message: error.message });
-  }
-});
 
 const currencyIdMap = {
   BTC: 'bitcoin',
@@ -2452,38 +1440,6 @@ server.post(PROXY + '/api/wallet/balance/:username', authenticateToken, async (r
 });
 
 
-
-const handlePurchasePass = async () => {
-  const cost = modeCredits[selectedMode];
-
-  if (balance < cost) {
-    error(`Insufficient credits. You need ${cost} credits but only have ${balance}.`);
-    setShowModeModal(false);
-    return;
-  }
-
-  try {
-    // Placeholder API call - will be connected to backend later
-    const response = await api.post('/api/purchase-mode-pass', {
-      username: userData.username,
-      mode: selectedMode,
-      cost: cost,
-      timestamp: new Date().toISOString()
-    });
-
-    if (response.data.success) {
-      setBalance(balance - cost);
-      setServiceMode(selectedMode);
-      setShowModeModal(false);
-      success(`🎉 ${selectedMode.charAt(0).toUpperCase() + selectedMode.slice(1)} pass activated! ${cost} credits deducted.`);
-    }
-  } catch (err) {
-    console.error('Mode pass purchase error:', err);
-    error('Failed to purchase mode pass. Please try again.');
-  }
-};
-
-
 // Custom route for purchasing mode pass 24 hours
 server.post(PROXY + '/api/purchase-mode-pass', authenticateToken, async (req, res) => {
 
@@ -2981,6 +1937,7 @@ server.get(PROXY + '/api/redemptions/:username', authenticateToken, async (req, 
     res.status(500).json({ error: 'Database error - redemption logging failed' });
   }
 });
+
 
 async function checkTransaction(crypto, txHash, walletAddress, amount) {
   // const receiverAddress = wallets[crypto];
@@ -4573,11 +3530,12 @@ server.get(PROXY + '/api/fingerprint/stats', authenticateToken, async (req, res)
 // ========================================
 
 
-// Python Flask app Control
-
-// const FLASKAPP_LINK = 'http://localhost:5000';
-const FLASKAPP_LINK = process.env.FLASKAPP_LINK || 'http://localhost:5000';
+// Python service (replaces Flask app.py) — now runs scripts directly
+// const FLASKAPP_LINK = 'http://localhost:5000';  // No longer needed
 const TTS_SERVER_LINK = process.env.TTS_SERVER_LINK || 'http://localhost:5001';
+
+// Start the background cleanup worker
+pythonService.startCleanupWorker();
 
 server.post(PROXY + '/api/tts/google', authenticateToken, async (req, res) => {
   try {
@@ -4629,38 +3587,20 @@ server.post(PROXY + '/api/tts/google', authenticateToken, async (req, res) => {
 });
 
 
-server.get(PROXY + '/api/flask-python/download', (req, res) => {
-  // Proxy the request to the Flask app
-  const axios = require('axios');
-  const FormData = require('form-data');
-  const form = new FormData();
-
-  form.append('file', req.files.file.data, req.files.file.name);
-
-  axios.post(`${FLASKAPP_LINK}/upload`, form, {
-    headers: form.getHeaders()
-  })
-    .then(response => {
-      res.json(response.data);
-    })
-    .catch(error => {
-      console.error('Error uploading to Flask app:', error);
-      res.status(500).json({ error: 'Failed to upload file to Python service' });
-    });
+server.get(PROXY + '/api/download', (req, res) => {
+  // Serve file directly from python inputs/outputs
+  const filename = req.query.filename || req.query.file;
+  if (!filename) return res.status(400).json({ error: 'No filename provided' });
+  const filePath = pythonService.getDownloadPath(filename);
+  if (!filePath) return res.status(404).json({ error: 'File not found' });
+  res.sendFile(filePath);
 });
 
-// Flask/Python service URL
-
-
-// Configure multer for file uploads
+// Configure multer for file uploads (using paths from python-service)
 const py_storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    const uploadDir = path.join(__dirname, 'python', 'inputs');
-    // Create directory if it doesn't exist
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-    cb(null, uploadDir);
+    fs.mkdirSync(pythonService.INPUTS_DIR, { recursive: true });
+    cb(null, pythonService.INPUTS_DIR);
   },
   filename: function (req, file, cb) {
     // Generate unique filename
@@ -4732,7 +3672,7 @@ server.post(PROXY + '/api/audio-stegano-embed', upload.single('file'), authentic
       });
     }
 
-    // 3) Prepare Flask payload
+    // 3) Prepare payload
     const inputFile = req.file.filename;
     const outputFile = `watermarked_${inputFile}`;
 
@@ -4743,28 +3683,16 @@ server.post(PROXY + '/api/audio-stegano-embed', upload.single('file'), authentic
       timestamp: time || new Date().toISOString()
     });
 
-    const flaskPayload = {
+    console.log('🔄 Running audio steganography embed...');
+
+    // 4) Call python-service directly (replaces Flask HTTP call)
+    const data = await pythonService.audioSteganoEmbed({
       input: inputFile,
       output: outputFile,
       secret_message: secretMessage
-    };
+    });
 
-    console.log('🔄 Sending payload to Flask:', flaskPayload);
-    console.log('📡 Flask URL:', `${FLASKAPP_LINK}/audio-stegano-embed`);
-
-    // 4) Call Flask audio steganography endpoint
-    const flaskResponse = await axios.post(
-      `${FLASKAPP_LINK}/audio-stegano-embed`,
-      flaskPayload,
-      {
-        timeout: 60000,
-        headers: { 'Content-Type': 'application/json' }
-      }
-    );
-
-    console.log('✅ Flask response received:', flaskResponse.data);
-
-    const data = flaskResponse.data;
+    console.log('✅ Audio stegano response:', data);
 
     // 5) Send success response to frontend
     res.json({
@@ -4781,7 +3709,7 @@ server.post(PROXY + '/api/audio-stegano-embed', upload.single('file'), authentic
     });
 
   } catch (error) {
-    console.error('❌ Error in /api/audio-stegano endpoint:', error.message);
+    console.error('❌ Error in /api/audio-stegano endpoint:', error.message || error.error);
 
     // Cleanup uploaded file if processing failed
     if (req.file && fs.existsSync(req.file.path)) {
@@ -4793,24 +3721,9 @@ server.post(PROXY + '/api/audio-stegano-embed', upload.single('file'), authentic
       }
     }
 
-    if (error.code === 'ECONNREFUSED') {
-      return res.status(503).json({
-        success: false,
-        error: 'Python/Flask service is not running. Please start the Flask server on port 5000.'
-      });
-    }
-
-    if (error.response) {
-      return res.status(error.response.status || 500).json({
-        success: false,
-        error: error.response.data?.error || 'Audio steganography failed in Python service',
-        details: error.response.data
-      });
-    }
-
-    res.status(500).json({
+    res.status(error.status || 500).json({
       success: false,
-      error: 'Failed to apply audio steganography',
+      error: error.error || 'Failed to apply audio steganography',
       message: error.message
     });
   }
@@ -4897,7 +3810,7 @@ server.post(PROXY + '/api/scramble-photo', authenticateToken, upload.single('fil
       metadata: metadata ? JSON.stringify(metadata) : undefined
     };
 
-    // Remove undefined keys so Flask doesn't see them at all
+    // Remove undefined keys
     Object.keys(flaskPayload).forEach((key) => {
       if (flaskPayload[key] === undefined) delete flaskPayload[key];
     });
@@ -4911,23 +3824,12 @@ server.post(PROXY + '/api/scramble-photo', authenticateToken, upload.single('fil
       });
     }
 
-    console.log('🔄 Sending normalized payload to Flask:', flaskPayload);
-    console.log('📡 Flask URL:', `${FLASKAPP_LINK}/scramble-photo`);
+    console.log('🔄 Running scramble-photo with payload:', flaskPayload);
 
-    // 4) Call Flask /scramble-photo as JSON
-    const flaskResponse = await axios.post(
-      `${FLASKAPP_LINK}/scramble-photo`,
-      flaskPayload,
-      {
-        timeout: 60000,
-        headers: { 'Content-Type': 'application/json' }
-      }
-    );
+    // 4) Call python-service directly (replaces Flask HTTP call)
+    const data = await pythonService.scramblePhoto(flaskPayload);
 
-    console.log('✅ Flask response received:', flaskResponse.data);
-
-    // Flask returns: { message, output_file, algorithm, seed, download_url, ... }
-    const data = flaskResponse.data;
+    console.log('✅ Scramble photo response:', data);
 
     // 5) Send a clean response back to the React frontend
     res.json({
@@ -4937,21 +3839,18 @@ server.post(PROXY + '/api/scramble-photo', authenticateToken, upload.single('fil
       seed: data.seed,
       download_url: data.download_url,
       message: data.message || 'Image scrambled successfully',
-      // Include noise parameters if they were used
       noise: noiseParams ? {
         seed: noiseParams.seed,
         intensity: noiseParams.intensity,
         mode: noiseParams.mode,
         prng: noiseParams.prng
       } : undefined,
-      // Include metadata if present
       metadata: metadata,
-      // Include everything else from Flask, just in case
       ...data
     });
 
   } catch (error) {
-    console.error('❌ Error in /api/scramble-photo endpoint:', error.message);
+    console.error('❌ Error in /api/scramble-photo endpoint:', error.message || error.error);
 
     // Cleanup uploaded file if something failed
     if (req.file && fs.existsSync(req.file.path)) {
@@ -4963,22 +3862,8 @@ server.post(PROXY + '/api/scramble-photo', authenticateToken, upload.single('fil
       }
     }
 
-    if (error.code === 'ECONNREFUSED') {
-      return res.status(503).json({
-        error: 'Python/Flask service is not running. Please start the Flask server on port 5000.'
-      });
-    }
-
-    if (error.response) {
-      // Flask returned an HTTP error
-      return res.status(error.response.status || 500).json({
-        error: error.response.data?.error || 'Scrambling failed in Python service',
-        details: error.response.data
-      });
-    }
-
-    res.status(500).json({
-      error: 'Failed to scramble photo',
+    res.status(error.status || 500).json({
+      error: error.error || 'Failed to scramble photo',
       message: error.message
     });
   }
@@ -5074,50 +3959,34 @@ server.post(PROXY + '/api/scramble-photo-pro', authenticateToken, upload.single(
       });
     }
 
-    console.log('🔄 Sending normalized payload to Flask:', flaskPayload);
-    console.log('📡 Flask URL:', `${FLASKAPP_LINK}/scramble-photo-pro`);
+    console.log('🔄 Running scramble-photo-pro with payload:', flaskPayload);
 
-    // 4) Call Flask /scramble-photo as JSON
-    const flaskResponse = await axios.post(
-      `${FLASKAPP_LINK}/scramble-photo-pro`,
-      flaskPayload,
-      {
-        timeout: 60000,
-        headers: { 'Content-Type': 'application/json' }
-      }
-    );
+    // 4) Call python-service directly
+    const data = await pythonService.scramblePhotoPro(flaskPayload);
 
-    console.log('✅ Flask response received:', flaskResponse.data);
-
-    // Flask returns: { message, output_file, algorithm, seed, download_url, ... }
-    const data = flaskResponse.data;
+    console.log('✅ Scramble photo pro response:', data);
 
     // 5) Send a clean response back to the React frontend
     res.json({
       success: true,
       output_file: data.output_file,
-      // algorithm: data.algorithm,
       seed: data.seed,
       rows: data.rows,
       cols: data.cols,
       percentage: data.percentage,
       download_url: data.download_url,
       message: data.message || 'Image scrambled successfully',
-      // Include noise parameters if they were used
       noise: noiseParams ? {
         seed: noiseParams.seed,
         intensity: noiseParams.intensity,
-        // mode: noiseParams.mode,
         prng: noiseParams.prng
       } : undefined,
-      // Include metadata if present
       metadata: metadata,
-      // Include everything else from Flask, just in case
       ...data
     });
 
   } catch (error) {
-    console.error('❌ Error in /api/scramble-photo endpoint:', error.message);
+    console.error('❌ Error in /api/scramble-photo-pro endpoint:', error.message || error.error);
 
     // Cleanup uploaded file if something failed
     if (req.file && fs.existsSync(req.file.path)) {
@@ -5129,22 +3998,8 @@ server.post(PROXY + '/api/scramble-photo-pro', authenticateToken, upload.single(
       }
     }
 
-    if (error.code === 'ECONNREFUSED') {
-      return res.status(503).json({
-        error: 'Python/Flask service is not running. Please start the Flask server on port 5000.'
-      });
-    }
-
-    if (error.response) {
-      // Flask returned an HTTP error
-      return res.status(error.response.status || 500).json({
-        error: error.response.data?.error || 'Scrambling failed in Python service',
-        details: error.response.data
-      });
-    }
-
-    res.status(500).json({
-      error: 'Failed to scramble photo',
+    res.status(error.status || 500).json({
+      error: error.error || 'Failed to scramble photo',
       message: error.message
     });
   }
@@ -5237,43 +4092,31 @@ server.post(PROXY + '/api/unscramble-photo', upload.single('file'), async (req, 
       });
     }
 
-    console.log('🔄 Sending normalized payload to Flask:', flaskPayload);
-    console.log('🔄 Sending to Flask service:', FLASKAPP_LINK + '/unscramble-photo');
+    console.log('🔄 Running unscramble-photo with payload:', flaskPayload);
 
-    // Send request to Flask/Python service
-    const flaskResponse = await axios.post(
-      `${FLASKAPP_LINK}/unscramble-photo`,
-      flaskPayload,
-      {
-        timeout: 30000, // 30 second timeout
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      }
-    );
+    // Call python-service directly
+    const data = await pythonService.unscramblePhoto(flaskPayload);
 
-    console.log('✅ Flask response received:', flaskResponse.data);
+    console.log('✅ Unscramble photo response:', data);
 
-    // Return Flask response to frontend with noise parameters included
+    // Return response to frontend with noise parameters included
     res.json({
       success: true,
-      output_file: flaskResponse.data.output_file || flaskResponse.data.unscrambledFileName,
-      unscrambledImageUrl: flaskResponse.data.unscrambledImageUrl,
+      output_file: data.output_file,
+      unscrambledImageUrl: data.unscrambledImageUrl,
       message: 'Image unscrambled successfully',
-      // Include noise parameters so frontend knows to remove noise
       noise: noiseParams ? {
         seed: noiseParams.seed,
         intensity: noiseParams.intensity,
         mode: noiseParams.mode,
         prng: noiseParams.prng
       } : undefined,
-      // Include metadata if present
       metadata: metadata,
-      ...flaskResponse.data
+      ...data
     });
 
   } catch (error) {
-    console.error('❌ Error in unscramble-photo endpoint:', error.message);
+    console.error('❌ Error in unscramble-photo endpoint:', error.message || error.error);
 
     // Clean up uploaded file if processing failed
     if (req.file && fs.existsSync(req.file.path)) {
@@ -5285,22 +4128,8 @@ server.post(PROXY + '/api/unscramble-photo', upload.single('file'), async (req, 
       }
     }
 
-    if (error.code === 'ECONNREFUSED') {
-      return res.status(503).json({
-        error: 'Python/Flask service is not running. Please start the Flask server on port 5000.'
-      });
-    }
-
-    if (error.response) {
-      // Flask returned an error
-      return res.status(error.response.status || 500).json({
-        error: error.response.data?.error || 'Unscrambling failed in Python service',
-        details: error.response.data
-      });
-    }
-
-    res.status(500).json({
-      error: 'Failed to unscramble photo',
+    res.status(error.status || 500).json({
+      error: error.error || 'Failed to unscramble photo',
       message: error.message
     });
   }
@@ -5387,43 +4216,31 @@ server.post(PROXY + '/api/unscramble-photo-pro', upload.single('file'), async (r
       });
     }
 
-    console.log('🔄 Sending normalized payload to Flask:', flaskPayload);
-    console.log('🔄 Sending to Flask service:', FLASKAPP_LINK + '/unscramble-photo-pro');
+    console.log('🔄 Running unscramble-photo-pro with payload:', flaskPayload);
 
-    // Send request to Flask/Python service
-    const flaskResponse = await axios.post(
-      `${FLASKAPP_LINK}/unscramble-photo-pro`,
-      flaskPayload,
-      {
-        timeout: 30000, // 30 second timeout
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      }
-    );
+    // Call python-service directly
+    const data = await pythonService.unscramblePhotoPro(flaskPayload);
 
-    console.log('✅ Flask response received:', flaskResponse.data);
+    console.log('✅ Unscramble photo pro response:', data);
 
-    // Return Flask response to frontend with noise parameters included
+    // Return response to frontend with noise parameters included
     res.json({
       success: true,
-      output_file: flaskResponse.data.output_file || flaskResponse.data.unscrambledFileName,
-      unscrambledImageUrl: flaskResponse.data.unscrambledImageUrl,
+      output_file: data.output_file,
+      unscrambledImageUrl: data.unscrambledImageUrl,
       message: 'Image unscrambled successfully',
-      // Include noise parameters so frontend knows to remove noise
       noise: noiseParams ? {
         seed: noiseParams.seed,
         intensity: noiseParams.intensity,
         mode: noiseParams.mode,
         prng: noiseParams.prng
       } : undefined,
-      // Include metadata if present
       metadata: metadata,
-      ...flaskResponse.data
+      ...data
     });
 
   } catch (error) {
-    console.error('❌ Error in unscramble-photo endpoint:', error.message);
+    console.error('❌ Error in unscramble-photo-pro endpoint:', error.message || error.error);
 
     // Clean up uploaded file if processing failed
     if (req.file && fs.existsSync(req.file.path)) {
@@ -5435,22 +4252,8 @@ server.post(PROXY + '/api/unscramble-photo-pro', upload.single('file'), async (r
       }
     }
 
-    if (error.code === 'ECONNREFUSED') {
-      return res.status(503).json({
-        error: 'Python/Flask service is not running. Please start the Flask server on port 5000.'
-      });
-    }
-
-    if (error.response) {
-      // Flask returned an error
-      return res.status(error.response.status || 500).json({
-        error: error.response.data?.error || 'Unscrambling failed in Python service',
-        details: error.response.data
-      });
-    }
-
-    res.status(500).json({
-      error: 'Failed to unscramble photo',
+    res.status(error.status || 500).json({
+      error: error.error || 'Failed to unscramble photo',
       message: error.message
     });
   }
@@ -5521,23 +4324,12 @@ server.post(PROXY + '/api/scramble-video', upload.single('file'), async (req, re
       if (flaskPayload[key] === undefined) delete flaskPayload[key];
     });
 
-    console.log('🔄 Sending normalized payload to Flask:', flaskPayload);
-    console.log('📡 Flask URL:', `${FLASKAPP_LINK}/scramble-video`);
+    console.log('🔄 Running scramble-video with payload:', flaskPayload);
 
-    // 4) Call Flask /scramble-photo as JSON
-    const flaskResponse = await axios.post(
-      `${FLASKAPP_LINK}/scramble-video`,
-      flaskPayload,
-      {
-        timeout: 180000, // 3 minutes for video processing + WebM conversion
-        headers: { 'Content-Type': 'application/json' }
-      }
-    );
+    // 4) Call python-service directly
+    const data = await pythonService.scrambleVideo(flaskPayload);
 
-    console.log('✅ Flask response received:', flaskResponse.data);
-
-    // Flask returns: { message, output_file, algorithm, seed, download_url, ... }
-    const data = flaskResponse.data;
+    console.log('✅ Scramble video response:', data);
 
     // 5) Send a clean response back to the React frontend
     res.json({
@@ -5546,13 +4338,12 @@ server.post(PROXY + '/api/scramble-video', upload.single('file'), async (req, re
       algorithm: data.algorithm,
       seed: data.seed,
       download_url: data.download_url,
-      message: data.message || 'Image scrambled successfully',
-      // Include everything else from Flask, just in case
+      message: data.message || 'Video scrambled successfully',
       ...data
     });
 
   } catch (error) {
-    console.error('❌ Error in /api/scramble-video endpoint:', error.message);
+    console.error('❌ Error in /api/scramble-video endpoint:', error.message || error.error);
 
     // Cleanup uploaded file if something failed
     if (req.file && fs.existsSync(req.file.path)) {
@@ -5564,22 +4355,8 @@ server.post(PROXY + '/api/scramble-video', upload.single('file'), async (req, re
       }
     }
 
-    if (error.code === 'ECONNREFUSED') {
-      return res.status(503).json({
-        error: 'Python/Flask service is not running. Please start the Flask server on port 5000.'
-      });
-    }
-
-    if (error.response) {
-      // Flask returned an HTTP error
-      return res.status(error.response.status || 500).json({
-        error: error.response.data?.error || 'Scrambling failed in Python service',
-        details: error.response.data
-      });
-    }
-
-    res.status(500).json({
-      error: 'Failed to scramble video',
+    res.status(error.status || 500).json({
+      error: error.error || 'Failed to scramble video',
       message: error.message
     });
   }
@@ -5643,23 +4420,12 @@ server.post(PROXY + '/api/scramble-video-pro', upload.single('file'), async (req
       if (flaskPayload[key] === undefined) delete flaskPayload[key];
     });
 
-    console.log('🔄 Sending normalized payload to Flask:', flaskPayload);
-    console.log('📡 Flask URL:', `${FLASKAPP_LINK}/scramble-video-pro`);
+    console.log('🔄 Running scramble-video-pro with payload:', flaskPayload);
 
-    // 4) Call Flask /scramble-photo as JSON
-    const flaskResponse = await axios.post(
-      `${FLASKAPP_LINK}/scramble-video-pro`,
-      flaskPayload,
-      {
-        timeout: 180000, // 3 minutes for video processing + WebM conversion
-        headers: { 'Content-Type': 'application/json' }
-      }
-    );
+    // 4) Call python-service directly
+    const data = await pythonService.scrambleVideoPro(flaskPayload);
 
-    console.log('✅ Flask response received:', flaskResponse.data);
-
-    // Flask returns: { message, output_file, algorithm, seed, download_url, ... }
-    const data = flaskResponse.data;
+    console.log('✅ Scramble video pro response:', data);
 
     // 5) Send a clean response back to the React frontend
     res.json({
@@ -5668,13 +4434,12 @@ server.post(PROXY + '/api/scramble-video-pro', upload.single('file'), async (req
       algorithm: data.algorithm,
       seed: data.seed,
       download_url: data.download_url,
-      message: data.message || 'Image scrambled successfully',
-      // Include everything else from Flask, just in case
+      message: data.message || 'Video scrambled successfully',
       ...data
     });
 
   } catch (error) {
-    console.error('❌ Error in /api/scramble-video-pro endpoint:', error.message);
+    console.error('❌ Error in /api/scramble-video-pro endpoint:', error.message || error.error);
 
     // Cleanup uploaded file if something failed
     if (req.file && fs.existsSync(req.file.path)) {
@@ -5686,22 +4451,8 @@ server.post(PROXY + '/api/scramble-video-pro', upload.single('file'), async (req
       }
     }
 
-    if (error.code === 'ECONNREFUSED') {
-      return res.status(503).json({
-        error: 'Python/Flask service is not running. Please start the Flask server on port 5000.'
-      });
-    }
-
-    if (error.response) {
-      // Flask returned an HTTP error
-      return res.status(error.response.status || 500).json({
-        error: error.response.data?.error || 'Scrambling failed in Python service',
-        details: error.response.data
-      });
-    }
-
-    res.status(500).json({
-      error: 'Failed to scramble video',
+    res.status(error.status || 500).json({
+      error: error.error || 'Failed to scramble video',
       message: error.message
     });
   }
@@ -5749,52 +4500,27 @@ server.post(PROXY + '/api/unscramble-video', upload.single('file'), async (req, 
       metadata: params.metadata ? JSON.stringify(params.metadata) : undefined
     };
 
-    console.log('🔄 Sending normalized payload to Flask:', flaskPayload);
-    console.log('🔄 Sending to Flask service:', FLASKAPP_LINK + '/unscramble-video');
+    console.log('🔄 Running unscramble-video with payload:', flaskPayload);
 
-    // 4) Call Flask /unscramble-video as JSON
-    const flaskResponse = await axios.post(
-      `${FLASKAPP_LINK}/unscramble-video`,
-      flaskPayload,
-      {
-        timeout: 180000, // 3 minutes for video processing + WebM conversion
-        headers: { 'Content-Type': 'application/json' }
-      }
-    );
+    // 4) Call python-service directly
+    const data = await pythonService.unscrambleVideo(flaskPayload);
 
-    console.log('✅ Flask response received:', flaskResponse.data);
+    console.log('✅ Unscramble video response:', data);
 
-
-    // Return Flask response to frontend
+    // Return response to frontend
     res.json({
       success: true,
-      output_file: flaskResponse.data.output_file || flaskResponse.data.unscrambledFileName,
-      unscrambledImageUrl: flaskResponse.data.unscrambledImageUrl,
-      message: 'Image unscrambled successfully',
-      ...flaskResponse.data
+      output_file: data.output_file,
+      unscrambledImageUrl: data.unscrambledImageUrl,
+      message: 'Video unscrambled successfully',
+      ...data
     });
 
   } catch (error) {
-    console.error('❌ Error in /api/unscramble-video endpoint:', error.message);
+    console.error('❌ Error in /api/unscramble-video endpoint:', error.message || error.error);
 
-
-
-    if (error.code === 'ECONNREFUSED') {
-      return res.status(503).json({
-        error: 'Python/Flask service is not running. Please start the Flask server on port 5000.'
-      });
-    }
-
-    if (error.response) {
-      // Flask returned an error
-      return res.status(error.response.status || 500).json({
-        error: error.response.data?.error || 'Unscrambling failed in Python service',
-        details: error.response.data
-      });
-    }
-
-    res.status(500).json({
-      error: 'Failed to unscramble video',
+    res.status(error.status || 500).json({
+      error: error.error || 'Failed to unscramble video',
       message: error.message
     });
   }
@@ -5837,52 +4563,27 @@ server.post(PROXY + '/api/unscramble-video-pro', upload.single('file'), async (r
       metadata: params.metadata ? JSON.stringify(params.metadata) : undefined
     };
 
-    console.log('🔄 Sending normalized payload to Flask:', flaskPayload);
-    console.log('🔄 Sending to Flask service:', FLASKAPP_LINK + '/unscramble-video-pro');
+    console.log('🔄 Running unscramble-video-pro with payload:', flaskPayload);
 
-    // 4) Call Flask /unscramble-video as JSON
-    const flaskResponse = await axios.post(
-      `${FLASKAPP_LINK}/unscramble-video-pro`,
-      flaskPayload,
-      {
-        timeout: 180000, // 3 minutes for video processing + WebM conversion
-        headers: { 'Content-Type': 'application/json' }
-      }
-    );
+    // 4) Call python-service directly
+    const data = await pythonService.unscrambleVideoPro(flaskPayload);
 
-    console.log('✅ Flask response received:', flaskResponse.data);
+    console.log('✅ Unscramble video pro response:', data);
 
-
-    // Return Flask response to frontend
+    // Return response to frontend
     res.json({
       success: true,
-      output_file: flaskResponse.data.output_file || flaskResponse.data.unscrambledFileName,
-      unscrambledImageUrl: flaskResponse.data.unscrambledImageUrl,
-      message: 'Image unscrambled successfully',
-      ...flaskResponse.data
+      output_file: data.output_file,
+      unscrambledImageUrl: data.unscrambledImageUrl,
+      message: 'Video unscrambled successfully',
+      ...data
     });
 
   } catch (error) {
-    console.error('❌ Error in /api/unscramble-video-pro endpoint:', error.message);
+    console.error('❌ Error in /api/unscramble-video-pro endpoint:', error.message || error.error);
 
-
-
-    if (error.code === 'ECONNREFUSED') {
-      return res.status(503).json({
-        error: 'Python/Flask service is not running. Please start the Flask server on port 5000.'
-      });
-    }
-
-    if (error.response) {
-      // Flask returned an error
-      return res.status(error.response.status || 500).json({
-        error: error.response.data?.error || 'Unscrambling failed in Python service',
-        details: error.response.data
-      });
-    }
-
-    res.status(500).json({
-      error: 'Failed to unscramble video',
+    res.status(error.status || 500).json({
+      error: error.error || 'Failed to unscramble video',
       message: error.message
     });
   }
@@ -5927,7 +4628,7 @@ server.post(PROXY + '/api/check-photo-leak', authenticateToken, async (req, res)
   const upload = multer({
     storage: multer.diskStorage({
       destination: (req, file, cb) => {
-        const uploadDir = path.join(__dirname, 'leak_uploads', 'images');
+        const uploadDir = path.join(__dirname, 'leak_uploads', 'images', req.user?.username);
         if (!fs.existsSync(uploadDir)) {
           fs.mkdirSync(uploadDir, { recursive: true });
         }
@@ -6002,139 +4703,6 @@ server.post(PROXY + '/api/check-photo-leak', authenticateToken, async (req, res)
         console.log('🔑 NODE: Key code provided:', keyCode);
       }
 
-      if (0) {
-        // AUTOMATIC LEAK DETECTION STEPS:
-        // // Step 1: Send to Flask to extract steganographic code by comparing both images
-        // console.log('📡 NODE: Sending both images to Flask for code extraction...');
-
-        // const flaskResponse = await axios.post(
-        //   `${FLASKAPP_LINK}/extract-photo-code`,
-        //   {
-        //     input: leakedImageFile.filename,
-        //     original: originalImageFile.filename,
-        //     keyData: keyData,
-        //     keyCode: keyCode
-        //   },
-        //   {
-        //     headers: { 'Content-Type': 'application/json' },
-        //     timeout: 30000
-        //   }
-        // );
-
-        // const { extracted_code } = flaskResponse.data;
-
-        // console.log(`🔑 NODE: Extracted code: ${extracted_code || 'None'}`);
-
-        // if (!extracted_code) {
-        //   // Cleanup uploaded files
-        //   uploadedFiles.forEach(filePath => {
-        //     try {
-        //       fs.unlinkSync(filePath);
-        //     } catch (cleanupErr) {
-        //       console.warn('⚠️  Could not delete uploaded file:', cleanupErr);
-        //     }
-        //   });
-
-        //   return res.json({
-        //     leakDetected: false,
-        //     extractedCode: null,
-        //     message: 'No steganographic code found in image'
-        //   });
-        // }
-
-        // // Step 2: Search database for matching code
-        // console.log('🔍 NODE: Searching database for matching code...');
-
-        // const [rows] = await pool.query(
-        //   `SELECT 
-        //     wc.*,
-        //     ud.username,
-        //     ud.email,
-        //     p.id as purchase_id,
-        //     p.createdAt as purchase_date
-        //   FROM watermark_codes wc
-        //   LEFT JOIN userData ud ON wc.user_id = ud.id
-        //   LEFT JOIN purchases p ON wc.purchase_id = p.id
-        //   WHERE wc.code = ?`,
-        //   [extracted_code]
-        // );
-
-        // if (rows.length === 0) {
-        //   console.log('✅ NODE: No match found in database - image is clean');
-
-        //   // Cleanup uploaded files
-        //   uploadedFiles.forEach(filePath => {
-        //     try {
-        //       fs.unlinkSync(filePath);
-        //     } catch (cleanupErr) {
-        //       console.warn('⚠️  Could not delete uploaded file:', cleanupErr);
-        //     }
-        //   });
-
-        //   return res.json({
-        //     leakDetected: false,
-        //     extractedCode: extracted_code,
-        //     message: 'Code extracted but not found in database'
-        //   });
-        // }
-
-        // // Step 3: Leak detected! Return details
-        // const leakData = rows[0];
-        // console.log('🚨 NODE: LEAK DETECTED!');
-        // console.log(`   User: ${leakData.username} (${leakData.user_id})`);
-        // console.log(`   File: ${leakData.filename}`);
-
-        // // Cleanup uploaded files
-        // uploadedFiles.forEach(filePath => {
-        //   try {
-        //     fs.unlinkSync(filePath);
-        //   } catch (cleanupErr) {
-        //     console.warn('⚠️  Could not delete uploaded file:', cleanupErr);
-        //   }
-        // });
-
-        // console.log('='.repeat(60) + '\n');
-
-        // return res.json({
-        //   leakDetected: true,
-        //   extractedCode: extracted_code,
-        //   leakData: {
-        //     id: leakData.id,
-        //     code: leakData.code,
-        //     user_id: leakData.user_id,
-        //     username: leakData.username,
-        //     email: leakData.email,
-        //     filename: leakData.filename,
-        //     media_type: leakData.media_type,
-        //     created_at: leakData.created_at,
-        //     purchase_id: leakData.purchase_id,
-        //     purchase_date: leakData.purchase_date,
-        //     device_fingerprint: leakData.device_fingerprint
-        //   },
-        //   message: 'Leak detected! Original owner identified.'
-        // });
-
-        // MANURL LEAK DETECTION STEPS:
-        // This will be done by me a human and a tool that I build to compare the two images side by side and highlight differences. I will look for signs of steganographic manipulation, such as noise patterns, pixel anomalies, or metadata inconsistencies. If I find a code or watermark, I will then search the database manually for a match and report back with my findings.
-
-        // CREATE TABLE
-        //   `leaks_reports`(
-        //     `id` int unsigned NOT NULL AUTO_INCREMENT,
-        //     `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        //     `username` varchar(255) DEFAULT NULL,
-        //     `creatorId` varchar(255) DEFAULT NULL,
-        //     `keyData` json DEFAULT NULL,
-        //     `decodeData` json DEFAULT NULL,
-        //     `originalMedia` varchar(255) DEFAULT NULL,
-        //     `leakedMedia` varchar(255) DEFAULT NULL,
-        //     `potentialLeakers` text,
-        //     PRIMARY KEY(`id`)
-        //   ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci
-
-      }
-
-
-
       await knex('leaks_reports').insert({
         username: req.user?.username,
         creatorId: req.user?.id,
@@ -6181,7 +4749,7 @@ server.post(PROXY + '/api/check-audio-leak', authenticateToken, async (req, res)
   const upload = multer({
     storage: multer.diskStorage({
       destination: (req, file, cb) => {
-        const uploadDir = path.join(__dirname, 'leak_uploads', 'images');
+        const uploadDir = path.join(__dirname, 'leak_uploads', 'audio', req.user?.username);
         if (!fs.existsSync(uploadDir)) {
           fs.mkdirSync(uploadDir, { recursive: true });
         }
@@ -6256,132 +4824,7 @@ server.post(PROXY + '/api/check-audio-leak', authenticateToken, async (req, res)
         console.log(`🔑 NODE: Key code provided: ${keyCode}`);
       }
 
-      if (0) {
-        // // Step 1: Extract steganographic code from the leaked audio
-        // console.log('📡 NODE: Sending leaked audio to Flask for code extraction...');
-
-        // const flaskResponse = await axios.post(
-        //   `${FLASKAPP_LINK}/audio-stegano-extract`,
-        //   {
-        //     input: leakedFile.filename,
-        //     original: originalFile.filename,
-        //     keyData: keyData,
-        //     keyCode: keyCode
-        //   },
-        //   {
-        //     headers: { 'Content-Type': 'application/json' },
-        //     timeout: 60000 // 60 seconds for audio processing
-        //   }
-        // );
-
-        // const { extracted_code, success } = flaskResponse.data;
-
-        // console.log(`🔑 NODE: Extracted code: ${extracted_code || 'None'}`);
-
-        // if (!extracted_code || !success) {
-        //   // Cleanup uploaded files
-        //   uploadedFiles.forEach(filePath => {
-        //     try {
-        //       fs.unlinkSync(filePath);
-        //     } catch (e) {
-        //       console.warn('⚠️  Could not delete file:', filePath);
-        //     }
-        //   });
-
-        //   return res.json({
-        //     leakDetected: false,
-        //     extractedCode: null,
-        //     message: 'No steganographic watermark found in the leaked audio',
-        //     creditsUsed: LEAK_CHECK_COST
-        //   });
-        // }
-
-        // // Step 2: Parse the extracted code to get user info
-        // let extractedUserInfo = null;
-        // try {
-        //   extractedUserInfo = JSON.parse(extracted_code);
-        //   console.log('📋 NODE: Parsed user info:', extractedUserInfo);
-        // } catch (parseError) {
-        //   console.log('⚠️  Could not parse extracted code as JSON, treating as plain text');
-        // }
-
-        // // Step 3: Search database for matching user
-        // console.log('🔍 NODE: Searching database for matching user...');
-
-        // let leakData = null;
-
-        // if (extractedUserInfo && extractedUserInfo.userid) {
-        //   // Search by user ID from watermark
-        //   const [rows] = await pool.query(
-        //     `SELECT 
-        //     ud.id,
-        //     ud.username,
-        //     ud.email,
-        //     ud.firstName,
-        //     ud.lastName,
-        //     ud.createdAt
-        //   FROM userData ud
-        //   WHERE ud.id = ?`,
-        //     [extractedUserInfo.userid]
-        //   );
-
-        //   if (rows.length > 0) {
-        //     leakData = {
-        //       ...rows[0],
-        //       watermark_username: extractedUserInfo.username,
-        //       watermark_timestamp: extractedUserInfo.timestamp,
-        //       extraction_method: 'steganography'
-        //     };
-        //   }
-        // }
-
-        // // Cleanup uploaded files
-        // uploadedFiles.forEach(filePath => {
-        //   try {
-        //     fs.unlinkSync(filePath);
-        //   } catch (e) {
-        //     console.warn('⚠️  Could not delete file:', filePath);
-        //   }
-        // });
-
-        // if (!leakData) {
-        //   console.log('✅ NODE: User not found in database');
-        //   return res.json({
-        //     leakDetected: false,
-        //     extractedCode: extracted_code,
-        //     message: 'Watermark found but user not in database',
-        //     creditsUsed: LEAK_CHECK_COST
-        //   });
-        // }
-
-        // // Step 4: Leak detected! Return details
-        // console.log('🚨 NODE: LEAK DETECTED!');
-        // console.log(`   User: ${leakData.username} (ID: ${leakData.id})`);
-        // console.log(`   Watermark timestamp: ${leakData.watermark_timestamp}`);
-        // console.log('='.repeat(60) + '\n');
-
-        // return res.json({
-        //   leakDetected: true,
-        //   extractedCode: extracted_code,
-        //   leakData: {
-        //     user_id: leakData.id,
-        //     username: leakData.username,
-        //     email: leakData.email,
-        //     firstName: leakData.firstName,
-        //     lastName: leakData.lastName,
-        //     watermark_username: leakData.watermark_username,
-        //     watermark_timestamp: leakData.watermark_timestamp,
-        //     account_created: leakData.createdAt,
-        //     extraction_method: leakData.extraction_method
-        //   },
-        //   message: '🚨 Leak detected! Original owner identified.',
-        //   creditsUsed: LEAK_CHECK_COST
-        // });
-
-      }
-
-
-
+      
       await knex('leaks_reports').insert({
         username: req.user?.username,
         creatorId: req.user?.id,
@@ -6428,7 +4871,7 @@ server.post(PROXY + '/api/check-video-leak', authenticateToken, async (req, res)
   const upload = multer({
     storage: multer.diskStorage({
       destination: (req, file, cb) => {
-        const uploadDir = path.join(__dirname, 'leak_uploads', 'videos');
+        const uploadDir = path.join(__dirname, 'leak_uploads', 'videos', req.user?.username);
         if (!fs.existsSync(uploadDir)) {
           fs.mkdirSync(uploadDir, { recursive: true });
         }
@@ -6507,119 +4950,7 @@ server.post(PROXY + '/api/check-video-leak', authenticateToken, async (req, res)
       // PAUSE TO AVOID RATE LIMITS
       await new Promise(resolve => setTimeout(resolve, 3000));
 
-      if (0) {
-        // // Step 1: Send both videos to Flask to extract steganographic code
-        // console.log('📡 NODE: Sending both videos to Flask for code extraction...');
-
-        // const flaskResponse = await axios.post(
-        //   `${FLASKAPP_LINK}/extract-video-code`,
-        //   {
-        //     input: leakedVideoFile.filename,
-        //     original: originalVideoFile.filename,
-        //     keyData: keyData,
-        //     keyCode: keyCode
-        //   },
-        //   {
-        //     headers: { 'Content-Type': 'application/json' },
-        //     timeout: 120000 // 120 seconds for video processing
-        //   }
-        // );
-
-        // const { extracted_code } = flaskResponse.data;
-
-        // console.log(`🔑 NODE: Extracted code: ${extracted_code || 'None'}`);
-
-        // if (!extracted_code) {
-        //   // Cleanup uploaded files
-        //   uploadedFiles.forEach(filePath => {
-        //     try {
-        //       fs.unlinkSync(filePath);
-        //     } catch (cleanupErr) {
-        //       console.warn('⚠️  Could not delete uploaded file:', cleanupErr);
-        //     }
-        //   });
-
-        //   return res.json({
-        //     leakDetected: false,
-        //     extractedCode: null,
-        //     message: 'No steganographic code found in video',
-        //     creditsUsed: LEAK_CHECK_COST
-        //   });
-        // }
-
-        // // Step 2: Search database for matching code
-        // console.log('🔍 NODE: Searching database for matching code...');
-
-        // const [rows] = await pool.query(
-        //   `SELECT 
-        //   wc.*,
-        //   ud.username,
-        //   ud.email,
-        //   p.id as purchase_id,
-        //   p.createdAt as purchase_date
-        // FROM watermark_codes wc
-        // LEFT JOIN userData ud ON wc.user_id = ud.id
-        // LEFT JOIN purchases p ON wc.purchase_id = p.id
-        // WHERE wc.code = ?`,
-        //   [extracted_code]
-        // );
-
-        // if (rows.length === 0) {
-        //   console.log('✅ NODE: No match found in database - video is clean');
-
-        //   // Cleanup uploaded files
-        //   uploadedFiles.forEach(filePath => {
-        //     try {
-        //       fs.unlinkSync(filePath);
-        //     } catch (cleanupErr) {
-        //       console.warn('⚠️  Could not delete uploaded file:', cleanupErr);
-        //     }
-        //   });
-
-        //   return res.json({
-        //     leakDetected: false,
-        //     extractedCode: extracted_code,
-        //     message: 'Code extracted but not found in database',
-        //     creditsUsed: LEAK_CHECK_COST
-        //   });
-        // }
-
-        // // Step 3: Leak detected!
-        // const leakData = rows[0];
-        // console.log('🚨 NODE: LEAK DETECTED!');
-        // console.log(`   User: ${leakData.username} (${leakData.user_id})`);
-
-        // // Cleanup uploaded files
-        // uploadedFiles.forEach(filePath => {
-        //   try {
-        //     fs.unlinkSync(filePath);
-        //   } catch (cleanupErr) {
-        //     console.warn('⚠️  Could not delete uploaded file:', cleanupErr);
-        //   }
-        // });
-
-        // console.log('='.repeat(60) + '\n');
-
-        // return res.json({
-        //   leakDetected: true,
-        //   extractedCode: extracted_code,
-        //   leakData: {
-        //     id: leakData.id,
-        //     code: leakData.code,
-        //     user_id: leakData.user_id,
-        //     username: leakData.username,
-        //     email: leakData.email,
-        //     filename: leakData.filename,
-        //     media_type: leakData.media_type,
-        //     created_at: leakData.created_at,
-        //     purchase_id: leakData.purchase_id,
-        //     purchase_date: leakData.purchase_date,
-        //     device_fingerprint: leakData.device_fingerprint
-        //   },
-        //   message: 'Leak detected! Original owner identified.',
-        //   creditsUsed: LEAK_CHECK_COST
-        // });
-      }
+     
 
       await knex('leaks_reports').insert({
         username: req.user?.username,
@@ -6796,18 +5127,18 @@ server.post('/api/analytics/unscramble-event', async (req, res) => {
 server.get('/download/:filename', (req, res) => {
   const filename = req.params.filename;
   // const videoDir = path.join(__dirname, 'videos');
-  const videoDir = path.join(__dirname, 'inputs');
-  // const videoDir = path.join(__dirname, 'outputs');
+  // const videoDir = path.join(__dirname, 'inputs');
+  const videoDir = path.join(__dirname, 'python/outputs');
   const filePath = path.join(videoDir, filename);
 
-  console.log('📥 Download request for video:', filename);
+  console.log('📥 Download request for media:', filename);
 
   res.download(filePath, (err) => {
     if (err) {
-      console.error('❌ Error downloading video:', err);
-      res.status(500).send('Error downloading video');
+      console.error('❌ Error downloading media:', err);
+      res.status(500).send('Error downloading media');
     } else {
-      console.log('✅ Video downloaded successfully:', filename);
+      console.log('✅ Media downloaded successfully:', filename);
     }
   });
 });
@@ -6838,23 +5169,40 @@ server.get('/download/:filename', (req, res) => {
 // Handle refunding credits
 server.post(PROXY + '/api/refund-credits', authenticateToken, async (req, res) => {
   const { userId, credits, username, email, currentCredits } = req.body;
-  console.log('💸 Refund credits request received for user:', username, 'Credits to refund:', credits, "userId: ", userId);
+  // console.log('💸 Refund credits request received for user:', username, 'Credits to refund:', credits, "userId: ", userId);
   try {
     if (!userId || !credits) {
       return res.status(400).json({ success: false, message: 'Missing userId or credits' });
     }
 
+    // check the last transaction for the user 
+    const lastTransaction = await knex('actions')
+      .where('username', username)
+      .orderBy('date', 'desc')
+      .first();
+
+    if (!lastTransaction) {
+      return res.status(400).json({ success: false, message: 'No transactions found for user' });
+    }
+
+    // if (credits < (lastTransaction.action_cost || 0)) {
+      refundAmount = lastTransaction.action_cost || 0;
+      // console.warn(`⚠️ Attempting to refund less credits (${credits}) than the last transaction (${lastTransaction.action_cost}). Refunding only ${refundAmount} credits.`);
+    // } else {
+      // refundAmount = credits;
+    // }
+
     // Refund credits to user
     await knex('userData')
       .where('id', userId)
-      .increment('credits', credits);
+      .increment('credits', refundAmount);
 
-    console.log(`✅ Refunded ${credits} credits to user ${username} (ID: ${userId})`);
+    console.log(`✅ Refunded ${refundAmount} credits to user ${username} (ID: ${userId})`);
 
     await CreateNotification(
       'credits_refunded',
       'Credits Refunded',
-      `You have been refunded ${credits} credits.`,
+      `You have been refunded ${refundAmount} credits.`,
       'refund',
       username || 'anonymous'
     );
@@ -6866,9 +5214,9 @@ server.post(PROXY + '/api/refund-credits', authenticateToken, async (req, res) =
       email: email || 'anonymous@example.com',
       date: Date.now(),
       time: new Date().toLocaleTimeString(),
-      credits: currentCredits || credits,
+      credits: currentCredits,
       action_type: 'refunded-credits',
-      action_cost: credits || 15,
+      action_cost: refundAmount,
       action_description: 'Credits refunded due to failed operation'
     });
 
@@ -8406,6 +6754,17 @@ server.use((error, req, res, next) => {
   });
 });
 
+// ─── Admin panel (mounted before 404 catch-all) ───
+const adminRouter = createAdminRouter({
+  pool,
+  analytics,
+  logs,
+  dbConfig,
+  getLogFilePath: () => LOG_FILE,
+});
+
+server.use('/admin', adminRouter);
+
 // 404 handler for undefined routes (MUST BE LAST!)
 server.use((req, res) => {
   res.status(404).json({ error: 'Route not found' });
@@ -8419,7 +6778,7 @@ server.listen(PORT, async () => {
     console.log('🚀 Express Server with MySQL is running on port', PORT);
     console.log('�️  Database: KeyChingDB (MySQL)');
     console.log('🌐 API Base URL: http://localhost:' + PORT + PROXY + '/api');
-    console.log('� Flask Service: ' + FLASKAPP_LINK);
+    console.log('🐍 Python Service: python-service.cjs (direct child_process)');
     console.log('📋 Available endpoints:');
     console.log('   - GET /api/userData');
     console.log('   - GET /api/createdKeys');
