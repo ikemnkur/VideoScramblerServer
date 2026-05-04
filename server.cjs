@@ -113,7 +113,7 @@ console.warn = function (...args) {
   originalConsoleWarn.apply(console, args);
 };
 
-const FRONTEND_URL = process.env.FRONTEND_URL || "videoscrambler.com";
+const FRONTEND_URL = process.env.FRONTEND_URL || "scramblurr.com";
 
 // USE this CORS CONFIG Later
 
@@ -2157,13 +2157,13 @@ server.post(PROXY + '/api/purchases/:username', authenticateToken, async (req, r
     console.log('Logging purchase data:', req.body);
 
 
-  const promoPackagesMap = [
-    { amount: 2500, price: 2.5, popular: false },
-    { amount: 5250, price: 5, popular: false },
-    { amount: 11250, price: 10, popular: true },
-    { amount: 26000, price: 20, popular: false },
- 
-  ];
+    const packageData = [
+      { credits: 2500, dollars: 2.5, label: "$2.50 Package", color: '#4caf50', priceId: 'price_1SR9nNEViYxfJNd2pijdhiBM' },
+      { credits: 5250, dollars: 5, label: "$5.00 Package", color: '#2196f3', priceId: 'price_1SR9lZEViYxfJNd20x2uwukQ' },
+      { credits: 11200, dollars: 10, label: "$10.00 Package", color: '#9c27b0', popular: true, priceId: 'price_1SR9kzEViYxfJNd27aLA7kFW' },
+      { credits: 26000, dollars: 20, label: "$20.00 Package", color: '#f57c00', priceId: 'price_1SR9mrEViYxfJNd2dD5NHFoL' },
+    ];
+
 
     // check for duplicate transactionId
     if (transactionId) {
@@ -2219,7 +2219,7 @@ server.post(PROXY + '/api/purchases/:username', authenticateToken, async (req, r
         await CreateNotification(
           'credits_purchased',
           'Credits Purchased',
-          `You have purchased ${promoPackagesMap.find(pkg => pkg.price === dollars)?.amount || amount} credits for $${dollars}.`,
+          `You have purchased ${packageData?.credits || credits || 0} credits for $${packageData?.dollars}.`,
           'purchase',
           username || 'anonymous'
         );
@@ -2686,7 +2686,7 @@ function normalizeTatumEth(tx, myAddress) {
 
   const direction = (to === me && from !== me) ? 'IN'
     : (from === me && to !== me) ? 'OUT'
-    : null;
+      : null;
 
   return {
     time: safeTimestampToDateTime(tx.timestamp),
@@ -5237,7 +5237,7 @@ server.post(PROXY + '/api/check-audio-leak', authenticateToken, async (req, res)
         console.log(`🔑 NODE: Key code provided: ${keyCode}`);
       }
 
-      
+
       await knex('leaks_reports').insert({
         username: req.user?.username,
         creatorId: req.user?.id,
@@ -5363,7 +5363,7 @@ server.post(PROXY + '/api/check-video-leak', authenticateToken, async (req, res)
       // PAUSE TO AVOID RATE LIMITS
       await new Promise(resolve => setTimeout(resolve, 3000));
 
-     
+
 
       await knex('leaks_reports').insert({
         username: req.user?.username,
@@ -5599,10 +5599,10 @@ server.post(PROXY + '/api/refund-credits', authenticateToken, async (req, res) =
     }
 
     // if (credits < (lastTransaction.action_cost || 0)) {
-      refundAmount = lastTransaction.action_cost || 0;
-      // console.warn(`⚠️ Attempting to refund less credits (${credits}) than the last transaction (${lastTransaction.action_cost}). Refunding only ${refundAmount} credits.`);
+    refundAmount = lastTransaction.action_cost || 0;
+    // console.warn(`⚠️ Attempting to refund less credits (${credits}) than the last transaction (${lastTransaction.action_cost}). Refunding only ${refundAmount} credits.`);
     // } else {
-      // refundAmount = credits;
+    // refundAmount = credits;
     // }
 
     // Refund credits to user
@@ -6008,9 +6008,9 @@ server.post(PROXY + '/api/subscription/change-plan', authenticateToken, async (r
     }
 
     const PLAN_PRICE_IDS = {
-      basic:    'price_1SR08eEViYxfJNd2ihaRH9Fk',
+      basic: 'price_1SR08eEViYxfJNd2ihaRH9Fk',
       standard: 'price_1SR09uEViYxfJNd2jL3JklFl',
-      premium:  'price_1SR0A9EViYxfJNd258I14txA',
+      premium: 'price_1SR0A9EViYxfJNd258I14txA',
     };
 
     const newPriceId = PLAN_PRICE_IDS[newPlanType];
@@ -6520,11 +6520,11 @@ server.post(PROXY + '/api/verify-stripe-payment', async (req, res) => {
 
       const timeNow = Date.now();
 
-      console.log(`[DEBUG] Checking payment ${payment.id}: created=${(timeNow - created)/1000} seconds ago, amount=${payment.amount}`);
+      console.log(`[DEBUG] Checking payment ${payment.id}: created=${(timeNow - created) / 1000} seconds ago, amount=${payment.amount}`);
 
       // Skip payments older than 10 minutes (safety guard)
       if ((timeNow - created) > 10 * 60 * 1000) {
-        console.log(`[DEBUG] Payment ${payment.id} is too old (${Math.round((timeNow - created)/1000)}s), skipping.`);
+        console.log(`[DEBUG] Payment ${payment.id} is too old (${Math.round((timeNow - created) / 1000)}s), skipping.`);
         continue;
       }
 
@@ -6539,7 +6539,7 @@ server.post(PROXY + '/api/verify-stripe-payment', async (req, res) => {
       }
 
       // Check payment amount
-      if ((payment.amount - pkg.amount)/pkg.amount > 0.10) { // allow 10% variance for fees or currency conversion
+      if ((payment.amount - pkg.amount) / pkg.amount > 0.10) { // allow 10% variance for fees or currency conversion
         console.log(`[DEBUG] Payment ${payment.id} amount mismatch: got ${payment.amount}, expected ${pkg.amount}, skipping.`);
         continue;
       }
@@ -6749,7 +6749,7 @@ async function stripeBuyCredits(data) {
       await CreateNotification(
         'credits_purchased',
         'Credits Purchased',
-        `You have purchased ${amount} credits for $${dollars}.`,
+        `You have purchased ${packageData?.credits || credits || 0} credits for $${dollars}.`,
         'purchase',
         username || 'anonymous'
       );
@@ -7083,6 +7083,18 @@ server.post(PROXY + '/api/verify-stripe-subscription', async (req, res) => {
     const packageData = PACKAGES.find(pkg => pkg.dollars === potentialVerifiedPayment.amount / 100);
 
     if (potentialVerifiedPayment.status == 'succeeded') {
+      // Resolve the real Stripe subscription ID from the invoice attached to this PaymentIntent
+      let actualSubscriptionId = null;
+      if (potentialVerifiedPayment.invoice) {
+        try {
+          const invoice = await stripe.invoices.retrieve(potentialVerifiedPayment.invoice);
+          actualSubscriptionId = invoice.subscription || null;
+          console.log(`[INFO] Resolved subscription ID: ${actualSubscriptionId} from invoice ${potentialVerifiedPayment.invoice}`);
+        } catch (invoiceErr) {
+          console.warn(`[WARN] Could not retrieve invoice ${potentialVerifiedPayment.invoice}:`, invoiceErr.message);
+        }
+      }
+
       // Log the purchase in the database
       const data = {
         username: user.username,
@@ -7092,7 +7104,7 @@ server.post(PROXY + '/api/verify-stripe-subscription', async (req, res) => {
         walletAddress: "Stripe",
         transactionId: potentialVerifiedPayment.id,
         stripe_customer_id: potentialVerifiedPayment.customer,
-        stripe_subscription_id: potentialVerifiedPayment.created, // using created time as a placeholder
+        stripe_subscription_id: actualSubscriptionId,
         priceId: packageData.priceId,
         label: packageData.label,
         blockExplorerLink: 'Stripe Payment',
