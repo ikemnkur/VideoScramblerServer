@@ -5920,8 +5920,11 @@ server.post(PROXY + '/api/subscription/portal', async (req, res) => {
 
     // Get user's subscription
     const subscriptions = await knex('subscriptions')
-      .where({ user_id: userId, status: 'active' })
-      .select('stripe_customer_id');
+      .where({ user_id: userId })
+      .whereIn('status', ['active', 'canceling', 'trialing'])
+      .select('stripe_customer_id', 'stripe_subscription_id', 'status')
+      .orderBy('created_at', 'desc')
+      .limit(1);
 
     if (subscriptions.length === 0) {
       return res.status(404).json({
@@ -5931,11 +5934,20 @@ server.post(PROXY + '/api/subscription/portal', async (req, res) => {
     }
 
     const customerId = subscriptions[0].stripe_customer_id;
+    console.log(`[Portal] userId=${userId}, stripe_customer_id=${customerId}, stripe_subscription_id=${subscriptions[0].stripe_subscription_id}`);
+
+    if (!customerId || !customerId.startsWith('cus_')) {
+      console.error(`[Portal] Invalid or missing stripe_customer_id: "${customerId}"`);
+      return res.status(400).json({
+        success: false,
+        message: `Invalid Stripe customer ID on record ("${customerId}"). Please contact support.`
+      });
+    }
 
     // Create portal session
     const session = await stripe.billingPortal.sessions.create({
       customer: customerId,
-      return_url: returnUrl,
+      return_url: returnUrl || `${process.env.FRONTEND_URL || 'https://scramblurr.com'}/plans`,
     });
 
     res.json({
@@ -5943,10 +5955,10 @@ server.post(PROXY + '/api/subscription/portal', async (req, res) => {
       url: session.url
     });
   } catch (error) {
-    console.error('Portal error:', error);
+    console.error('Portal error:', error.message, error.raw || '');
     res.status(500).json({
       success: false,
-      message: 'Failed to create portal session'
+      message: error.message || 'Failed to create portal session'
     });
   }
 });
