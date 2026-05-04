@@ -1,0 +1,46 @@
+-- Stripe transaction tracking table
+-- Stores raw PaymentIntent / charge / invoice events per payment.
+-- Separate from subscriptions (lifecycle) and CreditPurchases (user-facing credits).
+-- Non-duplicate by PaymentIntent ID, charge ID, or balance transaction ID.
+
+CREATE TABLE IF NOT EXISTS `stripeTransactions` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `stripePaymentIntentId` varchar(255) DEFAULT NULL,
+  `stripeChargeId` varchar(255) DEFAULT NULL,
+  `stripeCheckoutSessionId` varchar(255) DEFAULT NULL,
+  `stripeCustomerId` varchar(255) DEFAULT NULL,
+  `stripeInvoiceId` varchar(255) DEFAULT NULL,
+  `stripeSubscriptionId` varchar(255) DEFAULT NULL,
+  `status` varchar(50) NOT NULL DEFAULT 'unknown',
+  `amount` int NOT NULL DEFAULT '0' COMMENT 'Smallest currency unit (cents)',
+  `amountReceived` int NOT NULL DEFAULT '0' COMMENT 'Smallest currency unit (cents)',
+  `currency` varchar(10) NOT NULL DEFAULT 'USD',
+  `paymentMethodTypes` json DEFAULT NULL,
+  `description` text,
+  `receiptEmail` varchar(255) DEFAULT NULL,
+  `customerEmail` varchar(255) DEFAULT NULL,
+  `customerName` varchar(255) DEFAULT NULL,
+  `livemode` tinyint(1) NOT NULL DEFAULT '0',
+  `metadata` json DEFAULT NULL,
+  `rawPayload` json DEFAULT NULL COMMENT 'Full Stripe object payload for audit/debug',
+  `stripeCreatedAt` datetime DEFAULT NULL,
+  `syncedAt` datetime DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `stripeObjectType` varchar(50) DEFAULT 'payment_intent',
+  `stripeBalanceTransactionId` varchar(255) DEFAULT NULL,
+  `stripeSourceId` varchar(255) DEFAULT NULL,
+  `stripeSourceType` varchar(50) DEFAULT NULL,
+  `fee` int NOT NULL DEFAULT '0' COMMENT 'Stripe fee in smallest currency unit',
+  `net` int NOT NULL DEFAULT '0' COMMENT 'Net amount after fees',
+  `availableOn` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_stripe_payment_intent` (`stripePaymentIntentId`),
+  UNIQUE KEY `uq_stripe_charge` (`stripeChargeId`),
+  UNIQUE KEY `uq_stripe_balance_txn` (`stripeBalanceTransactionId`),
+  KEY `idx_stripe_customer` (`stripeCustomerId`),
+  KEY `idx_stripe_status` (`status`),
+  KEY `idx_stripe_created_at` (`stripeCreatedAt`),
+  KEY `idx_stripe_source_id` (`stripeSourceId`),
+  KEY `idx_stripe_object_type` (`stripeObjectType`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;

@@ -755,7 +755,7 @@ def process_photo(input_path: str,
                   cols: Optional[int] = None,
                   mode: str = "scramble",
                   noise_intensity: Optional[int] = 0,
-                  noise_tile_size: Optional[int] = 16,
+                  noise_tile_size: Optional[int] = None,
                   noise_seed: Optional[int] = None,
                   noise_mode: Optional[str] = None,
                   noise_prng: Optional[float] = None,
@@ -801,7 +801,12 @@ def process_photo(input_path: str,
     # Generate noise offsets if noise is enabled
     noise_offsets = None
     if noise_intensity > 0:
-        noise_tile_size = noise_tile_size or 16
+        # Auto-scale tile size from image dimensions: min(512, max(64, min(w, h) // 4))
+        # e.g. 720p -> 180, 1080p -> 270, 4K -> 512
+        if noise_tile_size is None:
+            noise_tile_size = min(512, max(64, min(width, height) // 4))
+        else:
+            noise_tile_size = noise_tile_size or 16
         # Use a different seed for noise (seed + 999) to keep it separate from scrambling
         _noise_seed = (seed if seed is not None else gen_random_seed()) + 999
         noise_offsets = generate_noise_tile_offsets(noise_tile_size, _noise_seed, noise_intensity)

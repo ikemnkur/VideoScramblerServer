@@ -113,13 +113,13 @@ module.exports = function createAdminRouter(deps = {}) {
       { href: '/moderation', icon: '🛡️', label: 'Moderation' },
       { href: '/logs', icon: '📋', label: 'Logs' },
       { href: '/health', icon: '💚', label: 'Health' },
-      // { href: '/review/verifications', icon: '🪪', label: 'ID Review' },
+      { href: '/review/verifications', icon: '🪪', label: 'ID Review' },
       { href: '/review/promos', icon: '📣', label: 'Ads' },
-      // { href: '/review/drops', icon: '🔥', label: 'Drops' },
+      { href: '/review/drops', icon: '🔥', label: 'Drops' },
       { href: '/review/purchases', icon: '💰', label: 'Purchases' },
       { href: '/review/stripe', icon: '💳', label: 'Stripe' },
       { href: '/review/crypto', icon: '🪙', label: 'Crypto' },
-      // { href: '/review/redeems', icon: '💸', label: 'Redeems' },
+      { href: '/review/redeems', icon: '💸', label: 'Redeems' },
     ];
     navItems.push({ href: '/db', icon: '🗄️', label: 'Database' });
 

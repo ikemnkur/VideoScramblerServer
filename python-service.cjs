@@ -134,11 +134,12 @@ function runFfmpeg(args, timeoutMs = 300_000) {
  *   noise_seed, noise_intensity, noise_mode, ... }
  */
 async function scramblePhoto(data) {
+    console.log('📸 scramblePhoto called with data:', data);
   touchActivity();
   const {
     input, output,
     seed = 123456, mode = 'scramble',
-    percentage = 100, rows = 6, cols = 6,
+    percentage = 100, rows = 8, cols = 8,
     noise_seed, noise_intensity, noise_mode,
   } = data;
 
@@ -213,11 +214,13 @@ async function unscramblePhoto(data) {
 // ═════════════════════════════════════════════════════════════
 
 async function scramblePhotoPro(data) {
+
+  console.log('⚡ scramblePhotoPro called with data:', data);  
   touchActivity();
   const {
     input, output,
     seed = 123456, mode = 'scramble',
-    percentage = 100, rows = 6, cols = 6,
+    percentage = 100, rows = 8, cols = 8,
     noise_seed, noise_intensity,
   } = data;
 
@@ -290,7 +293,7 @@ async function scrambleVideo(data) {
   const {
     input, output,
     seed = 123456, mode = 'scramble',
-    percentage = 100, rows = 6, cols = 6,
+    percentage = 100, rows = 8, cols = 8,
   } = data;
 
   if (!input || !output) throw { status: 400, error: 'input and output filenames required' };
@@ -381,7 +384,7 @@ async function scrambleVideoPro(data) {
   const {
     input, output,
     seed = 123456, mode = 'scramble',
-    rows = 6, cols = 6,
+    rows = 8, cols = 8,
     blur_ksize = 50,
   } = data;
 

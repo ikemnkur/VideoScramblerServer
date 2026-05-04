@@ -14,11 +14,14 @@ const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
 const util = require('util'); // Node.js utility for formatting arguments
-const emailService = require('./AmazonSESemailService.cjs');
+// const emailService = require('./AmazonSESemailService.cjs');
+const emailService = require('./email-service');
 
 // const authenticateToken = require('../middleware/auth');
 const authenticateToken = require('./middleware/auth');
-
+const createAdminRouter = require('./server-admin');
+const drauwperRoutes = require('./drauwper-routes');
+// const pythonService = require('./python-service.cjs');
 
 const server = express();
 
@@ -29,7 +32,7 @@ const dbConfig = {
   port: process.env.DB_PORT || 3306,
   user: process.env.DB_USER || 'root',
   password: process.env.DB_PASSWORD || '',
-  database: process.env.DB_NAME || 'video-scrambler',
+  database: process.env.DB_NAME || 'drauwper',
   waitForConnections: true,
   connectionLimit: parseInt(process.env.DB_CONNECTION_LIMIT) || 10,
   queueLimit: 0
@@ -112,7 +115,7 @@ console.warn = function (...args) {
   originalConsoleWarn.apply(console, args);
 };
 
-const FRONTEND_URL = process.env.FRONTEND_URL || "videoscrambler.com";
+const FRONTEND_URL = process.env.FRONTEND_URL || "drauwpr.com";
 
 // USE this CORS CONFIG Later
 
@@ -123,24 +126,22 @@ const corsOptions = {
       'http://localhost:3000',
       'http://localhost:3001',
       'http://localhost:3002',
+      'http://localhost:4000',
       'http://localhost:5001',
-      'http://localhost:5000',
+      // 'http://localhost:5000',
       // 'https://key-ching.com',
-      'https://video-scrambler-crty1jhe8-ikemnkurs-projects.vercel.app',
-      'https://videoscrambler.com',
-      'https://www.videoscrambler.com',
+      'https://drauwper.com',
+      'https://www.drauwper.com',
       // 'https://microtrax.netlify.app',
       // "https://servers4sqldb.uc.r.appspot.com",
       // "https://orca-app-j32vd.ondigitalocean.app",
       // "https://monkfish-app-mllt8.ondigitalocean.app/",
+      "https://editor-pavement-encircle.ngrok-free.dev",
       "http://localhost:5173",
       "http://localhost:5174",
-      "https://whale-app-trf6r.ondigitalocean.app",
+      "http://localhost:5175",
       "http://142.93.82.161",
-      "https://server.videoscrambler.com",
-      "https://www.scramblurr.com",
-      "https://scramblurr.com",
-      // "https://scramblurr.com",
+      "https://server.drauwper.com",
       'https://js.stripe.com',
       // "*", // Allow all origins (for development, remove in production)
       // Add any other origins you want to allow
@@ -166,6 +167,7 @@ const corsOptions = {
 };
 
 server.use(cors(corsOptions));
+// server.options('*', cors(corsOptions)); // handle preflight for all routes
 
 // // #################################################################################
 
@@ -242,10 +244,6 @@ console.warn("This is a sample warning message!");
 console.error("This is a sample error message!");
 
 
-
-
-
-
 // ###########################################################
 //                    server routes
 // ###########################################################
@@ -255,45 +253,6 @@ server.use(express.urlencoded({ extended: true, limit: '250mb' }));
 
 // Admin Dashboard Page
 
-// let pageVisits = [];
-// let recentRequests = [];
-// const startTime = Date.now();
-
-// // Middleware to track page visits and requests
-// server.use((req, res, next) => {
-//   const ip = req.ip || req.connection.remoteAddress;
-//   const geo = geoip.lookup(ip);
-//   const visit = {
-//     count: pageVisits.length + 1,
-//     url: req.originalUrl,
-//     time: new Date().toISOString(),
-//     ip: ip,
-//     location: geo ? `${geo.city}, ${geo.country}` : 'Unknown'
-//   };
-//   pageVisits.push(visit);
-
-//   const request = {
-//     method: req.method,
-//     url: req.originalUrl,
-//     time: new Date().toISOString(),
-//     ip: ip
-//   };
-//   recentRequests.unshift(request);
-//   if (recentRequests.length > 20) recentRequests.pop();
-
-//   next();
-// });
-
-// // Request logging middleware
-// server.use((req, res, next) => {
-//   console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
-//   next();
-// });
-
-// // Root route
-// server.get('/', (req, res) => {
-//   res.sendFile(path.join(__dirname, 'public', 'index.html'));
-// });
 
 // Serve static files from public directory
 server.use(express.static('public'));
@@ -334,7 +293,97 @@ server.use((req, res, next) => {
 
 // Root route
 server.get('/', (req, res) => {
-  res.sendFile(__dirname + '/public/index.html');
+  const initialUptimeSeconds = Math.max(0, Math.floor((Date.now() - analytics.startTime) / 1000));
+  res.type('html').send(`<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Drauwper Server</title>
+  <style>
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      font-family: Arial, sans-serif;
+      background: #f4f6f8;
+      color: #1f2937;
+    }
+    .card {
+      width: min(92vw, 560px);
+      background: #ffffff;
+      border: 1px solid #e5e7eb;
+      border-radius: 12px;
+      padding: 28px;
+      box-shadow: 0 8px 28px rgba(0, 0, 0, 0.08);
+      text-align: center;
+    }
+    h1 {
+      margin: 0 0 10px;
+      font-size: 1.6rem;
+    }
+    p {
+      margin: 8px 0;
+      line-height: 1.4;
+    }
+    .uptime {
+      margin: 12px 0 20px;
+      font-weight: 700;
+      color: #111827;
+    }
+    .btn {
+      display: inline-block;
+      text-decoration: none;
+      color: #ffffff;
+      background: #2563eb;
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <h1>Welcome to Drauwper Server</h1>
+    <p>Backend service is running.</p>
+    <p class="uptime">Uptime: <span id="uptime">0s</span></p>
+    <a class="btn" href="/admin/login">Go to Admin Login</a>
+  </main>
+  <script>
+    const startedAtSeconds = ${initialUptimeSeconds};
+    const startNow = Date.now();
+
+    function formatDuration(totalSeconds) {
+      const days = Math.floor(totalSeconds / 86400);
+      const hours = Math.floor((totalSeconds % 86400) / 3600);
+      const minutes = Math.floor((totalSeconds % 3600) / 60);
+      const seconds = totalSeconds % 60;
+      const parts = [];
+      if (days) parts.push(days + 'd');
+      if (hours || days) parts.push(hours + 'h');
+      if (minutes || hours || days) parts.push(minutes + 'm');
+      parts.push(seconds + 's');
+      return parts.join(' ');
+    }
+
+    function renderUptime() {
+      const elapsed = Math.floor((Date.now() - startNow) / 1000);
+      const total = startedAtSeconds + elapsed;
+      document.getElementById('uptime').textContent = formatDuration(total);
+    }
+
+    renderUptime();
+    setInterval(renderUptime, 1000);
+  </script>
+</body>
+</html>`);
+});
+
+// test hello world route
+server.get('/hello', (req, res) => {
+  console.log("Hello world endpoint was hit!");
+  res.send('Hello, world!');
 });
 
 // Endpoint to fetch and display the raw logs
@@ -355,1016 +404,6 @@ server.get('/generate-activity', (req, res) => {
   res.send('Activity logged using console.log()! Check your main page.');
 });
 
-// Server landing page route
-server.get('/server', async (req, res) => {
-  try {
-    const uptime = process.uptime();
-    const uptimeFormatted = {
-      days: Math.floor(uptime / 86400),
-      hours: Math.floor((uptime % 86400) / 3600),
-      minutes: Math.floor((uptime % 3600) / 60),
-      seconds: Math.floor(uptime % 60)
-    };
-
-    const memoryUsage = process.memoryUsage();
-    const memoryFormatted = {
-      rss: `${Math.round(memoryUsage.rss / 1024 / 1024)} MB`,
-      heapTotal: `${Math.round(memoryUsage.heapTotal / 1024 / 1024)} MB`,
-      heapUsed: `${Math.round(memoryUsage.heapUsed / 1024 / 1024)} MB`,
-      external: `${Math.round(memoryUsage.external / 1024 / 1024)} MB`
-    };
-
-    // Get database stats
-    const dbStats = await knex.raw('SHOW STATUS LIKE "Threads_connected"');
-    const dbConnections = dbStats[0]?.[0]?.Value || 'N/A';
-
-    const html = `
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Key-Ching Server - Dashboard</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      color: #333;
-      min-height: 100vh;
-      padding: 20px;
-    }
-    .container {
-      max-width: 1200px;
-      margin: 0 auto;
-    }
-    .header {
-      text-align: center;
-      color: white;
-      margin-bottom: 40px;
-    }
-    .header h1 {
-      font-size: 3em;
-      margin-bottom: 10px;
-      text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
-    }
-    .header p {
-      font-size: 1.2em;
-      opacity: 0.9;
-    }
-    .stats-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-      gap: 20px;
-      margin-bottom: 30px;
-    }
-    .stat-card {
-      background: white;
-      border-radius: 12px;
-      padding: 25px;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-      transition: transform 0.3s ease;
-    }
-    .stat-card:hover {
-      transform: translateY(-5px);
-    }
-    .stat-card h3 {
-      color: #667eea;
-      margin-bottom: 15px;
-      font-size: 1.1em;
-      text-transform: uppercase;
-      letter-spacing: 1px;
-    }
-    .stat-value {
-      font-size: 2em;
-      font-weight: bold;
-      color: #333;
-      margin: 10px 0;
-    }
-    .stat-label {
-      color: #666;
-      font-size: 0.9em;
-    }
-    .console-box {
-      background: #1e1e1e;
-      border-radius: 12px;
-      padding: 20px;
-      color: #d4d4d4;
-      font-family: 'Courier New', monospace;
-      font-size: 0.9em;
-      max-height: 400px;
-      overflow-y: auto;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.3);
-    }
-    .console-box h3 {
-      color: #4ec9b0;
-      margin-bottom: 15px;
-    }
-    .log-entry {
-      padding: 5px 0;
-      border-bottom: 1px solid #333;
-    }
-    .log-time {
-      color: #858585;
-    }
-    .log-error {
-      color: #f48771;
-    }
-    .log-info {
-      color: #4ec9b0;
-    }
-    .log-warn {
-      color: #dcdcaa;
-    }
-    .status-indicator {
-      display: inline-block;
-      width: 12px;
-      height: 12px;
-      border-radius: 50%;
-      background: #4caf50;
-      animation: pulse 2s infinite;
-      margin-right: 8px;
-    }
-    @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.5; }
-    }
-    .endpoints {
-      background: white;
-      border-radius: 12px;
-      padding: 25px;
-      margin-top: 20px;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-    }
-    .endpoints h3 {
-      color: #667eea;
-      margin-bottom: 15px;
-    }
-    .endpoint-item {
-      padding: 10px;
-      margin: 5px 0;
-      background: #f5f5f5;
-      border-radius: 6px;
-      font-family: monospace;
-    }
-    .method {
-      display: inline-block;
-      padding: 3px 8px;
-      border-radius: 4px;
-      font-weight: bold;
-      margin-right: 10px;
-      font-size: 0.85em;
-    }
-    .get { background: #61affe; color: white; }
-    .post { background: #49cc90; color: white; }
-    .patch { background: #fca130; color: white; }
-    .delete { background: #f93e3e; color: white; }
-    .request-count {
-      float: right;
-      background: #667eea;
-      color: white;
-      padding: 3px 10px;
-      border-radius: 12px;
-      font-size: 0.85em;
-      font-weight: bold;
-    }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="header">
-      <h1>🔑 Key-Ching Server</h1>
-      <p><span class="status-indicator"></span>Server is running</p>
-    </div>
-
-    <div class="stats-grid">
-      <div class="stat-card">
-        <h3>⏱️ Uptime</h3>
-        <div class="stat-value">${uptimeFormatted.days}d ${uptimeFormatted.hours}h ${uptimeFormatted.minutes}m</div>
-        <div class="stat-label">${Math.floor(uptime)} seconds total</div>
-      </div>
-
-      <div class="stat-card">
-        <h3>💾 Memory Usage</h3>
-        <div class="stat-value">${memoryFormatted.heapUsed}</div>
-        <div class="stat-label">Heap: ${memoryFormatted.heapTotal}</div>
-      </div>
-
-      <div class="stat-card">
-        <h3>🔌 Database</h3>
-        <div class="stat-value">${dbConnections}</div>
-        <div class="stat-label">Active connections</div>
-      </div>
-
-      <div class="stat-card">
-        <h3>🌐 Environment</h3>
-        <div class="stat-value">${process.env.NODE_ENV || 'development'}</div>
-        <div class="stat-label">Port: ${PORT}</div>
-      </div>
-
-      <div class="stat-card">
-        <h3>👥 Visitors</h3>
-        <div class="stat-value">${analytics.visitors.size}</div>
-        <div class="stat-label">Unique IP addresses</div>
-      </div>
-
-      <div class="stat-card">
-        <h3>👤 Users</h3>
-        <div class="stat-value">${analytics.users.size}</div>
-        <div class="stat-label">Registered accounts accessed</div>
-      </div>
-
-      <div class="stat-card">
-        <h3>📊 Total Requests</h3>
-        <div class="stat-value">${analytics.totalRequests.toLocaleString()}</div>
-        <div class="stat-label">Since server start</div>
-      </div>
-
-      <div class="stat-card">
-        <h3>📤 Data Transmitted</h3>
-        <div class="stat-value">${(analytics.dataTx / 1024 / 1024).toFixed(2)} MB</div>
-        <div class="stat-label">Total sent: ${(analytics.dataTx / 1024).toFixed(2)} KB</div>
-      </div>
-
-      <div class="stat-card">
-        <h3>📥 Data Received</h3>
-        <div class="stat-value">${(analytics.dataRx / 1024 / 1024).toFixed(2)} MB</div>
-        <div class="stat-label">Total received: ${(analytics.dataRx / 1024).toFixed(2)} KB</div>
-      </div>
-    </div>
-
-    <div class="console-box">
-      <h3>📋 Server Console</h3>
-      <div id="console-logs">
-        <div class="log-entry">
-          <span class="log-time">[${new Date().toISOString()}]</span>
-          <span class="log-info">INFO:</span> Server started successfully
-        </div>
-        <div class="log-entry">
-          <span class="log-time">[${new Date().toISOString()}]</span>
-          <span class="log-info">INFO:</span> Database connection established
-        </div>
-        <div class="log-entry">
-          <span class="log-time">[${new Date().toISOString()}]</span>
-          <span class="log-info">INFO:</span> CORS configured for multiple origins
-        </div>
-      </div>
-    </div>
-
-    <div class="endpoints">
-      <h3>🛣️ Active API Endpoints</h3>
-      ${Object.entries(analytics.endpointCalls)
-        .sort((a, b) => b[1] - a[1])
-        .map(([endpoint, count]) => {
-          const [method, ...pathParts] = endpoint.split(' ');
-          const path = pathParts.join(' ');
-          const methodClass = method.toLowerCase();
-          return `<div class="endpoint-item">
-            <span class="method ${methodClass}">${method}</span> ${path}
-            <span class="request-count">${count}</span>
-          </div>`;
-        }).join('')}
-    </div>
-
-     <div class="endpoints">
-      <h3>🛣️ Available API Endpoints</h3>
-      <div class="endpoint-item"><span class="method get">GET</span> /health - Health check</div>
-      <div class="endpoint-item"><span class="method post">POST</span> /api/auth/login - User login</div>
-      <div class="endpoint-item"><span class="method post">POST</span> /api/auth/register - User registration</div>
-      <div class="endpoint-item"><span class="method post">POST</span> /api/auth/logout - User logout</div>
-      <div class="endpoint-item"><span class="method get">GET</span> /api/wallet/balance/:username - Get wallet balance</div>
-      <div class="endpoint-item"><span class="method post">POST</span> /api/unlock/:keyId - Unlock a key</div>
-      <div class="endpoint-item"><span class="method get">GET</span> /api/listings/:username - User listings</div>
-      <div class="endpoint-item"><span class="method post">POST</span> /api/create-key - Create new key listing</div>
-      <div class="endpoint-item"><span class="method get">GET</span> /api/notifications/:username - Get notifications</div>
-      <div class="endpoint-item"><span class="method get">GET</span> /api/purchases/:username - Get purchase history</div>
-      <div class="endpoint-item"><span class="method post">POST</span> /api/profile-picture/:username - Upload profile picture</div>
-    </div>
-  </div>
-
-  <script>
-    // Auto-refresh every 30 seconds
-    setTimeout(() => location.reload(), 30000);
-  </script>
-</body>
-</html>
-    `;
-
-    res.send(html);
-  } catch (error) {
-    console.error('Landing page error:', error);
-    res.status(500).send('<h1>Error loading dashboard</h1>');
-  }
-});
-
-// Logs viewer route
-server.get('/logs', (req, res) => {
-  const type = req.query.type || 'all'; // Filter by type: all, info, error, warn
-  const limit = parseInt(req.query.limit) || 100;
-
-  let filteredLogs = logs.entries;
-  if (type !== 'all') {
-    filteredLogs = logs.entries.filter(log => log.type === type);
-  }
-
-  const displayLogs = filteredLogs.slice(-limit).reverse();
-
-  const html = `
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Server Logs - KeyChing</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, monospace;
-      background: #1e1e1e;
-      color: #d4d4d4;
-      padding: 20px;
-    }
-    .container {
-      max-width: 1400px;
-      margin: 0 auto;
-    }
-    .header {
-      background: #252526;
-      padding: 20px;
-      border-radius: 8px;
-      margin-bottom: 20px;
-      border-left: 4px solid #007acc;
-    }
-    .header h1 {
-      color: #4ec9b0;
-      margin-bottom: 10px;
-    }
-    .stats {
-      display: flex;
-      gap: 20px;
-      font-size: 14px;
-    }
-    .stat-item {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    .badge {
-      padding: 4px 10px;
-      border-radius: 12px;
-      font-weight: bold;
-      font-size: 12px;
-    }
-    .badge.info { background: #007acc; color: white; }
-    .badge.error { background: #f48771; color: white; }
-    .badge.warn { background: #dcdcaa; color: #1e1e1e; }
-    .badge.all { background: #4ec9b0; color: #1e1e1e; }
-    .controls {
-      background: #252526;
-      padding: 15px 20px;
-      border-radius: 8px;
-      margin-bottom: 20px;
-      display: flex;
-      gap: 15px;
-      align-items: center;
-      flex-wrap: wrap;
-    }
-    .controls label {
-      color: #858585;
-      font-size: 14px;
-    }
-    .controls select,
-    .controls input {
-      background: #3c3c3c;
-      border: 1px solid #555;
-      color: #d4d4d4;
-      padding: 8px 12px;
-      border-radius: 4px;
-      font-size: 14px;
-    }
-    .controls button {
-      background: #007acc;
-      color: white;
-      border: none;
-      padding: 8px 16px;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 14px;
-      transition: background 0.3s;
-    }
-    .controls button:hover {
-      background: #005a9e;
-    }
-    .controls button.clear {
-      background: #f48771;
-    }
-    .controls button.clear:hover {
-      background: #d9534f;
-    }
-    .log-container {
-      background: #252526;
-      border-radius: 8px;
-      padding: 15px;
-      max-height: calc(100vh - 300px);
-      overflow-y: auto;
-    }
-    .log-entry {
-      padding: 10px 12px;
-      border-left: 3px solid transparent;
-      margin-bottom: 8px;
-      border-radius: 4px;
-      background: #1e1e1e;
-      font-family: 'Courier New', monospace;
-      font-size: 13px;
-      line-height: 1.6;
-    }
-    .log-entry.info {
-      border-left-color: #4ec9b0;
-    }
-    .log-entry.error {
-      border-left-color: #f48771;
-      background: #2d1f1f;
-    }
-    .log-entry.warn {
-      border-left-color: #dcdcaa;
-      background: #2d2d1f;
-    }
-    .log-time {
-      color: #858585;
-      font-size: 11px;
-      margin-right: 10px;
-    }
-    .log-type {
-      display: inline-block;
-      padding: 2px 8px;
-      border-radius: 3px;
-      font-size: 10px;
-      font-weight: bold;
-      margin-right: 10px;
-      text-transform: uppercase;
-    }
-    .log-type.info { background: #007acc; color: white; }
-    .log-type.error { background: #f48771; color: white; }
-    .log-type.warn { background: #dcdcaa; color: #1e1e1e; }
-    .log-message {
-      color: #d4d4d4;
-      word-wrap: break-word;
-    }
-    .no-logs {
-      text-align: center;
-      padding: 40px;
-      color: #858585;
-    }
-    .auto-refresh {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    .auto-refresh input[type="checkbox"] {
-      width: 16px;
-      height: 16px;
-      cursor: pointer;
-    }
-    .scroll-to-bottom {
-      position: fixed;
-      bottom: 30px;
-      right: 30px;
-      background: #007acc;
-      color: white;
-      border: none;
-      padding: 12px 20px;
-      border-radius: 50px;
-      cursor: pointer;
-      font-size: 14px;
-      box-shadow: 0 4px 12px rgba(0, 122, 204, 0.4);
-      transition: all 0.3s;
-    }
-    .scroll-to-bottom:hover {
-      background: #005a9e;
-      transform: translateY(-2px);
-    }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="header">
-      <h1>📋 Server Logs</h1>
-      <div class="stats">
-        <div class="stat-item">
-          <span class="badge all">${logs.entries.length}</span>
-          <span>Total Logs</span>
-        </div>
-        <div class="stat-item">
-          <span class="badge info">${logs.entries.filter(l => l.type === 'info').length}</span>
-          <span>Info</span>
-        </div>
-        <div class="stat-item">
-          <span class="badge warn">${logs.entries.filter(l => l.type === 'warn').length}</span>
-          <span>Warnings</span>
-        </div>
-        <div class="stat-item">
-          <span class="badge error">${logs.entries.filter(l => l.type === 'error').length}</span>
-          <span>Errors</span>
-        </div>
-      </div>
-    </div>
-
-    <div class="controls">
-      <label>Filter:</label>
-      <select id="typeFilter" onchange="filterLogs()">
-        <option value="all" ${type === 'all' ? 'selected' : ''}>All Types</option>
-        <option value="info" ${type === 'info' ? 'selected' : ''}>Info Only</option>
-        <option value="warn" ${type === 'warn' ? 'selected' : ''}>Warnings Only</option>
-        <option value="error" ${type === 'error' ? 'selected' : ''}>Errors Only</option>
-      </select>
-      
-      <label>Limit:</label>
-      <input type="number" id="limitInput" value="${limit}" min="10" max="500" step="10" onchange="filterLogs()">
-      
-      <div class="auto-refresh">
-        <input type="checkbox" id="autoRefresh" onchange="toggleAutoRefresh()">
-        <label for="autoRefresh">Auto-refresh (5s)</label>
-      </div>
-      
-      <button onclick="location.reload()">🔄 Refresh</button>
-      <button class="clear" onclick="clearLogs()">🗑️ Clear Logs</button>
-      <button onclick="exportLogs()">📥 Export</button>
-    </div>
-
-    <div class="log-container" id="logContainer">
-      ${displayLogs.length === 0 ? '<div class="no-logs">No logs to display</div>' : displayLogs.map(log => `
-        <div class="log-entry ${log.type}">
-          <span class="log-time">${new Date(log.timestamp).toLocaleString()}</span>
-          <span class="log-type ${log.type}">${log.type}</span>
-          <span class="log-message">${escapeHtml(log.message)}</span>
-        </div>
-      `).join('')}
-    </div>
-
-    <button class="scroll-to-bottom" onclick="scrollToBottom()">↓ Scroll to Bottom</button>
-  </div>
-
-  <script>
-    let autoRefreshInterval = null;
-
-    function filterLogs() {
-      const type = document.getElementById('typeFilter').value;
-      const limit = document.getElementById('limitInput').value;
-      window.location.href = \`/logs?type=\${type}&limit=\${limit}\`;
-    }
-
-    function toggleAutoRefresh() {
-      const checkbox = document.getElementById('autoRefresh');
-      if (checkbox.checked) {
-        autoRefreshInterval = setInterval(() => location.reload(), 5000);
-      } else {
-        if (autoRefreshInterval) {
-          clearInterval(autoRefreshInterval);
-          autoRefreshInterval = null;
-        }
-      }
-    }
-
-    function scrollToBottom() {
-      const container = document.getElementById('logContainer');
-      container.scrollTop = container.scrollHeight;
-    }
-
-    function clearLogs() {
-      if (confirm('Are you sure you want to clear all logs?')) {
-        fetch('/api/logs/clear', { method: 'POST' })
-          .then(() => location.reload())
-          .catch(err => alert('Error clearing logs: ' + err));
-      }
-    }
-
-    function exportLogs() {
-      fetch('/api/logs/export')
-        .then(res => res.json())
-        .then(data => {
-          const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = \`server-logs-\${new Date().toISOString()}.json\`;
-          a.click();
-          URL.revokeObjectURL(url);
-        })
-        .catch(err => alert('Error exporting logs: ' + err));
-    }
-
-    // Auto-scroll to bottom on load
-    window.addEventListener('load', () => {
-      scrollToBottom();
-    });
-  </script>
-</body>
-</html>
-  `;
-
-  function escapeHtml(text) {
-    const map = {
-      '&': '&amp;',
-      '<': '&lt;',
-      '>': '&gt;',
-      '"': '&quot;',
-      "'": '&#039;'
-    };
-    return text.replace(/[&<>"']/g, m => map[m]);
-  }
-
-  res.send(html);
-});
-
-// API endpoint to clear logs
-server.post('/api/logs/clear', (req, res) => {
-  logs.entries = [];
-  res.json({ success: true, message: 'Logs cleared' });
-});
-
-// API endpoint to export logs
-server.get('/api/logs/export', (req, res) => {
-  res.json({
-    exportDate: new Date().toISOString(),
-    totalLogs: logs.entries.length,
-    logs: logs.entries
-  });
-});
-
-// API endpoint to get logs as JSON
-server.get('/api/logs', (req, res) => {
-  const type = req.query.type || 'all';
-  const limit = parseInt(req.query.limit) || 100;
-
-  let filteredLogs = logs.entries;
-  if (type !== 'all') {
-    filteredLogs = logs.entries.filter(log => log.type === type);
-  }
-
-  res.json({
-    total: filteredLogs.length,
-    logs: filteredLogs.slice(-limit).reverse()
-  });
-});
-
-// Health check endpoint
-server.get('/health', (req, res) => {
-  const uptimeSeconds = process.uptime();
-  const uptimeFormatted = {
-    days: Math.floor(uptimeSeconds / 86400),
-    hours: Math.floor((uptimeSeconds % 86400) / 3600),
-    minutes: Math.floor((uptimeSeconds % 3600) / 60),
-    seconds: Math.floor(uptimeSeconds % 60)
-  };
-
-  const memoryUsage = process.memoryUsage();
-  const memoryFormatted = {
-    rss: `${Math.round(memoryUsage.rss / 1024 / 1024)} MB`,
-    heapTotal: `${Math.round(memoryUsage.heapTotal / 1024 / 1024)} MB`,
-    heapUsed: `${Math.round(memoryUsage.heapUsed / 1024 / 1024)} MB`
-  };
-
-  const html = `
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Health Check - Key-Ching Server</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 20px;
-    }
-    .container {
-      background: white;
-      border-radius: 16px;
-      padding: 40px;
-      max-width: 600px;
-      width: 100%;
-      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-    }
-    .status-badge {
-      display: inline-flex;
-      align-items: center;
-      background: #10b981;
-      color: white;
-      padding: 12px 24px;
-      border-radius: 50px;
-      font-weight: bold;
-      font-size: 1.2em;
-      margin-bottom: 30px;
-    }
-    .status-indicator {
-      width: 12px;
-      height: 12px;
-      background: white;
-      border-radius: 50%;
-      margin-right: 10px;
-      animation: pulse 2s infinite;
-    }
-    @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.5; }
-    }
-    h1 {
-      color: #333;
-      margin-bottom: 30px;
-      font-size: 2em;
-    }
-    .info-grid {
-      display: grid;
-      gap: 20px;
-    }
-    .info-item {
-      background: #f8fafc;
-      padding: 20px;
-      border-radius: 12px;
-      border-left: 4px solid #667eea;
-    }
-    .info-label {
-      color: #64748b;
-      font-size: 0.85em;
-      text-transform: uppercase;
-      letter-spacing: 1px;
-      margin-bottom: 8px;
-    }
-    .info-value {
-      color: #1e293b;
-      font-size: 1.3em;
-      font-weight: 600;
-    }
-    .timestamp {
-      text-align: center;
-      color: #64748b;
-      font-size: 0.9em;
-      margin-top: 30px;
-      padding-top: 20px;
-      border-top: 1px solid #e2e8f0;
-    }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="status-badge">
-      <span class="status-indicator"></span>
-      System Healthy
-    </div>
-    
-    <h1>🔑 Key-Ching Server</h1>
-    
-    <div class="info-grid">
-      <div class="info-item">
-        <div class="info-label">Environment</div>
-        <div class="info-value">${process.env.NODE_ENV || 'development'}</div>
-      </div>
-      
-      <div class="info-item">
-        <div class="info-label">Server Uptime</div>
-        <div class="info-value">${uptimeFormatted.days}d ${uptimeFormatted.hours}h ${uptimeFormatted.minutes}m ${uptimeFormatted.seconds}s</div>
-      </div>
-      
-      <div class="info-item">
-        <div class="info-label">Memory Usage</div>
-        <div class="info-value">${memoryFormatted.heapUsed} / ${memoryFormatted.heapTotal}</div>
-      </div>
-      
-      <div class="info-item">
-        <div class="info-label">Database</div>
-        <div class="info-value">Configured (${dbConfig.database})</div>
-      </div>
-      
-      <div class="info-item">
-        <div class="info-label">Port</div>
-        <div class="info-value">${PORT}</div>
-      </div>
-    </div>
-    
-    <div class="timestamp">
-      Last checked: ${new Date().toISOString()}
-    </div>
-  </div>
-  
-  <script>
-    (function() {
-      const RELOAD_INTERVAL = 30000;
-
-      function scheduleReload() {
-        return setTimeout(() => {
-          if (document.visibilityState === 'visible') {
-            location.reload();
-          }
-        }, RELOAD_INTERVAL);
-      }
-
-      let reloadTimeoutId = scheduleReload();
-
-      document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible') {
-          clearTimeout(reloadTimeoutId);
-          reloadTimeoutId = scheduleReload();
-        } else {
-          clearTimeout(reloadTimeoutId);
-        }
-      });
-    })();
-  </script>
-</body>
-</html>
-  `;
-
-  res.send(html);
-});
-
-
-// ============================================
-// DATABASE MANAGEMENT ENDPOINTS
-// ============================================
-
-// Serve database manager HTML page
-server.get('/db/manager', (req, res) => {
-  res.sendFile(__dirname + '/public/db-manager.html');
-});
-
-// Get database statistics
-server.get('/db/stats', async (req, res) => {
-  try {
-    // Get database size
-    const sizeResult = await knex('information_schema.TABLES')
-      .where('table_schema', dbConfig.database)
-      .select(knex.raw('ROUND(SUM(data_length + index_length) / 1024 / 1024, 2) AS size_mb'));
-
-    // Get total tables
-    const tablesResult = await knex('information_schema.TABLES')
-      .where('table_schema', dbConfig.database)
-      .count('* as count');
-
-    // Get active connections
-    const connectionsResult = await knex('information_schema.PROCESSLIST')
-      .where('DB', dbConfig.database)
-      .count('* as count');
-
-    // Get total records across all tables
-    const allTables = await knex('information_schema.TABLES')
-      .where('table_schema', dbConfig.database)
-      .select('table_name');
-
-    let totalRecords = 0;
-    for (const table of allTables) {
-      const countResult = await knex(table.table_name).count('* as count');
-      totalRecords += countResult[0].count;
-    }
-
-    // Get table details
-    const tableDetails = await knex('information_schema.TABLES')
-      .where('table_schema', dbConfig.database)
-      .select(
-        'table_name',
-        'table_rows',
-        knex.raw('ROUND((data_length + index_length) / 1024 / 1024, 2) AS size_mb'),
-        'engine',
-        'table_collation'
-      )
-      .orderBy('table_name');
-
-    res.json({
-      databaseSize: sizeResult[0].size_mb,
-      totalTables: tablesResult[0].count,
-      activeConnections: connectionsResult[0].count,
-      totalRecords: totalRecords,
-      tables: tableDetails,
-      databaseName: dbConfig.database,
-      host: dbConfig.host,
-      port: dbConfig.port
-    });
-  } catch (error) {
-    console.error('Database stats error:', error);
-    res.status(500).json({ error: 'Failed to retrieve database statistics', message: error.message });
-  }
-});
-
-// Get list of tables with details
-server.get('/db/tables', async (req, res) => {
-  try {
-    const tables = await knex('information_schema.TABLES')
-      .where('table_schema', dbConfig.database)
-      .select(
-        'table_name as name',
-        'table_rows as rows',
-        knex.raw('ROUND((data_length + index_length) / 1024 / 1024, 2) AS size'),
-        'engine',
-        'create_time',
-        'update_time'
-      )
-      .orderBy('table_name');
-
-    const formattedTables = tables.map(table => ({
-      name: table.name,
-      rows: table.rows,
-      size: `${table.size} MB`,
-      engine: table.engine,
-      created: table.create_time,
-      updated: table.update_time
-    }));
-
-    res.json({ tables: formattedTables });
-  } catch (error) {
-    console.error('Get tables error:', error);
-    res.status(500).json({ error: 'Failed to retrieve tables', message: error.message });
-  }
-});
-
-// Get records from a specific table with pagination and search
-server.get('/db/table/:tableName', async (req, res) => {
-  try {
-    const { tableName } = req.params;
-    const limit = parseInt(req.query.limit) || 50;
-    const offset = parseInt(req.query.offset) || 0;
-    const search = req.query.search || '';
-
-    // Validate table name exists
-    const tableCheck = await knex('information_schema.TABLES')
-      .where({ table_schema: dbConfig.database, table_name: tableName })
-      .select('table_name');
-
-    if (tableCheck.length === 0) {
-      return res.status(404).json({ error: 'Table not found' });
-    }
-
-    let countQuery = knex(tableName);
-    let dataQuery = knex(tableName);
-
-    // Add search filter if provided
-    if (search) {
-      // Get column names
-      const columns = await knex('information_schema.COLUMNS')
-        .where({ table_schema: dbConfig.database, table_name: tableName })
-        .select('COLUMN_NAME');
-
-      countQuery = countQuery.where(function () {
-        for (const col of columns) {
-          this.orWhere(col.COLUMN_NAME, 'like', `%${search}%`);
-        }
-      });
-      dataQuery = dataQuery.where(function () {
-        for (const col of columns) {
-          this.orWhere(col.COLUMN_NAME, 'like', `%${search}%`);
-        }
-      });
-    }
-
-    // Get total count
-    const countResult = await countQuery.clone().count('* as total');
-    const total = countResult[0].total;
-
-    // Get records with pagination
-    const records = await dataQuery.limit(limit).offset(offset);
-
-    res.json({
-      records,
-      total,
-      limit,
-      offset
-    });
-  } catch (error) {
-    console.error('Get records error:', error);
-    res.status(500).json({ error: 'Failed to retrieve records', message: error.message });
-  }
-});
-
-// Execute raw SQL query (SELECT only for safety)
-server.post('/db/query', async (req, res) => {
-  try {
-    const { query } = req.body;
-
-    if (!query) {
-      return res.status(400).json({ error: 'Query is required' });
-    }
-
-    // Only allow SELECT queries for safety
-    const trimmedQuery = query.trim().toUpperCase();
-    if (!trimmedQuery.startsWith('SELECT') && !trimmedQuery.startsWith('SHOW') && !trimmedQuery.startsWith('DESCRIBE')) {
-      return res.status(403).json({ error: 'Only SELECT, SHOW, and DESCRIBE queries are allowed' });
-    }
-
-    const results = await knex.raw(query);
-
-    res.json({
-      success: true,
-      results: results[0],
-      rowCount: results[0].length
-    });
-  } catch (error) {
-    console.error('Query execution error:', error);
-    res.status(500).json({ error: 'Query execution failed', message: error.message });
-  }
-});
 
 const currencyIdMap = {
   BTC: 'bitcoin',
@@ -1394,6 +433,44 @@ const fetchCryptoRate = async (cryptoCurrency) => {
     return fallbackRates[cryptoCurrency] || 0;
   }
 };
+
+// In-memory cache: { [coinId]: { rate: number, fetchedAt: number } }
+const rateCache = {};
+const RATE_CACHE_TTL_MS = 60_000; // 60 seconds
+
+// Proxy endpoint so the browser never hits CoinGecko directly (avoids CORS/rate-limit issues)
+server.get(PROXY + '/api/crypto-rate', async (req, res) => {
+  const { coin } = req.query;
+  const allowed = Object.values(currencyIdMap);
+  if (!coin || !allowed.includes(coin)) {
+    return res.status(400).json({ error: 'Unsupported coin id' });
+  }
+
+  const now = Date.now();
+  const cached = rateCache[coin];
+  if (cached && now - cached.fetchedAt < RATE_CACHE_TTL_MS) {
+    return res.json({ [coin]: { usd: cached.rate } });
+  }
+
+  try {
+    const response = await fetch(
+      `https://api.coingecko.com/api/v3/simple/price?ids=${coin}&vs_currencies=usd`,
+      { headers: { 'Accept': 'application/json' } }
+    );
+    const data = await response.json();
+    const rate = data[coin]?.usd ?? null;
+    if (rate !== null) {
+      rateCache[coin] = { rate, fetchedAt: now };
+    }
+    res.json({ [coin]: { usd: rate } });
+  } catch (error) {
+    console.error('Crypto rate proxy error:', error);
+    // Return cached stale data if available, otherwise fallback
+    if (cached) return res.json({ [coin]: { usd: cached.rate } });
+    const fallback = { bitcoin: 45000, ethereum: 3000, litecoin: 100, solana: 50 };
+    res.json({ [coin]: { usd: fallback[coin] ?? 0 } });
+  }
+});
 
 
 
@@ -1458,9 +535,9 @@ server.post(PROXY + '/api/auth/login', async (req, res) => {
       const token = jwt.sign({
         id: user.id,
         email: user.email,
-        username: user.username,  // Add this line
+        username: user.username,
         credits: user.credits
-      }, process.env.JWT_SECRET, { expiresIn: '2h' });
+      }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN || '7d' });
 
       // conver random amounts to crypto amounts based on current rates 
       const btcRate = await fetchCryptoRate('BTC');
@@ -1578,9 +655,9 @@ server.post(PROXY + '/api/user', authenticateToken, async (req, res) => {
     const token = jwt.sign({
       id: user.id,
       email: user.email,
-      username: user.username,  // Add this line
+      username: user.username,
       credits: user.credits
-    }, process.env.JWT_SECRET, { expiresIn: '2h' });
+    }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN || '7d' });
 
 
     res.json({
@@ -1612,6 +689,45 @@ server.post(PROXY + '/api/user', authenticateToken, async (req, res) => {
   }
 });
 
+
+// Update profile fields (bio, banner, avatar, social links, intro video)
+server.put(PROXY + '/api/users/profile', authenticateToken, async (req, res) => {
+  console.log(`PUT /api/users/profile — user: ${req.user?.email}`);
+  try {
+    const { email } = req.user; // Get email from authenticated token
+    const { bio, bioVideoUrl, bannerUrl, profilePicture, socialLinks } = req.body;
+
+    // Validate input (you can add more validation as needed)
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email is required'
+      });
+    }
+
+    // Update user profile in the database
+    await knex('userData')
+      .where('email', email)
+      .update({
+        bio: bio || '',
+        bioVideoUrl: bioVideoUrl || null,
+        bannerUrl: bannerUrl || null,
+        profilePicture: profilePicture || null,
+        socialLinks: JSON.stringify(socialLinks || {})
+      });
+
+    res.json({
+      success: true,
+      message: 'Profile updated successfully'
+    });
+  } catch (error) {
+    console.error('Profile update error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error occurred during profile update'
+    });
+  }
+});
 
 
 
@@ -1697,7 +813,7 @@ server.post(PROXY + '/api/auth/register', async (req, res) => {
       id: userId,
       loginStatus: true,
       lastLogin: currentDateTime,
-      accountType: accountType || 'buyer',
+      accountType: accountType || 'free',
       username: username,
       email: email,
       firstName: firstName,
@@ -1809,9 +925,9 @@ server.post(PROXY + '/api/auth/register', async (req, res) => {
     const token = jwt.sign({
       id: newUser.id,
       email: newUser.email,
-      username: newUser.username,  // Add this line
+      username: newUser.username,
       credits: newUser.credits
-    }, process.env.JWT_SECRET, { expiresIn: '2h' });
+    }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN || '7d' });
 
     // const token = Buffer.from(`${userId}_${Date.now()}_${Math.random()}`).toString('base64');
 
@@ -1882,183 +998,113 @@ const convertCryptoTXamountIntoUSD = (chain, txAmount) => {
 
 
 // Custom authentication route
-server.post(PROXY + '/api/auth/verify-account', async (req, res) => {
+server.post(PROXY + '/api/auth/verify-account', authenticateToken, async (req, res) => {
   try {
+    const { email, username, chain, address, transactionId, transactionId2 } = req.body;
 
-    // check the crypto payment data 
-
-    const { email, username, timeLeft, chain, address, transactionId, urlParams } = req.body;
-
-    const params = new URLSearchParams(urlParams);
-
-    const hash = transactionId
-
-    console.log('Verification request data:', { email, username, timeLeft, chain, address, hash });
-
-    // console.log('URL Parameters:', params.forEach((value, key) => {
-    //   console.log(`${key}: ${value}`);
-    // }));
-
-    let rows = [];
-    let limit = 10;
-
-
-    if (!timeLeft || !chain || !address || !email || !username || !hash) {
-      // if (!timeLeft || !chain || !email || !username) {
+    if (!chain || !address || !email || !username || !transactionId || !transactionId2) {
       return res.status(400).json({
         success: false,
         message: 'All fields are required for verification'
       });
     }
 
-    // now pull in userdata from database
-    const users = await knex('userData')
-      .where('email', email)
-      .select('*');
+    // Anti-spoofing: reject if either hash was already used in a previous verification
+    const existing = await knex('verificationTxLog')
+      .whereIn('txHash', [transactionId, transactionId2])
+      .select('txHash');
 
+    if (existing.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'One or more transaction hashes have already been used for verification'
+      });
+    }
+
+    const users = await knex('userData').where('email', email).select('*');
     const userData = users[0];
 
     if (!userData) {
-
-      console.error('User not found for verification:', email);
-
       return res.status(404).json({
         success: false,
         message: 'User not found for verification'
       });
     }
 
-    FetchRecentTransactionsCronByChain(chain); // ensure latest TXs are fetched
+    const TX_TABLE = { BTC: 'BTC_TX', ETH: 'ETH_TX', LTC: 'LTC_TX', SOL: 'SOL_TX' };
+    const txTable = TX_TABLE[chain];
 
-    setTimeout
-      (async () => {
+    if (!txTable) {
+      return res.status(400).json({ success: false, message: 'Unsupported chain' });
+    }
 
-        // console.log('User data for verification:', userData);
+    FetchRecentTransactionsCronByChain(chain); // trigger fresh TX fetch
+    await new Promise(resolve => setTimeout(resolve, 5000)); // wait for fetch to complete
 
-        let tx1Found = false;
-        let tx2Found = false;
+    // Look up each TX hash separately in the chain's transaction table
+    const [rows1, rows2] = await Promise.all([
+      knex(txTable).where('hash', transactionId).select('*'),
+      knex(txTable).where('hash', transactionId2).select('*'),
+    ]);
 
-        let rows;
+    console.log(`Verification TX lookup — hash1: ${rows1.length} row(s), hash2: ${rows2.length} row(s)`);
 
-        // fetch transactions from blockchain explorer APIs
-        if (chain === 'BTC')
-        // try {
-        //   rows = await fetchEsploraAddressTxs(BTC_ESPLORA, address, limit);
-        // } catch (err) {
-        //   console.error('Error fetching live BTC transactions:', err);
+    if (!rows1.length) {
+      await knex('userData').where('email', email).update({ verification: 'false' });
+      return res.status(400).json({
+        success: false,
+        message: 'Transaction 1 not found on chain — verification failed'
+      });
+    }
 
-        {
-          let result = await knex('CryptoTransactions_BTC')
-            .where('hash', hash)
-            .select('*');
+    if (!rows2.length) {
+      await knex('userData').where('email', email).update({ verification: 'false' });
+      return res.status(400).json({
+        success: false,
+        message: 'Transaction 2 not found on chain — verification failed'
+      });
+    }
 
-          rows = result;
+    const tx1Amount = parseFloat(rows1[0].amount || rows1[0].value);
+    const tx2Amount = parseFloat(rows2[0].amount || rows2[0].value);
 
-        }
-        // }
-        else if (chain === 'LTC')
-        // try {
-        //   rows = await fetchEsploraAddressTxs(LTC_ESPLORA, address, limit);
-        // } catch (error) {
-        // console.error('Error fetching live LTC transactions:', error);
+    const [usd1, usd2] = await Promise.all([
+      convertCryptoTXamountIntoUSD(chain, tx1Amount),
+      convertCryptoTXamountIntoUSD(chain, tx2Amount),
+    ]);
 
-        {
-          let result = await knex('CryptoTransactions_LTC')
-            .where('hash', hash)
-            .select('*');
-          rows = result;
-        }
-        // }
+    console.log(`TX1: $${usd1?.toFixed(4)} vs expected $${userData.amount1}`);
+    console.log(`TX2: $${usd2?.toFixed(4)} vs expected $${userData.amount2}`);
 
-        else if (chain === 'ETH')
-        // try {
-        //   rows = await fetchEth({ address, limit, chainId: 1, action: "txlist", extraParams: {} });
-        //   // rows = await fetchEth({ address, limit, chainId: 1, action: "txlist", extraParams: {} });
-        // } catch (error) {
-        {
-          console.error('Error fetching live ETH transactions:', error);
+    const diff1 = Math.abs(usd1 - userData.amount1);
+    const diff2 = Math.abs(usd2 - userData.amount2);
 
-          let result = await knex('CryptoTransactions_ETH')
-            .where('hash', hash)
-            .select('*');
-          rows = result;
-        }
-        // }
+    if (diff1 >= 0.025) {
+      await knex('userData').where('email', email).update({ verification: 'false' });
+      return res.status(400).json({
+        success: false,
+        message: 'Transaction 1 amount does not match — verification failed'
+      });
+    }
 
-        else if (chain === 'SOL')
-        // try {
-        //   rows = await fetchSol(address, limit);
+    if (diff2 >= 0.025) {
+      await knex('userData').where('email', email).update({ verification: 'false' });
+      return res.status(400).json({
+        success: false,
+        message: 'Transaction 2 amount does not match — verification failed'
+      });
+    }
 
-        // } catch (error) {
-        //   console.error('Error fetching live SOL transactions:', error);
+    // Both TXs verified — mark account as verified and log hashes to prevent reuse
+    await knex('userData').where('email', email).update({ verification: 'true' });
+    await knex('verificationTxLog').insert([
+      { txHash: transactionId, chain, usedBy: userData.id, usedForEmail: email },
+      { txHash: transactionId2, chain, usedBy: userData.id, usedForEmail: email },
+    ]);
 
-        {
-          let result = await knex('CryptoTransactions_SOL')
-            .where('hash', hash)
-            .select('*');
-          rows = result;
-        }
+    console.log('Account verified successfully for user:', email);
 
-
-        // Here you would typically verify the payment details with your payment gateway
-        // Check for match of transaction amounts in the fetched transactions
-        console.log(`Fetched ${rows.length} transactions for address ${address} on chain ${chain}`);
-
-        // console.log ("Rows:", rows);
-
-        // Use for...of loop with await to ensure all conversions complete before verification
-        for (const tx of rows) {
-          console.log('Checking transaction:', tx);
-          console.log(`Transaction found: ${tx.txid || tx.hash} with amount: ${tx.amount || tx.value}`);
-          let txAmount = parseFloat(tx.amount || tx.value);
-
-          const usdAmount = await convertCryptoTXamountIntoUSD(chain, txAmount);
-          console.log(`Converted transaction amount to USD: $${usdAmount.toFixed(4)} VS expected amounts: $${userData.amount1}, $${userData.amount2}`);
-
-          const diff1 = Math.abs(usdAmount - userData.amount1);
-          const diff2 = Math.abs(usdAmount - userData.amount2);
-
-          console.log(`Transaction amounts within margin of error: $${diff1.toFixed(4)} and $${diff2.toFixed(4)}`);
-
-          // if ther TXs are within a 2.5 cent margin of error, consider them a match
-          if (diff1 < 0.025) {
-            tx1Found = true;
-          }
-          if (diff2 < 0.025) {
-            tx2Found = true;
-          }
-        }
-
-        console.log(`Transaction verification results: tx1Found=${tx1Found}, tx2Found=${tx2Found}`);
-        //  if one of the transactions are not found, return error
-        if (!tx1Found || !tx2Found) {
-
-          const result = await knex('userData')
-            .where('email', email)
-            .update({ verification: 'false' });
-
-          console.error('Payment amounts do not match for verification:', { tx1Found, tx2Found });
-
-          return res.status(400).json({
-            success: false,
-            message: 'Payment amounts do not match, Account verification failed'
-          });
-        }
-
-        // if both transactions are found, verify the account
-        const result = await knex('userData')
-          .where('email', email)
-          .update({ verification: 'true' });
-
-        console.log('Account verified successfully for user:', email);
-
-        res.json({
-          success: true,
-          user: userData,
-          message: 'Account verified successfully'
-        });
-
-      }, 5000); // wait 5 seconds to ensure TXs are fetched
+    res.json({ success: true, message: 'Account verified successfully' });
 
   } catch (error) {
     console.error('Account verification error:', error);
@@ -2070,6 +1116,363 @@ server.post(PROXY + '/api/auth/verify-account', async (req, res) => {
 });
 
 
+/**
+ * POST /api/auth/verification-docs/:username
+ * Upload face pic and ID photo for identity verification.
+ * Files stored locally in server/uploads/verification/ — ephemeral, deleted after manual review.
+ */
+server.post(PROXY + '/api/auth/verification-docs/:username', authenticateToken, async (req, res) => {
+  const { username } = req.params;
+  let busboy;
+  try {
+    busboy = Busboy({ headers: req.headers, limits: { fileSize: 5 * 1024 * 1024, files: 2 } });
+  } catch (e) {
+    console.error('Failed to init Busboy:', e);
+    return res.status(400).json({ message: 'Invalid multipart/form-data request' });
+  }
+
+  // Local ephemeral directory
+  const uploadDir = path.join(__dirname, 'uploads', 'verification', username);
+  fs.mkdirSync(uploadDir, { recursive: true });
+
+  let uploadDone = false;
+  const savedFiles = {};
+  let pendingWrites = 0;
+  let aborted = false;
+
+  busboy.on('file', (fieldname, file, info) => {
+    if (fieldname !== 'facePic' && fieldname !== 'idPhoto') {
+      file.resume();
+      return;
+    }
+
+    const { filename: rawFilename, mimeType } = info || {};
+    const originalName =
+      typeof rawFilename === 'string' && rawFilename.trim() ? rawFilename.trim() : 'doc';
+
+    const extFromName = path.extname(originalName).toLowerCase().replace('.', '');
+    const extOk = !!extFromName && ALLOWED.test(extFromName);
+    const mimeOk = ALLOWED.test((mimeType || '').split('/').pop() || '');
+
+    if (!extOk && !mimeOk) {
+      file.resume();
+      if (!aborted) {
+        aborted = true;
+        if (!uploadDone) {
+          uploadDone = true;
+          return res.status(400).json({ message: 'Error: Images Only!' });
+        }
+      }
+      return;
+    }
+
+    pendingWrites++;
+
+    const ext = extOk ? `.${extFromName}` : (MIME_TO_EXT[(mimeType || '').toLowerCase()] || '.jpg');
+    const localFileName = `${fieldname}_${uuidv4()}${ext}`;
+    const localPath = path.join(uploadDir, localFileName);
+
+    const writeStream = fs.createWriteStream(localPath);
+    file.pipe(writeStream);
+
+    writeStream.on('error', (err) => {
+      console.error('Local write error:', err);
+      pendingWrites--;
+      if (!uploadDone) {
+        uploadDone = true;
+        return res.status(500).json({ message: 'Upload failed' });
+      }
+    });
+
+    writeStream.on('finish', async () => {
+      savedFiles[fieldname] = '/' + path.relative(__dirname, localPath).replace(/\\/g, '/');
+      pendingWrites--;
+
+      if (pendingWrites === 0 && !uploadDone) {
+        uploadDone = true;
+        try {
+          await ensureVerificationReviewColumns();
+          await knex('userData')
+            .where('username', username)
+            .update({
+              verification: 'pending',
+              verificationFacePath: savedFiles.facePic || null,
+              verificationIdPath: savedFiles.idPhoto || null,
+              verificationDocsStatus: 'pending',
+              verificationDocsNotes: null,
+              verificationDocsReviewedAt: null,
+              verificationDocsReviewedBy: null,
+            });
+
+          return res.status(200).json({
+            success: true,
+            message: 'Verification documents uploaded for review',
+            files: Object.keys(savedFiles),
+          });
+        } catch (err) {
+          console.error('DB update error:', err);
+          return res.status(500).json({ message: 'Server error' });
+        }
+      }
+    });
+  });
+
+  busboy.on('error', (err) => {
+    console.error('Busboy error:', err);
+    if (!uploadDone) { uploadDone = true; return res.status(400).json({ message: 'Malformed upload' }); }
+  });
+
+  busboy.on('finish', () => {
+    if (aborted) return;
+    if (pendingWrites === 0 && Object.keys(savedFiles).length === 0 && !uploadDone) {
+      uploadDone = true;
+      return res.status(400).json({ message: 'No files uploaded' });
+    }
+  });
+
+  req.pipe(busboy);
+});
+
+server.post(PROXY + '/api/promo-submissions', authenticateToken, async (req, res) => {
+  await ensurePromoSubmissionsTable();
+
+  let busboy;
+  try {
+    busboy = Busboy({ headers: req.headers, limits: { fileSize: 10 * 1024 * 1024, files: 1 } });
+  } catch (e) {
+    console.error('Promo submission init error:', e);
+    return res.status(400).json({ message: 'Invalid multipart/form-data request' });
+  }
+
+  const folderName = String(req.user?.username || req.user?.id || 'user').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const uploadDir = path.join(__dirname, 'uploads', 'promo-submissions', folderName);
+  fs.mkdirSync(uploadDir, { recursive: true });
+
+  const fields = {};
+  let assetPath = null;
+  let pendingWrites = 0;
+  let uploadFinished = false;
+  let responded = false;
+
+  const finalize = async () => {
+    if (!uploadFinished || pendingWrites > 0 || responded) return;
+    responded = true;
+
+    try {
+      const submissionType = String(fields.submissionType || '').trim();
+      const mediaType = String(fields.mediaType || '').trim();
+      const title = String(fields.title || '').trim();
+      const description = String(fields.description || '').trim();
+      const targetDropId = String(fields.targetDropId || '').trim() || null;
+      const mediaUrl = String(fields.mediaUrl || '').trim() || null;
+      const ctaText = String(fields.ctaText || '').trim() || null;
+      const contactEmail = String(fields.contactEmail || req.user?.email || '').trim();
+      const budgetUsd = Number(fields.budgetUsd || 0) || 0;
+      const tags = String(fields.tags || '').trim() || null;
+
+      if (!['ad', 'drop_sponsorship'].includes(submissionType)) {
+        return res.status(400).json({ message: 'Invalid submission type' });
+      }
+      if (!['image', 'video_link', 'audio'].includes(mediaType)) {
+        return res.status(400).json({ message: 'Invalid media type' });
+      }
+      if (!title || !description || !contactEmail) {
+        return res.status(400).json({ message: 'Please complete the required fields' });
+      }
+      if (mediaType === 'video_link' && !mediaUrl) {
+        return res.status(400).json({ message: 'A video link is required for video submissions' });
+      }
+      if ((mediaType === 'image' || mediaType === 'audio') && !assetPath && !mediaUrl) {
+        return res.status(400).json({ message: 'Please upload a file or provide a media link' });
+      }
+
+      const id = uuidv4();
+      await knex('promoSubmissions').insert({
+        id,
+        userId: String(req.user?.id || ''),
+        username: String(req.user?.username || ''),
+        email: String(req.user?.email || ''),
+        contactEmail,
+        submissionType,
+        mediaType,
+        title,
+        description,
+        targetDropId,
+        mediaUrl,
+        ctaText,
+        budgetUsd,
+        assetPath,
+        tags,
+        status: 'pending',
+      });
+
+      return res.status(200).json({
+        success: true,
+        id,
+        message: 'Promo submission received and queued for admin review',
+      });
+    } catch (err) {
+      console.error('Promo submission error:', err);
+      return res.status(500).json({ message: 'Failed to submit promo request' });
+    }
+  };
+
+  busboy.on('field', (fieldname, value) => {
+    fields[fieldname] = value;
+  });
+
+  busboy.on('file', (fieldname, file, info) => {
+    if (fieldname !== 'asset') {
+      file.resume();
+      return;
+    }
+
+    pendingWrites++;
+    const originalName = String(info?.filename || 'asset').trim() || 'asset';
+    const ext = path.extname(originalName) || '.bin';
+    const localFileName = `${Date.now()}_${uuidv4()}${ext}`;
+    const localPath = path.join(uploadDir, localFileName);
+    const writeStream = fs.createWriteStream(localPath);
+
+    file.pipe(writeStream);
+
+    writeStream.on('finish', () => {
+      assetPath = '/' + path.relative(__dirname, localPath).replace(/\\/g, '/');
+      pendingWrites--;
+      void finalize();
+    });
+
+    writeStream.on('error', (err) => {
+      console.error('Promo asset write error:', err);
+      pendingWrites--;
+      if (!responded) {
+        responded = true;
+        return res.status(500).json({ message: 'Failed to store uploaded asset' });
+      }
+    });
+  });
+
+  busboy.on('error', (err) => {
+    console.error('Promo Busboy error:', err);
+    if (!responded) {
+      responded = true;
+      return res.status(400).json({ message: 'Malformed upload' });
+    }
+  });
+
+  busboy.on('finish', () => {
+    uploadFinished = true;
+    void finalize();
+  });
+
+  req.pipe(busboy);
+});
+
+server.get(PROXY + '/api/promo-submissions/me', authenticateToken, async (req, res) => {
+  try {
+    await ensurePromoSubmissionsTable();
+    const userId = String(req.user?.id || '');
+
+    const rows = await knex('promoSubmissions')
+      .where('userId', userId)
+      .orderBy('created_at', 'desc')
+      .select('*');
+
+    const toNum = (v) => Number(v || 0);
+    const summary = rows.reduce((acc, r) => {
+      const impressions = toNum(r.impressions);
+      const clicks = toNum(r.clicks);
+      const likes = toNum(r.likes);
+      const neutrals = toNum(r.neutrals);
+      const dislikes = toNum(r.dislikes);
+
+      acc.total += 1;
+      if (r.submissionType === 'ad') acc.ads += 1;
+      if (r.submissionType === 'drop_sponsorship') acc.sponsorships += 1;
+      acc.impressions += impressions;
+      acc.clicks += clicks;
+      acc.likes += likes;
+      acc.neutrals += neutrals;
+      acc.dislikes += dislikes;
+      return acc;
+    }, {
+      total: 0,
+      ads: 0,
+      sponsorships: 0,
+      impressions: 0,
+      clicks: 0,
+      likes: 0,
+      neutrals: 0,
+      dislikes: 0,
+    });
+
+    const ctr = summary.impressions > 0 ? (summary.clicks / summary.impressions) * 100 : 0;
+
+    res.json({
+      summary: {
+        ...summary,
+        ctrPct: Number(ctr.toFixed(2)),
+      },
+      items: rows.map((r) => {
+        const impressions = toNum(r.impressions);
+        const clicks = toNum(r.clicks);
+        return {
+          ...r,
+          ctrPct: impressions > 0 ? Number(((clicks / impressions) * 100).toFixed(2)) : 0,
+        };
+      }),
+    });
+  } catch (err) {
+    console.error('GET /api/promo-submissions/me error:', err);
+    res.status(500).json({ error: 'Failed to fetch promo performance' });
+  }
+});
+
+server.delete(PROXY + '/api/promo-submissions/:id', authenticateToken, async (req, res) => {
+  try {
+    await ensurePromoSubmissionsTable();
+    const id = String(req.params.id || '');
+    const userId = String(req.user?.id || '');
+
+    const row = await knex('promoSubmissions').where({ id, userId }).first();
+    if (!row) return res.status(404).json({ error: 'Promo item not found' });
+
+    await knex('promoSubmissions').where({ id, userId }).del();
+    res.json({ success: true, id });
+  } catch (err) {
+    console.error('DELETE /api/promo-submissions/:id error:', err);
+    res.status(500).json({ error: 'Failed to delete promo item' });
+  }
+});
+
+server.get(PROXY + '/api/promo-submissions/me/export', authenticateToken, async (req, res) => {
+  try {
+    await ensurePromoSubmissionsTable();
+    const userId = String(req.user?.id || '');
+    const rows = await knex('promoSubmissions')
+      .where('userId', userId)
+      .orderBy('created_at', 'desc')
+      .select('*');
+
+    const headers = [
+      'id', 'submissionType', 'status', 'title', 'targetDropId', 'budgetUsd',
+      'impressions', 'clicks', 'likes', 'neutrals', 'dislikes', 'tags', 'created_at', 'updated_at',
+    ];
+    const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const lines = [
+      headers.map(esc).join(','),
+      ...rows.map((r) => headers.map((h) => esc(r[h])).join(',')),
+    ];
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="promo-performance.csv"');
+    res.send(lines.join('\n'));
+  } catch (err) {
+    console.error('GET /api/promo-submissions/me/export error:', err);
+    res.status(500).json({ error: 'Failed to export promo performance' });
+  }
+});
+
 
 // Email verification (code + link)
 const VERIFICATION_CODE_EXPIRY_MINUTES = parseInt(process.env.VERIFICATION_CODE_EXPIRY_MINUTES, 10) || 30;
@@ -2079,9 +1482,11 @@ const formatDateTimeForMySQLLocal = (dateTime) => {
   return new Date(dateTime).toISOString().slice(0, 19).replace('T', ' ');
 };
 
-const buildVerificationLink = (email) => {
+const buildVerificationLink = (email, code = '') => {
   const baseUrl = (process.env.FRONTEND_URL || FRONTEND_URL || "").replace(/\/$/, "");
-  return `${baseUrl}/verify-email?email=${encodeURIComponent(email)}`;
+  const params = new URLSearchParams({ email });
+  if (code) params.set('code', code);
+  return `${baseUrl}/verify?${params.toString()}`;
 };
 
 const generateVerificationCode = () => {
@@ -2125,10 +1530,209 @@ const createEmailVerificationRecord = async (email, code) => {
   return { expiresAt };
 };
 
+const ensurePasswordResetTable = async () => {
+  await knex.raw(
+    `CREATE TABLE IF NOT EXISTS passwordResets (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      email VARCHAR(100) NOT NULL,
+      code VARCHAR(10) NOT NULL,
+      expiresAt DATETIME NOT NULL,
+      createdAt DATETIME NOT NULL,
+      used TINYINT(1) DEFAULT 0,
+      INDEX idx_email (email),
+      INDEX idx_expires (expiresAt)
+    )`
+  );
+};
+
+const ensurePromoSubmissionsTable = async () => {
+  await knex.raw(
+    `CREATE TABLE IF NOT EXISTS promoSubmissions (
+      id VARCHAR(36) NOT NULL,
+      userId VARCHAR(10) NOT NULL,
+      username VARCHAR(50) DEFAULT NULL,
+      email VARCHAR(100) DEFAULT NULL,
+      contactEmail VARCHAR(100) DEFAULT NULL,
+      submissionType VARCHAR(40) NOT NULL,
+      mediaType VARCHAR(40) NOT NULL,
+      title VARCHAR(150) NOT NULL,
+      description TEXT,
+      targetDropId VARCHAR(255) DEFAULT NULL,
+      mediaUrl TEXT,
+      ctaText VARCHAR(255) DEFAULT NULL,
+      budgetUsd DECIMAL(10,2) DEFAULT 0,
+      assetPath VARCHAR(255) DEFAULT NULL,
+      status VARCHAR(40) NOT NULL DEFAULT 'pending',
+      adminNotes TEXT,
+      clicks INT DEFAULT 0,
+      dislikes INT DEFAULT 0,
+      likes INT DEFAULT 0,
+      neutrals INT DEFAULT 0,
+      impressions INT DEFAULT 0,
+      billedImpressions INT DEFAULT 0,
+      billedClicks INT DEFAULT 0,
+      tags TINYTEXT,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY idx_promo_status (status),
+      KEY idx_promo_user (userId)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`
+  );
+
+  const [cols] = await knex.raw(
+    `SELECT COLUMN_NAME FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = 'promoSubmissions'
+       AND COLUMN_NAME IN ('clicks', 'dislikes', 'likes', 'neutrals', 'impressions', 'billedImpressions', 'billedClicks', 'tags')`
+  );
+
+  const existing = new Set((cols || []).map((col) => col.COLUMN_NAME));
+  const alters = [];
+  if (!existing.has('clicks')) alters.push('ADD COLUMN clicks INT DEFAULT 0');
+  if (!existing.has('dislikes')) alters.push('ADD COLUMN dislikes INT DEFAULT 0');
+  if (!existing.has('likes')) alters.push('ADD COLUMN likes INT DEFAULT 0');
+  if (!existing.has('neutrals')) alters.push('ADD COLUMN neutrals INT DEFAULT 0');
+  if (!existing.has('impressions')) alters.push('ADD COLUMN impressions INT DEFAULT 0');
+  if (!existing.has('billedImpressions')) alters.push('ADD COLUMN billedImpressions INT DEFAULT 0');
+  if (!existing.has('billedClicks')) alters.push('ADD COLUMN billedClicks INT DEFAULT 0');
+  if (!existing.has('tags')) alters.push('ADD COLUMN tags TINYTEXT');
+
+  if (alters.length > 0) {
+    await knex.raw(`ALTER TABLE promoSubmissions ${alters.join(', ')}`);
+  }
+};
+
+const PROMO_IMPRESSION_COST = parseInt(process.env.PROMO_IMPRESSION_COST || '1', 10);
+const PROMO_CLICK_COST = parseInt(process.env.PROMO_CLICK_COST || '10', 10);
+
+async function runPromoBillingCron() {
+  try {
+    await ensurePromoSubmissionsTable();
+
+    const promos = await knex('promoSubmissions')
+      .select('id', 'userId', 'title', 'targetDropId')
+      .where('status', 'approved');
+
+    let processed = 0;
+    let charged = 0;
+
+    for (const promo of promos) {
+      await knex.transaction(async (trx) => {
+        const livePromo = await trx('promoSubmissions')
+          .where('id', promo.id)
+          .first()
+          .forUpdate();
+
+        if (!livePromo || livePromo.status !== 'approved') return;
+
+        const impressions = Math.max(0, Number(livePromo.impressions || 0));
+        const clicks = Math.max(0, Number(livePromo.clicks || 0));
+        const billedImpressions = Math.max(0, Number(livePromo.billedImpressions || 0));
+        const billedClicks = Math.max(0, Number(livePromo.billedClicks || 0));
+
+        const deltaImpressions = Math.max(0, impressions - billedImpressions);
+        const deltaClicks = Math.max(0, clicks - billedClicks);
+        const chargeAmount = (deltaImpressions * PROMO_IMPRESSION_COST) + (deltaClicks * PROMO_CLICK_COST);
+
+        if (chargeAmount <= 0) return;
+
+        const userRow = await trx('userData')
+          .where('id', livePromo.userId)
+          .select('credits')
+          .first()
+          .forUpdate();
+
+        if (!userRow) return;
+
+        const newBalance = Number(userRow.credits || 0) - chargeAmount;
+
+        await trx('userData')
+          .where('id', livePromo.userId)
+          .update({ credits: newBalance });
+
+        await safeInsertWalletTransaction({
+          id: require('crypto').randomUUID(),
+          userId: livePromo.userId,
+          type: 'admin_adjustment',
+          amount: -chargeAmount,
+          balanceAfter: newBalance,
+          relatedDropId: livePromo.targetDropId || null,
+          description: `Promo charge: ${livePromo.title || 'Promotion'} | +${deltaImpressions} impressions, +${deltaClicks} clicks`,
+          created_at: trx.fn.now(),
+        });
+
+        await trx('promoSubmissions')
+          .where('id', livePromo.id)
+          .update({
+            billedImpressions: billedImpressions + deltaImpressions,
+            billedClicks: billedClicks + deltaClicks,
+          });
+
+        processed += 1;
+        charged += chargeAmount;
+      });
+    }
+
+    if (processed > 0) {
+      console.log(`📣 Promo billing cron: charged ${charged} credits across ${processed} promo items.`);
+    }
+  } catch (err) {
+    console.error('Promo billing cron error:', err.message || err);
+  }
+}
+
+const ensureVerificationReviewColumns = async () => {
+  const [cols] = await knex.raw(
+    `SELECT COLUMN_NAME FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = 'userData'
+       AND COLUMN_NAME IN (
+         'verificationFacePath',
+         'verificationIdPath',
+         'verificationDocsStatus',
+         'verificationDocsNotes',
+         'verificationDocsReviewedAt',
+         'verificationDocsReviewedBy'
+       )`
+  );
+
+  const existing = new Set((cols || []).map((col) => col.COLUMN_NAME));
+  const alters = [];
+
+  if (!existing.has('verificationFacePath')) alters.push('ADD COLUMN verificationFacePath VARCHAR(255) DEFAULT NULL');
+  if (!existing.has('verificationIdPath')) alters.push('ADD COLUMN verificationIdPath VARCHAR(255) DEFAULT NULL');
+  if (!existing.has('verificationDocsStatus')) alters.push("ADD COLUMN verificationDocsStatus VARCHAR(32) DEFAULT NULL");
+  if (!existing.has('verificationDocsNotes')) alters.push('ADD COLUMN verificationDocsNotes TEXT DEFAULT NULL');
+  if (!existing.has('verificationDocsReviewedAt')) alters.push('ADD COLUMN verificationDocsReviewedAt DATETIME DEFAULT NULL');
+  if (!existing.has('verificationDocsReviewedBy')) alters.push('ADD COLUMN verificationDocsReviewedBy VARCHAR(100) DEFAULT NULL');
+
+  if (alters.length > 0) {
+    await knex.raw(`ALTER TABLE userData ${alters.join(', ')}`);
+  }
+};
+
+const createPasswordResetRecord = async (email, code) => {
+  await ensurePasswordResetTable();
+  const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+  const createdAt = new Date();
+
+  await knex('passwordResets').where('email', email).del();
+  await knex('passwordResets').insert({
+    email,
+    code,
+    expiresAt: formatDateTimeForMySQLLocal(expiresAt),
+    createdAt: formatDateTimeForMySQLLocal(createdAt),
+    used: 0
+  });
+
+  return { expiresAt };
+};
+
 async function sendAccountVerificationEmail(newUser) {
   const verificationCode = generateVerificationCode();
   const { expiresAt } = await createEmailVerificationRecord(newUser.email, verificationCode);
-  const verificationLink = buildVerificationLink(newUser.email);
+  const verificationLink = buildVerificationLink(newUser.email, verificationCode);
 
   try {
     await emailService.sendAccountVerificationEmail({
@@ -2136,7 +1740,7 @@ async function sendAccountVerificationEmail(newUser) {
       username: newUser.firstName || newUser.username || "there",
       verificationLink,
       verificationCode,
-      subject: 'Welcome to Scramblurr! 🎉'
+      subject: 'Welcome to Drauwpr! 🎉'
     });
 
     console.log(`✅ Verification email sent to ${newUser.email} (expires ${expiresAt.toISOString()})`);
@@ -2144,23 +1748,6 @@ async function sendAccountVerificationEmail(newUser) {
     console.error('⚠️ Failed to send verification email:', emailError.message || emailError);
   }
 }
-
-// async function sendPasswordResetEmail({
-//     to,
-//     username,
-//     resetCode,
-//     subject = "Reset your Scramblurr password"
-// }) {
-//     return sendTemplatedEmail({
-//         to,
-//         subject,
-//         templateFile: "password-reset.html",
-//         variables: buildCommonVariables({
-//             USERNAME: username,
-//             RESET_CODE: resetCode
-//         })
-//     });
-// }
 
 const generateResetCode = () => {
   const length = Math.floor(Math.random() * 3) + 8; // 6-8 digits
@@ -2171,19 +1758,16 @@ const generateResetCode = () => {
   return code;
 };
 
-
-
 async function sendPasswordResetEmail(newUser) {
   const resetCode = generateResetCode();
-  const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes from now
-  const verificationLink = buildVerificationLink(newUser.email);
+  const { expiresAt } = await createPasswordResetRecord(newUser.email, resetCode);
 
   try {
     await emailService.sendPasswordResetEmail({
       to: newUser.email,
       username: newUser.firstName || newUser.username || "there",
       resetCode,
-      subject: 'Reset your Scramblurr password'
+      subject: 'Reset your Drauwpr password'
     });
 
     console.log(`✅ Password reset email sent to ${newUser.email} (expires ${expiresAt.toISOString()})`);
@@ -2191,36 +1775,6 @@ async function sendPasswordResetEmail(newUser) {
     console.error('⚠️ Failed to send password reset email:', emailError.message || emailError);
   }
 }
-
-// Send password reset email
-// async function sendPasswordResetEmail(email, username, newPassword) {
-//   try {
-//     const html = `
-//       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 5px;">
-//         <h2 style="color: #333;">Password Reset</h2>
-//         <p>Hello ${username},</p>
-//         <p>Your password has been reset by an administrator.</p>
-//         <p>Your new password is: <strong>${newPassword}</strong></p>
-//         <p>Please login with this password and change it immediately for security reasons.</p>
-//         <p style="margin-top: 30px; padding-top: 15px; border-top: 1px solid #e0e0e0; font-size: 12px; color: #777;">
-//           This is an automated message. Please do not reply to this email.
-//         </p>
-//       </div>
-//     `;
-
-//     const info = await emailService.sendRawEmail({
-//       to: email,
-//       subject: 'Your Password Has Been Reset',
-//       html
-//     });
-
-//     console.log('Password reset email sent:', info.messageId);
-//     return true;
-//   } catch (error) {
-//     console.error('Error sending password reset email:', error);
-//     throw error;
-//   }
-// }
 
 // Custom forgot password route
 server.post(PROXY + '/api/auth/forgot-password', async (req, res) => {
@@ -2281,11 +1835,11 @@ server.post(PROXY + '/api/auth/forgot-password', async (req, res) => {
 // reset password route submission
 server.post(PROXY + '/api/auth/reset-password', async (req, res) => {
   try {
-    const { email, newPassword } = req.body;
-    if (!email || !newPassword) {
+    const { email, resetCode, newPassword } = req.body;
+    if (!email || !resetCode || !newPassword) {
       return res.status(400).json({
         success: false,
-        message: 'Email and new password are required'
+        message: 'Email, reset code, and new password are required'
       });
     }
 
@@ -2302,12 +1856,44 @@ server.post(PROXY + '/api/auth/reset-password', async (req, res) => {
       });
     }
 
+    await ensurePasswordResetTable();
+
+    const rows = await knex('passwordResets')
+      .where({ email, code: resetCode })
+      .select('id', 'expiresAt', 'used')
+      .orderBy('createdAt', 'desc')
+      .limit(1);
+
+    if (!rows.length) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid reset code'
+      });
+    }
+
+    const record = rows[0];
+    if (record.used) {
+      return res.status(400).json({
+        success: false,
+        message: 'This reset code has already been used'
+      });
+    }
+
+    if (new Date(record.expiresAt).getTime() < Date.now()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Reset code has expired'
+      });
+    }
+
     const saltRounds = 12;
     const passwordHash = await bcrypt.hash(newPassword, saltRounds);
 
     await knex('userData')
       .where('email', email)
       .update({ passwordHash });
+
+    await knex('passwordResets').where('id', record.id).update({ used: 1 });
 
     res.json({
       success: true,
@@ -2323,6 +1909,45 @@ server.post(PROXY + '/api/auth/reset-password', async (req, res) => {
   }
 });
 
+
+server.post(PROXY + '/api/auth/resend-verification', async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email is required'
+      });
+    }
+
+    const users = await knex('userData')
+      .where('email', email)
+      .select('*');
+
+    const user = users[0];
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User with this email does not exist'
+      });
+    }
+
+    await sendAccountVerificationEmail(user);
+
+    return res.json({
+      success: true,
+      message: 'A new verification code has been sent'
+    });
+  } catch (error) {
+    console.error('Resend verification error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Server error occurred while resending the verification code'
+    });
+  }
+});
 
 // Custom email verification route
 server.post(PROXY + '/api/auth/verify-email', async (req, res) => {
@@ -2381,9 +2006,6 @@ server.post(PROXY + '/api/auth/verify-email', async (req, res) => {
     });
   }
 });
-
-
-
 
 // Custom logout route
 server.post(PROXY + '/api/auth/logout', async (req, res) => {
@@ -2450,38 +2072,6 @@ server.post(PROXY + '/api/wallet/balance/:username', authenticateToken, async (r
     res.status(500).json({ error: 'Database error - wallet balance retrieval failed' });
   }
 });
-
-
-
-const handlePurchasePass = async () => {
-  const cost = modeCredits[selectedMode];
-
-  if (balance < cost) {
-    error(`Insufficient credits. You need ${cost} credits but only have ${balance}.`);
-    setShowModeModal(false);
-    return;
-  }
-
-  try {
-    // Placeholder API call - will be connected to backend later
-    const response = await api.post('/api/purchase-mode-pass', {
-      username: userData.username,
-      mode: selectedMode,
-      cost: cost,
-      timestamp: new Date().toISOString()
-    });
-
-    if (response.data.success) {
-      setBalance(balance - cost);
-      setServiceMode(selectedMode);
-      setShowModeModal(false);
-      success(`🎉 ${selectedMode.charAt(0).toUpperCase() + selectedMode.slice(1)} pass activated! ${cost} credits deducted.`);
-    }
-  } catch (err) {
-    console.error('Mode pass purchase error:', err);
-    error('Failed to purchase mode pass. Please try again.');
-  }
-};
 
 
 // Custom route for purchasing mode pass 24 hours
@@ -2721,7 +2311,7 @@ server.post(PROXY + '/api/spend-credits/:username', authenticateToken, async (re
 //   ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci
 
 // Custom logout route
-server.post(PROXY + '/api/feedback', async (req, res) => {
+server.post(PROXY + '/api/site-dev-feedback', async (req, res) => {
   try {
     const {
       supportProblemType,
@@ -2729,7 +2319,10 @@ server.post(PROXY + '/api/feedback', async (req, res) => {
       supportMessage,
       supportContactInfo,
       supportUsername,
-      supportUserId
+      supportUserId,
+      supportTargetType,
+      supportTargetId,
+      supportTargetUsername,
     } = req.body;
 
 
@@ -2745,6 +2338,64 @@ server.post(PROXY + '/api/feedback', async (req, res) => {
         contactInfo: supportContactInfo,
         feedbackType: supportProblemType
       });
+
+      if (
+        String(supportProblemType || '').trim() === 'report-scammer' &&
+        String(supportUserId || '').trim() &&
+        String(supportTargetType || '').trim() === 'user' &&
+        String(supportTargetId || '').trim()
+      ) {
+        await knex.raw(`
+          CREATE TABLE IF NOT EXISTS reports (
+            id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            reporterId VARCHAR(10) NOT NULL,
+            targetType ENUM('user','drop','review','comment') NOT NULL,
+            targetId VARCHAR(36) NOT NULL,
+            type ENUM('spam','abuse','copyright','fraud','inappropriate','other') NOT NULL,
+            description TEXT,
+            status ENUM('pending','reviewed','resolved','dismissed') DEFAULT 'pending',
+            moderatorNote TEXT,
+            resolvedAt DATETIME DEFAULT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            KEY idx_reporterId (reporterId),
+            KEY idx_targetType_targetId (targetType, targetId),
+            KEY idx_status (status)
+          ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci
+        `);
+
+        const reportDescription = [
+          supportTitle ? `Title: ${supportTitle}` : '',
+          supportTargetUsername ? `Target Username: ${supportTargetUsername}` : '',
+          supportMessage ? `Report Details:\n${supportMessage}` : '',
+          supportContactInfo ? `Contact: ${supportContactInfo}` : '',
+        ].filter(Boolean).join('\n\n');
+
+        const existingReport = await knex('reports')
+          .where({
+            reporterId: String(supportUserId).trim(),
+            targetType: 'user',
+            targetId: String(supportTargetId).trim(),
+            status: 'pending',
+          })
+          .first();
+
+        if (!existingReport) {
+          await knex('reports').insert({
+            reporterId: String(supportUserId).trim(),
+            targetType: 'user',
+            targetId: String(supportTargetId).trim(),
+            type: 'fraud',
+            description: reportDescription,
+            status: 'pending',
+          });
+
+          await knex('userData')
+            .where('id', String(supportTargetId).trim())
+            .increment('reportCount', 1)
+            .catch(() => {});
+        }
+      }
     }
 
     res.json({
@@ -2757,58 +2408,6 @@ server.post(PROXY + '/api/feedback', async (req, res) => {
       success: false,
       message: 'Server error occurred during feedback submission'
     });
-  }
-});
-
-
-// Custom route for user notifications
-server.get(PROXY + '/api/notifications/:username', authenticateToken, async (req, res) => {
-  try {
-    const username = req.params.username;
-
-    const notifications = await knex('notifications')
-      .where('username', username)
-      .orderBy('createdAt', 'desc');
-
-    res.json(notifications);
-  } catch (error) {
-    console.error('Notifications error:', error);
-    res.status(500).json({ error: 'Database error - notifications retrieval failed' });
-  }
-
-});
-
-
-// Custom route for deleting user notifications
-server.delete(PROXY + '/api/notifications/:username/delete/:id', async (req, res) => {
-  try {
-    const notificationId = req.params.id;
-    const username = req.params.id;
-
-    await knex('notifications')
-      .where({ id: notificationId, username })
-      .del();
-
-    res.json({ success: true, message: 'Notification deleted successfully' });
-  } catch (error) {
-    console.error('Delete notification error:', error);
-    res.status(500).json({ error: 'Database error - notification deletion failed' });
-  }
-});
-
-// Custom route for deleting user notifications
-server.delete(PROXY + '/api/notifications/delete/:id', async (req, res) => {
-  try {
-    const notificationId = req.params.id;
-
-    await knex('notifications')
-      .where('id', notificationId)
-      .del();
-
-    res.json({ success: true, message: 'Notification deleted successfully' });
-  } catch (error) {
-    console.error('Delete notification error:', error);
-    res.status(500).json({ error: 'Database error - notification deletion failed' });
   }
 });
 
@@ -2833,19 +2432,27 @@ async function CreateNotification(type, title, message, category, username, prio
   const id = Math.random().toString(36).substring(2, 12).toUpperCase();
   const createdAt = new Date().toISOString().slice(0, 19).replace('T', ' ');
 
+  const rawCategory = String(category || '').toLowerCase().trim();
+  const sellerCategoryHints = new Set(['seller', 'creator', 'payout', 'earnings']);
+  const safeCategory = sellerCategoryHints.has(rawCategory) ? 'seller' : 'buyer';
+
+  const rawPriority = String(priority || '').toLowerCase().trim();
+  const allowedPriorities = new Set(['success', 'info', 'warning', 'error']);
+  const safePriority = allowedPriorities.has(rawPriority) ? rawPriority : 'info';
+
   await knex('notifications').insert({
-    id,
+    userId,
     type,
     title,
     message,
     createdAt,
-    priority,
-    category,
+    priority: safePriority,
+    category: safeCategory,
     username,
     isRead: 0
   });
 
-  return { id, type, title, message, createdAt, priority, category, username, isRead: 0 };
+  return { id, type, title, message, createdAt, priority: safePriority, category: safeCategory, username, isRead: 0 };
 }
 
 // 
@@ -2955,7 +2562,7 @@ server.get(PROXY + '/api/purchases/:username', async (req, res) => {
   try {
     const username = req.params.username;
 
-    const purchases = await knex('buyCredits')
+    const purchases = await knex('CreditPurchases')
       .where('username', username)
       .orderBy('date', 'desc');
 
@@ -2982,13 +2589,74 @@ server.get(PROXY + '/api/redemptions/:username', authenticateToken, async (req, 
   }
 });
 
+// Submit a credit redemption (cash-out to crypto)
+server.post(PROXY + '/api/redeem', authenticateToken, async (req, res) => {
+  try {
+    const { username, userId, credits, chain, walletAddress } = req.body;
+
+    if (!username || !userId || !credits || !chain || !walletAddress) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    const creditsNum = parseInt(credits, 10);
+    if (isNaN(creditsNum) || creditsNum < 5000) {
+      return res.status(400).json({ error: 'Minimum redemption is 5,000 credits' });
+    }
+
+    // Fetch user and check balance + verification
+    const user = await knex('userData').where('username', username).first();
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (user.verification !== 'true' && user.verification !== true && user.verification !== 1) {
+      return res.status(403).json({ error: 'Account verification required before redeeming' });
+    }
+    if ((user.credits ?? 0) < creditsNum) {
+      return res.status(400).json({ error: 'Insufficient credits' });
+    }
+
+    const usdAmount = creditsNum / 1000;
+
+    // Deduct credits
+    await knex('userData').where('username', username).update({
+      credits: knex.raw('credits - ?', [creditsNum]),
+    });
+
+    // Log the redemption
+    await knex('redeemCredits').insert({
+      id: Math.random().toString(36).substring(2, 12),
+      username,
+      userId,
+      credits: creditsNum,
+      amountUSD: usdAmount,
+      chain,
+      walletAddress,
+      status: 'pending',
+      date: Date.now(),
+      time: new Date().toISOString(),
+    });
+
+    await CreateNotification(
+      'credits_redeemed',
+      'Redemption Submitted',
+      `Your redemption of ${creditsNum.toLocaleString()} credits ($${usdAmount.toFixed(2)}) to ${chain} has been submitted.`,
+      'redeem',
+      username
+    );
+
+    res.json({ success: true, credits: creditsNum, amountUSD: usdAmount });
+  } catch (error) {
+    console.error('Redeem error:', error);
+    res.status(500).json({ error: 'Failed to process redemption' });
+  }
+});
+
+
 async function checkTransaction(crypto, txHash, walletAddress, amount) {
   // const receiverAddress = wallets[crypto];
 
   try {
     if (crypto === 'BTC') {
 
-      const transactions = await mysqlConnection.query(`SELECT * FROM CryptoTransactions_BTC WHERE hash = ?`, [txHash]);
+      const transactions = await mysqlConnection.query(`SELECT * FROM BTC_TX WHERE hash = ?`, [txHash]);
       if (transactions.error) {
         console.error('MySQL query error:', transactions.error);
         return { success: false, error: 'Database error - transaction check failed' };
@@ -3003,7 +2671,7 @@ async function checkTransaction(crypto, txHash, walletAddress, amount) {
       console.log(`Time: ${tx.time}, Direction: ${tx.direction}, Amount: ${tx.amount}, From: ${tx.from}, To: ${tx.to}, Hash: ${tx.hash}`);
 
       // Check if transaction already exists
-      const existingTx = await mysqlConnection.query(`SELECT * FROM CryptoTransactions_BTC WHERE hash = ?`, [txHash]);
+      const existingTx = await mysqlConnection.query(`SELECT * FROM BTC_TX WHERE hash = ?`, [txHash]);
       if (existingTx.length > 0) {
         console.log('Transaction already exists in database');
         return { success: false, error: 'Transaction already exists' };
@@ -3015,7 +2683,7 @@ async function checkTransaction(crypto, txHash, walletAddress, amount) {
 
     } else if (crypto === 'ETH') {
 
-      const transactions = await knex('CryptoTransactions_ETH')
+      const transactions = await knex('ETH_TX')
         .where('hash', txHash)
         .select('*');
 
@@ -3025,7 +2693,7 @@ async function checkTransaction(crypto, txHash, walletAddress, amount) {
 
     } else if (crypto === 'LTC') {
 
-      const transactions = await mysqlConnection.query(`SELECT * FROM CryptoTransactions_LTC WHERE hash = ?`, [txHash]);
+      const transactions = await mysqlConnection.query(`SELECT * FROM LTC_TX WHERE hash = ?`, [txHash]);
       if (transactions.error) {
         console.error('MySQL query error:', transactions.error);
         return { success: false, error: 'Database error - transaction check failed' };
@@ -3040,7 +2708,7 @@ async function checkTransaction(crypto, txHash, walletAddress, amount) {
       console.log(`Time: ${tx.time}, Direction: ${tx.direction}, Amount: ${tx.amount}, From: ${tx.from}, To: ${tx.to}, Hash: ${tx.hash}`);
 
       // Check if transaction already exists
-      const existingTx = await mysqlConnection.query(`SELECT * FROM CryptoTransactions_LTC WHERE hash = ?`, [txHash]);
+      const existingTx = await mysqlConnection.query(`SELECT * FROM LTC_TX WHERE hash = ?`, [txHash]);
       if (existingTx.length > 0) {
         console.log('Transaction already exists in database');
         return { success: false, error: 'Transaction already exists' };
@@ -3052,7 +2720,7 @@ async function checkTransaction(crypto, txHash, walletAddress, amount) {
 
     } else if (crypto === 'SOL') {
 
-      const transactions = await mysqlConnection.query(`SELECT * FROM CryptoTransactions_SOL WHERE hash = ?`, [txHash]);
+      const transactions = await mysqlConnection.query(`SELECT * FROM SOL_TX WHERE hash = ?`, [txHash]);
       if (transactions.error) {
         console.error('MySQL query error:', transactions.error);
         return { success: false, error: 'Database error - transaction check failed' };
@@ -3067,7 +2735,7 @@ async function checkTransaction(crypto, txHash, walletAddress, amount) {
       console.log(`Time: ${tx.time}, Direction: ${tx.direction}, Amount: ${tx.amount}, From: ${tx.from}, To: ${tx.to}, Hash: ${tx.hash}`);
 
       // Check if transaction already exists
-      const existingTx = await mysqlConnection.query(`SELECT * FROM CryptoTransactions_SOL WHERE hash = ?`, [txHash]);
+      const existingTx = await mysqlConnection.query(`SELECT * FROM SOL_TX WHERE hash = ?`, [txHash]);
       if (existingTx.length > 0) {
         console.log('Transaction already exists in database');
         return { success: false, error: 'Transaction already exists' };
@@ -3136,12 +2804,12 @@ server.get(PROXY + '/api/actions', authenticateToken, async (req, res) => {
 
 
 // Get credit purchases for a specific user
-server.get(PROXY + '/api/buyCredits/:username', authenticateToken, async (req, res) => {
+server.get(PROXY + '/api/CreditPurchases/:username', authenticateToken, async (req, res) => {
   try {
     const { username } = req.params;
-    const {since} = req.query;
+    const { since } = req.query;
 
-    const purchases = await knex('buyCredits')
+    const purchases = await knex('CreditPurchases')
       .where('username', username)
       .andWhere('time', '>', since || 0)
       .orderBy('date', 'desc');
@@ -3150,139 +2818,311 @@ server.get(PROXY + '/api/buyCredits/:username', authenticateToken, async (req, r
 
     res.json(purchases);
   } catch (error) {
-    console.error('Get buyCredits error:', error);
+    console.error('Get CreditPurchases error:', error);
     res.status(500).json({ error: 'Database error - credit purchases retrieval failed' });
   }
 });
 
 // Get all credit purchases (admin/debug use)
-server.get(PROXY + '/api/buyCredits', authenticateToken, async (req, res) => {
+server.get(PROXY + '/api/CreditPurchases', authenticateToken, async (req, res) => {
   try {
-    const purchases = await knex('buyCredits')
+    const purchases = await knex('CreditPurchases')
       .orderBy('date', 'desc');
 
     res.json(purchases);
   } catch (error) {
-    console.error('Get all buyCredits error:', error);
+    console.error('Get all CreditPurchases error:', error);
     res.status(500).json({ error: 'Database error - credit purchases retrieval failed' });
   }
 });
 
 
 
+// ── Receiving wallet addresses (one per supported chain) ─────────────────────
+const RECEIVING_WALLETS = {
+  BTC: process.env.WALLET_BTC || 'bc1q4j9e7equq4xvlyu7tan4gdmkvze7wc0egvykr6',
+  ETH: process.env.WALLET_ETH || '0x9a61f30347258A3D03228F363b07692F3CBb7f27',
+  LTC: process.env.WALLET_LTC || 'ltc1qgg5aggedmvjx0grd2k5shg6jvkdzt9dtcqa4dh',
+  SOL: process.env.WALLET_SOL || 'qaSpvAumg2L3LLZA8qznFtbrRKYMP1neTGqpNgtCPaU',
+};
+
+/**
+ * verifyTxOnChain(currency, txHash)
+ *
+ * Attempts to find `txHash` as an inbound transaction to the platform wallet.
+ * Strategy:
+ *   1. Check local TX cache table (fast).
+ *   2. Refresh from chain via live API, then re-check.
+ *   Returns { found: bool, tx: row|null, error: string|null }
+ */
+// ═══════════════════════════════════════════════════════════════════════════════
+//  VERIFY TRANSACTION ON BLOCKCHAIN
+// ═══════════════════════════════════════════════════════════════════════════════
+//  Architecture:
+//  - Primary: TATUM API (fast, reliable, multi-chain)
+//  - Fallback: Legacy APIs (Esplora, Etherscan, Solana RPC)
+//  Steps:
+//  1. Check database cache first (fast path)
+//  2. If not found, fetch from TATUM API
+//  3. If TATUM fails, fall back to legacy chain-specific APIs
+//  4. Store results in cache and verify presence
+// ═══════════════════════════════════════════════════════════════════════════════
+async function verifyTxOnChain(currency, txHash) {
+  const sym      = currency.toUpperCase();
+  const receiver = RECEIVING_WALLETS[sym];
+  if (!receiver) return { found: false, tx: null, error: `Unsupported currency: ${sym}` };
+
+  const TABLE_MAP = { BTC: 'BTC_TX', ETH: 'ETH_TX', LTC: 'LTC_TX', SOL: 'SOL_TX' };
+  const table = TABLE_MAP[sym];
+  if (!table) return { found: false, tx: null, error: `No TX table for ${sym}` };
+
+  // ═══════════════════════════════════════════════════════════════
+  //  STEP 1: Check database cache (fast path)
+  // ═══════════════════════════════════════════════════════════════
+  try {
+    const [cached] = await knex(table).where('txHash', txHash).select('*').limit(1);
+    if (cached && cached.direction === 'inbound') {
+      console.log(`✅ Transaction found in cache: ${txHash.slice(0, 10)}... (${sym})`);
+      return { found: true, tx: cached, error: null };
+    }
+  } catch (e) {
+    console.error(`verifyTxOnChain: DB check error (${sym}):`, e.message);
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  //  STEP 2: Fetch fresh transactions from blockchain
+  // ═══════════════════════════════════════════════════════════════
+  let liveTxs = [];
+  let source = 'unknown';
+
+  // ─────────────────────────────────────────────────────────────
+  //  PRIMARY: Try TATUM API first
+  // ─────────────────────────────────────────────────────────────
+  if (TATUM_API_KEY) {
+    try {
+      liveTxs = await fetchTatumTransactions(sym, receiver, 50);
+      source = 'TATUM';
+      console.log(`✅ TATUM: Fetched ${liveTxs.length} ${sym} transactions for verification`);
+    } catch (tatumError) {
+      console.warn(`⚠️ TATUM failed for ${sym} verification, using fallback:`, tatumError.message);
+      liveTxs = []; // Reset for fallback
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  //  FALLBACK: Use legacy APIs if TATUM fails or not configured
+  // ─────────────────────────────────────────────────────────────
+  if (liveTxs.length === 0) {
+    try {
+      if (sym === 'BTC') {
+        liveTxs = await fetchEsploraAddressTxs(BTC_ESPLORA, receiver, 50);
+        source = 'Blockstream Esplora';
+      } else if (sym === 'LTC') {
+        liveTxs = await fetchEsploraAddressTxs(LTC_ESPLORA, receiver, 50);
+        source = 'Litecoin Esplora';
+      } else if (sym === 'ETH') {
+        liveTxs = await fetchEth({ address: receiver, limit: 50 });
+        source = 'Etherscan';
+      } else if (sym === 'SOL') {
+        liveTxs = await fetchSol(receiver, 50);
+        source = 'Solana RPC';
+      }
+      console.log(`✅ ${source}: Fetched ${liveTxs.length} ${sym} transactions (fallback)`);
+    } catch (fallbackErr) {
+      console.error(`❌ Both TATUM and ${source} failed for ${sym}:`, fallbackErr.message);
+      return { found: false, tx: null, error: `Failed to fetch ${sym} transactions from blockchain` };
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  //  STEP 3: Store fresh transactions in cache
+  // ═══════════════════════════════════════════════════════════════
+  try {
+    for (const row of liveTxs) {
+      const hash = row.hash || row.signature;
+      if (!hash) continue;
+      
+      try {
+        // Check if exists first
+        const [existing] = await knex(table).where('txHash', hash).select('txHash').limit(1);
+        if (existing) continue; // Skip if already in DB
+        
+        // Insert new transaction
+        await knex(table).insert({
+          created_at: row.time,
+          direction: row.direction,
+          amount: row.amount,
+          fromAddress: row.from,
+          toAddress: row.to,
+          txHash: hash
+        });
+      } catch (insertErr) {
+        // Ignore duplicate errors, log others
+        if (!insertErr.message.includes('Duplicate')) {
+          console.warn(`⚠️ Failed to cache ${sym} transaction:`, insertErr.message);
+        }
+      }
+    }
+  } catch (cacheErr) {
+    console.error(`verifyTxOnChain: cache storage error (${sym}):`, cacheErr.message);
+    // Continue anyway - we have the data in memory
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  //  STEP 4: Verify transaction from fresh data or re-check cache
+  // ═══════════════════════════════════════════════════════════════
+  try {
+    // First check in-memory results
+    const matchedTx = liveTxs.find(tx => 
+      (tx.hash === txHash || tx.signature === txHash) && 
+      tx.direction === 'inbound'
+    );
+    
+    if (matchedTx) {
+      console.log(`✅ Transaction verified on-chain: ${txHash.slice(0, 10)}... (${sym}, source: ${source})`);
+      return { found: true, tx: matchedTx, error: null };
+    }
+
+    // Double-check cache in case insert was delayed
+    const [fresh] = await knex(table).where('txHash', txHash).select('*').limit(1);
+    if (fresh && fresh.direction === 'inbound') {
+      console.log(`✅ Transaction verified in cache: ${txHash.slice(0, 10)}... (${sym})`);
+      return { found: true, tx: fresh, error: null };
+    }
+  } catch (verifyErr) {
+    console.error(`verifyTxOnChain: verification error (${sym}):`, verifyErr.message);
+  }
+
+  console.log(`⚠️ Transaction not found or not inbound: ${txHash.slice(0, 10)}... (${sym})`);
+  return { found: false, tx: null, error: null };
+}
+
 server.post(PROXY + '/api/purchases/:username', authenticateToken, async (req, res) => {
   try {
     const {
       username,
-      userId,
-      name,
-      email,
+      currency,       // crypto symbol: 'BTC', 'ETH', 'LTC', 'SOL'
+      amount,         // cents (Math.round(dollars * 100) from frontend)
+      credits,        // credits to award, computed by creditsForDollars() on frontend
+      transactionId,  // tx hash submitted by user
       walletAddress,
-      transactionId,
-      blockExplorerLink,
-      currency,
-      amount,
-      cryptoAmount,
-      rate,
-      session_id,
-      orderLoggingEnabled,
+      ip,
       userAgent,
-      ip
-    } = req.body.data;  // <-- Changed from req.body to req.body.data
+      session_id,
+    } = req.body;
 
-    console.log('Logging purchase data:', req.body);
+    const dollars        = amount  != null ? amount / 100  : 0;
+    const creditsToAward = credits != null ? Math.floor(credits) : 0;
+    const sym            = (currency || '').toUpperCase();
 
-
-  const promoPackagesMap = [
-    { amount: 2500, price: 2.5, popular: false },
-    { amount: 5250, price: 5, popular: false },
-    { amount: 11250, price: 10, popular: true },
-    { amount: 26000, price: 20, popular: false },
- 
-  ];
-
-    // check for duplicate transactionId
-    if (transactionId) {
-      const existing = await knex('buyCredits')
-        .where('transactionHash', transactionId)
-        .select('*');
-      if (existing.length > 0) {
-        return res.status(400).json({ error: 'Duplicate transaction ID' });
-      }
+    if (!username || !transactionId || !sym || creditsToAward < 1) {
+      return res.status(400).json({ error: 'Missing required fields' });
     }
 
+    // ── Look up userId ──────────────────────────────────────────────────────
+    const [userRow] = await knex('userData').where('username', username).select('id').limit(1);
+    if (!userRow) return res.status(404).json({ error: 'User not found' });
+    const userId = userRow.id;
 
-    // Basic validation
-    try {
+    // ── Duplicate guard ─────────────────────────────────────────────────────
+    const [existingTx] = await knex('CreditPurchases').where('txHash', transactionId).select('id', 'status').limit(1);
+    if (existingTx) {
+      const msg = existingTx.status === 'processing'
+        ? 'This transaction is already pending manual review.'
+        : 'This transaction has already been processed.';
+      return res.status(400).json({ error: msg });
+    }
 
-      const crypto = currency
-      const txHash = transactionId;
-      const senderAddress = walletAddress;
+    // ── On-chain verification ───────────────────────────────────────────────
+    const verification = await verifyTxOnChain(sym, transactionId);
+    const verified     = verification.found;
+    const status       = verified ? 'completed' : 'processing';
+    const paymentMethod = sym.toLowerCase();
+    const purchaseId    = Math.random().toString(36).substring(2, 12);
 
-      if (!crypto || !txHash || !senderAddress) {
-        return res.status(400).json({ error: 'Missing required fields for transaction verification' });
-      }
-      // Verify the transaction using blockchain APIs
-      const result = await checkTransaction(crypto, txHash, walletAddress, cryptoAmount);
+    // ── Record purchase (always, regardless of verification result) ──────────
+    await knex('CreditPurchases').insert({
+      id:            purchaseId,
+      userId,
+      username,
+      amount:         amount, // in cents
+      credits:       creditsToAward,
+      amountPaid:    Math.floor(amount/100) > dollars ? Math.ceil(amount/100) : dollars, // Handle potential rounding issues (in dollars)
+      currency:      'USD',
+      paymentMethod,
+      status,
+      walletAddress: walletAddress || null,
+      txHash:        transactionId,
+      ip:            ip            || null,
+      userAgent:     userAgent     || null,
+      session_id:    session_id    || null,
+    });
 
-      if (result === cryptoAmount) {
-        console.log('Transaction verified successfully:', result);
-      } else {
-        return res.status(400).json({ error: 'Transaction amount does not match expected amount' });
-      }
+    // ── If verified: award credits immediately ───────────────────────────────
+    if (verified) {
+      await knex('userData').where('id', userId).increment('credits', creditsToAward);
 
-      if (result.success) {
-        const purchases = await knex('buyCredits').insert({
-          username,
-          id: Math.random().toString(36).substring(2, 10),
-          name,
-          email,
-          walletAddress,
-          transactionHash: transactionId,
-          transactionId: transactionId,
-          blockExplorerLink,
-          currency,
-          amount: amount / 100,
-          cryptoAmount: cryptoAmount || 0,
-          rate: rate || 1.00,
-          date: Date.now(),
-          time: new Date().toISOString(),
-          session_id,
-          orderLoggingEnabled,
-          userAgent,
-          ip,
-          credits: amount !== undefined && amount !== null ? Math.floor(amount) : 0
+      // Wallet ledger
+      try {
+        const [updated] = await knex('userData').where('id', userId).select('credits').limit(1);
+        await safeInsertWalletTransaction({
+          id: require('crypto').randomUUID(),
+          userId,
+          type: 'credit_purchase',
+          amount: creditsToAward,
+          balanceAfter: updated.credits,
+          description: `Crypto purchase (${sym}) — ${creditsToAward.toLocaleString()} credits`,
         });
-
-        await CreateNotification(
-          'credits_purchased',
-          'Credits Purchased',
-          `You have purchased ${promoPackagesMap.find(pkg => pkg.price === dollars)?.amount || amount} credits for $${dollars}.`,
-          'purchase',
-          username || 'anonymous'
-        );
-
-        res.json(purchases);
-      } else {
-        // invladid transaction
-        return res.status(400).json({ error: 'Transaction verification failed: ' + result.error });
+      } catch (ledgerErr) {
+        console.error('Wallet ledger error (non-fatal):', ledgerErr.message);
       }
-    } catch (error) {
-      console.error('Transaction verification error:', error);
-      return res.status(400).json({ error: 'Transaction verification failed: ' + error.message });
+
+      // Success notification
+      try {
+        await knex('notifications').insert({
+          id:       Math.random().toString(36).substring(2, 12).toUpperCase(),
+          userId,
+          type:     'credit_purchase',
+          title:    '🪙 Credits added!',
+          message:  `${creditsToAward.toLocaleString()} credits were added to your account (${sym} purchase — $${dollars.toFixed(2)}).`,
+          priority: 'success',
+          category: 'credit_purchase',
+          isRead:   0,
+        });
+      } catch (notifErr) {
+        console.error('Purchase notif error (non-fatal):', notifErr.message);
+      }
+
+      console.log(`✅ Purchase verified: ${username} → ${creditsToAward} credits via ${sym} (${transactionId})`);
+      return res.json({ success: true, verified: true, credits: creditsToAward, purchaseId });
     }
 
-    // Insert credits into USERDATA records
-
-    // Update user credits
-    if (amount !== undefined && amount !== null && amount > 0) {
-      await knex('userData')
-        .where('username', username)
-        .increment('credits', Math.floor(amount));
+    // ── If NOT verified: queue for manual review ─────────────────────────────
+    try {
+      await knex('notifications').insert({
+        id:       Math.random().toString(36).substring(2, 12).toUpperCase(),
+        userId,
+        type:     'credit_purchase_pending',
+        title:    '⏳ Transaction pending review',
+        message:  `Your ${sym} transaction (${transactionId.slice(0, 16)}…) could not be automatically verified. `
+                + `Your purchase of ${creditsToAward.toLocaleString()} credits ($${dollars.toFixed(2)}) has been submitted for manual review. `
+                + `Credits will be applied within 24 hours once confirmed.`,
+        priority: 'warning',
+        category: 'credit_purchase',
+        isRead:   0,
+      });
+    } catch (notifErr) {
+      console.error('Pending notif error (non-fatal):', notifErr.message);
     }
 
-
-
+    console.log(`⏳ Purchase queued for review: ${username} → ${creditsToAward} credits via ${sym} (${transactionId})`);
+    return res.status(202).json({
+      success:  true,
+      verified: false,
+      pending:  true,
+      purchaseId,
+      message:  'Your transaction could not be automatically verified on-chain. It has been submitted for manual review and your credits will be applied within 24 hours once confirmed.',
+    });
 
   } catch (error) {
     console.error('Purchases error:', error);
@@ -3290,7 +3130,300 @@ server.post(PROXY + '/api/purchases/:username', authenticateToken, async (req, r
   }
 });
 
+const CURRENCIES = [
+  { symbol: 'BTC', name: 'Bitcoin',   coinId: 'bitcoin',  address: 'bc1q4j9e7equq4xvlyu7tan4gdmkvze7wc0egvykr6' },
+  { symbol: 'ETH', name: 'Ethereum',  coinId: 'ethereum', address: '0x9a61f30347258A3D03228F363b07692F3CBb7f27' },
+  { symbol: 'LTC', name: 'Litecoin',  coinId: 'litecoin', address: 'ltc1qgg5aggedmvjx0grd2k5shg6jvkdzt9dtcqa4dh' },
+  { symbol: 'SOL', name: 'Solana',    coinId: 'solana',   address: 'qaSpvAumg2L3LLZA8qznFtbrRKYMP1neTGqpNgtCPaU' },
+];
 
+// ═══════════════════════════════════════════════════════════════
+//  TATUM API INTEGRATION (Primary method for crypto transactions)
+// ═══════════════════════════════════════════════════════════════
+
+const TATUM_API_KEY = process.env.TATUM_API_KEY || '';
+if (!TATUM_API_KEY) {
+  console.warn('⚠️ Warning: TATUM_API_KEY not set. Falling back to legacy APIs only.');
+}
+
+// Tatum API base URL
+const TATUM_BASE_URL = 'https://api.tatum.io/v3';
+
+/**
+ * Fetch transaction history for an address using TATUM API (Primary Method)
+ * @param {string} chain - Chain symbol: BTC, LTC, ETH, SOL
+ * @param {string} address - Wallet address
+ * @param {number} limit - Max transactions to fetch
+ * @returns {Promise<Array>} Normalized transaction array
+ */
+async function fetchTatumTransactions(chain, address, limit = 100) {
+  if (!TATUM_API_KEY) {
+    throw new Error('TATUM_API_KEY not configured');
+  }
+
+  const chainMap = {
+    BTC: 'bitcoin',
+    LTC: 'litecoin',
+    ETH: 'ethereum',
+    SOL: 'solana'
+  };
+
+  const tatumChain = chainMap[chain];
+  if (!tatumChain) {
+    throw new Error(`Unsupported chain for TATUM: ${chain}`);
+  }
+
+  try {
+    // Tatum API endpoints vary by chain
+    let url;
+    let params = { pageSize: Math.min(50, limit) };
+
+    switch (chain) {
+      case 'BTC':
+      case 'LTC':
+        url = `${TATUM_BASE_URL}/${tatumChain}/transaction/address/${address}`;
+        params.pageSize = Math.min(50, limit);
+        break;
+      case 'ETH':
+        url = `${TATUM_BASE_URL}/ethereum/account/transaction/${address}`;
+        params.pageSize = Math.min(50, limit);
+        break;
+      case 'SOL':
+        url = `${TATUM_BASE_URL}/solana/account/transaction/${address}`;
+        params.limit = Math.min(50, limit);
+        break;
+      default:
+        throw new Error(`Unsupported chain: ${chain}`);
+    }
+
+    console.log(`🔄 TATUM: Fetching ${chain} transactions for ${address.slice(0, 10)}...`);
+
+    const { data } = await axios.get(url, {
+      headers: { 'x-api-key': TATUM_API_KEY },
+      params,
+      timeout: 15000
+    });
+
+    // Normalize Tatum response to our standard format
+    return normalizeTatumResponse(chain, address, data);
+
+  } catch (error) {
+    if (error.response?.status === 429) {
+      console.warn(`⚠️ TATUM rate limit exceeded for ${chain}`);
+    } else if (error.response?.status === 403) {
+      console.warn(`⚠️ TATUM API key invalid or expired for ${chain}`);
+    } else {
+      console.warn(`⚠️ TATUM API error for ${chain}:`, error.message);
+    }
+    throw error;
+  }
+}
+
+/**
+ * Safely convert various timestamp formats to MySQL datetime string
+ * Handles: Unix seconds, Unix milliseconds, ISO strings, Date objects
+ */
+function safeTimestampToDateTime(timestamp) {
+  if (!timestamp) return null;
+  
+  try {
+    let date;
+    
+    // If it's already a Date object
+    if (timestamp instanceof Date) {
+      date = timestamp;
+    }
+    // If it's an ISO string
+    else if (typeof timestamp === 'string') {
+      date = new Date(timestamp);
+    }
+    // If it's a number, check if it's seconds or milliseconds
+    else if (typeof timestamp === 'number') {
+      // Timestamps before year 2000 (946684800) or after year 2100 (4102444800) are likely wrong
+      // If timestamp is > 10 billion, it's likely milliseconds
+      if (timestamp > 10000000000) {
+        date = new Date(timestamp); // Already in milliseconds
+      } else {
+        date = new Date(timestamp * 1000); // Convert seconds to milliseconds
+      }
+    }
+    else {
+      return null;
+    }
+    
+    // Validate the date is reasonable (between 2009-01-01 and 2050-01-01)
+    const year = date.getFullYear();
+    if (year < 2009 || year > 2050 || isNaN(year)) {
+      console.warn(`⚠️ Invalid timestamp year: ${year} from value: ${timestamp}`);
+      return null;
+    }
+    
+    // Convert to MySQL datetime format: YYYY-MM-DD HH:MM:SS
+    return date.toISOString().replace('T', ' ').slice(0, 19);
+    
+  } catch (error) {
+    console.warn(`⚠️ Failed to convert timestamp ${timestamp}:`, error.message);
+    return null;
+  }
+}
+
+/**
+ * Normalize TATUM API responses to our standard format
+ */
+function normalizeTatumResponse(chain, myAddress, data) {
+  const results = [];
+  const txList = Array.isArray(data) ? data : (data?.data || data?.result || []);
+
+  for (const tx of txList) {
+    try {
+      let normalized;
+
+      switch (chain) {
+        case 'BTC':
+        case 'LTC':
+          normalized = normalizeTatumBtcLtc(tx, myAddress);
+          break;
+        case 'ETH':
+          normalized = normalizeTatumEth(tx, myAddress);
+          break;
+        case 'SOL':
+          normalized = normalizeTatumSol(tx, myAddress);
+          break;
+        default:
+          continue;
+      }
+
+      // ⚠️ CRITICAL: Only include transactions that involve our wallet
+      // (direction must be 'inbound' or 'outbound', not null)
+      if (normalized && normalized.direction) {
+        results.push(normalized);
+      } else if (normalized && !normalized.direction) {
+        console.log(`⚠️ Skipping ${chain} tx ${(normalized.hash || '??').slice(0, 10)}... - doesn't involve our wallet`);
+      }
+    } catch (err) {
+      console.warn(`⚠️ Failed to normalize ${chain} tx:`, err.message);
+    }
+  }
+
+  return results;
+}
+
+function normalizeTatumBtcLtc(tx, myAddress) {
+  const inputs = tx.inputs || [];
+  const outputs = tx.outputs || [];
+  
+  let spent = 0n, received = 0n;
+  
+  for (const input of inputs) {
+    if (input.coin?.address === myAddress) {
+      spent += BigInt(Math.floor((input.coin?.value || 0) * 1e8));
+    }
+  }
+  
+  for (const output of outputs) {
+    if (output.address === myAddress) {
+      received += BigInt(Math.floor((output.value || 0) * 1e8));
+    }
+  }
+  
+  const net = received - spent;
+  const direction = net > 0n ? 'inbound' : net < 0n ? 'outbound' : null;
+  
+  return {
+    time: safeTimestampToDateTime(tx.time),
+    direction,
+    amount: fmt((net < 0n ? -net : net).toString(), 8),
+    from: direction === 'inbound' ? (inputs[0]?.coin?.address || null) : myAddress,
+    to: direction === 'inbound' ? myAddress : (outputs[0]?.address || null),
+    hash: tx.hash
+  };
+}
+
+function normalizeTatumEth(tx, myAddress) {
+  const from = (tx.from || '').toLowerCase();
+  const to = (tx.to || '').toLowerCase();
+  const me = myAddress.toLowerCase();
+  
+  const direction = (to === me && from !== me) ? 'inbound'
+    : (from === me && to !== me) ? 'outbound'
+    : null;
+  
+  return {
+    time: safeTimestampToDateTime(tx.timestamp),
+    direction,
+    amount: fmt(tx.value || '0', 18),
+    from: tx.from || null,
+    to: tx.to || null,
+    hash: tx.hash
+  };
+}
+
+function normalizeTatumSol(tx, myAddress) {
+  const meta = tx.meta || {};
+  const message = tx.transaction?.message || {};
+  const accounts = message.accountKeys || [];
+  
+  const idx = accounts.findIndex(a => a === myAddress);
+  let net = 0n;
+  
+  if (idx >= 0) {
+    const pre = BigInt(meta.preBalances?.[idx] || 0);
+    const post = BigInt(meta.postBalances?.[idx] || 0);
+    net = post - pre;
+  }
+  
+  const direction = net > 0n ? 'inbound' : net < 0n ? 'outbound' : null;
+  const counterparty = accounts.find(a => a !== myAddress) || null;
+  
+  return {
+    time: safeTimestampToDateTime(tx.blockTime),
+    direction,
+    amount: fmt((net < 0n ? -net : net).toString(), 9),
+    from: direction === 'inbound' ? counterparty : myAddress,
+    to: direction === 'inbound' ? myAddress : counterparty,
+    signature: tx.signature || tx.hash
+  };
+}
+
+// ────────────────────────────────────────────────────────────────
+//  TATUM WEBHOOK HANDLER (Real-time transaction notifications)
+// ────────────────────────────────────────────────────────────────
+
+server.post('/webhooks/crypto-payments', async (req, res) => {
+  try {
+    const data = req.body;
+
+    console.log('🔔 TATUM Webhook received:', JSON.stringify(data, null, 2));
+
+    const { address, amount, asset, txId, type, currency } = data;
+
+    // Validate it's an incoming transaction
+    if (type !== 'incoming-tx' && type !== 'native_transfer' && type !== 'NATIVE') {
+      console.log(`⚠️ Ignoring non-incoming transaction type: ${type}`);
+      return res.status(200).send('OK');
+    }
+
+    const chain = (asset || currency || '').toUpperCase();
+    console.log(`✅ Incoming ${chain} transaction: ${amount} to ${address}`);
+    console.log(`🔗 Transaction ID: ${txId}`);
+
+    // Trigger immediate fetch for this chain to update DB
+    if (['BTC', 'LTC', 'ETH', 'SOL'].includes(chain)) {
+      setTimeout(() => {
+        FetchRecentTransactionsCronByChain(chain).catch(err => {
+          console.error(`Failed to fetch ${chain} transactions after webhook:`, err.message);
+        });
+      }, 2000); // Small delay to allow blockchain confirmation
+    }
+
+    res.status(200).send('OK');
+  } catch (error) {
+    console.error('❌ TATUM webhook error:', error);
+    res.status(200).send('OK'); // Still return 200 to prevent retries
+  }
+});
+
+// ETHERSCAN AND BTC/LTC EXPLORA API KEYS/URLS
 
 // --- Configurable backends (Esplora-compatible) ---
 const BTC_ESPLORA = process.env.BTC_ESPLORA || 'https://blockstream.info/api';
@@ -3299,8 +3432,9 @@ const ETHERSCAN_API_KEY = process.env.ETHERSCAN_API_KEY || '';
 const SOLANA_RPC_URL = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
 
 function ts(sec) {
-  if (!sec) return '';
-  return new Date(sec * 1000).toISOString().replace('T', ' ').replace('Z', ' UTC');
+  if (!sec) return null;
+  // MySQL-compatible datetime: 'YYYY-MM-DD HH:MM:SS' (no UTC suffix, no milliseconds)
+  return new Date(sec * 1000).toISOString().replace('T', ' ').slice(0, 19);
 }
 function fmt(amount, decimals) {
   const d = BigInt(10) ** BigInt(decimals);
@@ -3342,9 +3476,7 @@ async function fetchEsploraAddressTxs(baseUrl, address, limit = 100) {
         }
       }
       const net = recv - spent; // sats
-      const direction = net > 0n ? 'IN' : net < 0n ? 'OUT' : '—';
-
-      // crude counterparty guess
+      const direction = net > 0n ? 'inbound' : net < 0n ? 'outbound' : null;
       let fromAddr = null, toAddr = null;
       if (direction === 'IN') {
         const otherIn = tx.vin?.find(v => (v.prevout?.scriptpubkey_address || '').toLowerCase() !== address.toLowerCase());
@@ -3431,9 +3563,9 @@ async function fetchEth({
     return data.result.slice(0, limit).map(t => {
       const from = (t.from || "").toLowerCase();
       const to = (t.to || "").toLowerCase();
-      const dir = (to === me && from !== me) ? "IN"
-        : (from === me && to !== me) ? "OUT"
-          : "—";
+      const dir = (to === me && from !== me) ? "inbound"
+        : (from === me && to !== me) ? "outbound"
+          : null;
 
       //       // Example Response
 
@@ -3466,13 +3598,13 @@ async function fetchEth({
       //   ]
       // }
 
-      console.log("Etherscan V2 tx:", t);
+      // console.log("Etherscan V2 tx:", t);
 
       // Note: Ensure field names match what the V2 endpoint returns
       return {
-        time: new Date(Number(t.timeStamp) * 1000).toISOString(),
+        time: new Date(Number(t.timeStamp) * 1000).toISOString().replace('T', ' ').slice(0, 19),
         direction: dir,
-        amount: t.value /* convert from t.value depending on decimals */,
+        amount: fmt(t.value || '0', 18), // convert Wei → ETH (18 decimals)
         from: t.from || null,
         to: t.to || null,
         hash: t.hash
@@ -3509,16 +3641,16 @@ async function fetchSol(address, limit = 100) {
       const post = BigInt(meta.postBalances?.[idx] ?? 0);
       net = post - pre; // lamports, + is IN
     }
-    const direction = net > 0n ? 'IN' : net < 0n ? 'OUT' : '—';
+    const direction = net > 0n ? 'inbound' : net < 0n ? 'outbound' : null;
     // simple counterparty
     const cp = keys.find(k => (k || '').toLowerCase() !== address.toLowerCase()) || null;
 
     out.push({
-      time: tx.blockTime ? ts(tx.blockTime) : '',
+      time: tx.blockTime ? ts(tx.blockTime) : null,
       direction,
       amount: fmt((net < 0n ? -net : net).toString(), 9),
-      from: direction === 'IN' ? cp : (direction === 'OUT' ? address : null),
-      to: direction === 'IN' ? address : (direction === 'OUT' ? cp : null),
+      from: direction === 'inbound' ? cp : (direction === 'outbound' ? address : null),
+      to: direction === 'inbound' ? address : (direction === 'outbound' ? cp : null),
       signature: sig
     });
     if (out.length >= limit) break;
@@ -3561,7 +3693,7 @@ server.post(PROXY + '/api/lookup-transaction', async (req, res) => {
     let result = null;
 
     if (blockchain === "bitcoin" || blockchain === "BTC") {
-      tx = await knex('CryptoTransactions_BTC')
+      tx = await knex('BTC_TX')
         .where({ direction: 'IN', hash: transactionHash })
         .select('*');
       console.log('Lookup transaction result for bitcoin:', tx.length > 0 ? tx[0] : 'No transaction found');
@@ -3572,7 +3704,7 @@ server.post(PROXY + '/api/lookup-transaction', async (req, res) => {
       result = tx[0];
     }
     else if (blockchain === "ethereum" || blockchain === "ETH") {
-      tx = await knex('CryptoTransactions_ETH')
+      tx = await knex('ETH_TX')
         .where({ direction: 'IN', hash: transactionHash })
         .select('*');
       console.log('Lookup transaction result for ethereum:', tx.length > 0 ? tx[0] : 'No transaction found');
@@ -3583,7 +3715,7 @@ server.post(PROXY + '/api/lookup-transaction', async (req, res) => {
       result = tx[0];
     }
     else if (blockchain === "litecoin" || blockchain === "LTC") {
-      tx = await knex('CryptoTransactions_LTC')
+      tx = await knex('LTC_TX')
         .where({ direction: 'IN', hash: transactionHash })
         .select('*');
       console.log('Lookup transaction result for litecoin:', tx.length > 0 ? tx[0] : 'No transaction found');
@@ -3594,7 +3726,7 @@ server.post(PROXY + '/api/lookup-transaction', async (req, res) => {
       result = tx[0];
     }
     else if (blockchain === "solana" || blockchain === "SOL") {
-      tx = await knex('CryptoTransactions_SOL')
+      tx = await knex('SOL_TX')
         .where({ direction: 'IN', hash: transactionHash })
         .select('*');
       console.log('Lookup transaction result for solana:', tx.length > 0 ? tx[0] : 'No transaction found');
@@ -3620,6 +3752,13 @@ server.post(PROXY + '/api/lookup-transaction', async (req, res) => {
 });
 
 
+FetchRecentTransactionsCronByChain('BTC');
+FetchRecentTransactionsCronByChain('ETH');
+FetchRecentTransactionsCronByChain('LTC');
+FetchRecentTransactionsCronByChain('SOL');
+// FetchRecentTransactionsCronByChain('XRP'); // Not implemented in this demo
+
+
 
 
 // ######################## POST TRANSACTION SCREENSHOT ###############################
@@ -3639,6 +3778,43 @@ const storage = new Storage({
 
 const BUCKET_NAME = process.env.GCS_BUCKET || 'cloutcoinclub_bucket';
 const DEST_PREFIX = process.env.GCS_PREFIX || 'storage_folder'; // "folder" inside bucket
+
+// Configure GCS bucket CORS once at startup so browsers can PUT uploads and GET
+// signed URLs (video streaming, downloads) without cross-origin blocks.
+// Origins: explicit app domain in prod, or '*' for local dev.
+(async () => {
+  try {
+    const allowedOrigins = process.env.APP_ORIGIN
+      ? [process.env.APP_ORIGIN, 'http://localhost:5173', 'http://localhost:3000']
+      : ['*'];
+
+    await storage.bucket(BUCKET_NAME).setMetadata({
+      cors: [
+        {
+          origin: allowedOrigins,
+          method: ['GET', 'PUT', 'POST', 'HEAD', 'OPTIONS', 'DELETE'],
+          responseHeader: [
+            'Content-Type',
+            'Authorization',
+            'X-Goog-Resumable',
+            'X-Goog-Date',
+            'X-Goog-Algorithm',
+            'X-Goog-Credential',
+            'X-Goog-Signed-Headers',
+            'X-Goog-Signature',
+            'Range',
+            'Accept-Ranges',
+            'Content-Range',
+          ],
+          maxAgeSeconds: 3600,
+        },
+      ],
+    });
+    console.log('✅ GCS bucket CORS configured');
+  } catch (err) {
+    console.error('⚠️  Failed to set GCS bucket CORS (uploads/downloads may fail in browser):', err.message);
+  }
+})();
 
 function publicUrl(bucket, filepath) {
   return `https://storage.googleapis.com/${bucket}/${encodeURI(filepath)}`;
@@ -3760,7 +3936,7 @@ server.post(PROXY + '/api/upload/transaction-screenshot/:username/:txHash', auth
 
         // Optionally update user profilePic in DB
         await connection.query(
-          'UPDATE buyCredits SET transactionScreenshot = ? WHERE transactionScreenshot IS NULL and username = ? and transactionHash = ? and created_at >= NOW() - INTERVAL 1 HOUR ORDER BY created_at DESC LIMIT 1',
+          'UPDATE CreditPurchases SET transactionScreenshot = ? WHERE transactionScreenshot IS NULL and username = ? and transactionHash = ? and created_at >= NOW() - INTERVAL 1 HOUR ORDER BY created_at DESC LIMIT 1',
           [imageUrl, username, txHash]
         );
 
@@ -4011,80 +4187,80 @@ server.post(PROXY + '/api/profile-picture/:username', authenticateToken, async (
 });
 
 
-// Basic RESTful routes for all tables
-server.get(PROXY + '/api/:table', async (req, res) => {
-  try {
-    const table = req.params.table;
-    const allowedTables = ['userData', 'buyCredits', 'redeemCredits', 'earnings', 'actions', 'createdKeys', 'notifications', 'wallet', 'reports', 'supportTickets'];
+// // Basic RESTful routes for all tables
+// server.get(PROXY + '/api/table/:table', async (req, res) => {
+//   try {
+//     const table = req.params.table;
+//     const allowedTables = ['userData', 'CreditPurchases', 'redeemCredits', 'earnings', 'actions', 'createdKeys', 'notifications', 'wallet', 'reports', 'supportTickets'];
 
-    if (!allowedTables.includes(table)) {
-      return res.status(400).json({ error: 'Invalid table name' });
-    }
+//     if (!allowedTables.includes(table)) {
+//       return res.status(400).json({ error: 'Invalid table name' });
+//     }
 
-    const rows = await knex(table).select('*');
-    res.json(rows);
-  } catch (error) {
-    console.error(`Get ${req.params.table} error:`, error);
-    res.status(500).json({ error: 'Database error' });
-  }
-});
+//     const rows = await knex(table).select('*');
+//     res.json(rows);
+//   } catch (error) {
+//     console.error(`Get ${req.params.table} error:`, error);
+//     res.status(500).json({ error: 'Database error' });
+//   }
+// });
 
-server.get(PROXY + '/api/:table/:id', async (req, res) => {
-  try {
-    const { table, id } = req.params;
-    const allowedTables = ['userData', 'buyCredits', 'redeemCredits', 'earnings', 'actions', 'notifications', 'wallet', 'reports', 'supportTickets'];
+// server.get(PROXY + '/api/table/:table/:id', async (req, res) => {
+//   try {
+//     const { table, id } = req.params;
+//     const allowedTables = ['userData', 'CreditPurchases', 'redeemCredits', 'earnings', 'actions', 'notifications', 'wallet', 'reports', 'supportTickets'];
 
-    if (!allowedTables.includes(table)) {
-      return res.status(400).json({ error: 'Invalid table name' });
-    }
+//     if (!allowedTables.includes(table)) {
+//       return res.status(400).json({ error: 'Invalid table name' });
+//     }
 
-    const rows = await knex(table).where('id', id).select('*');
+//     const rows = await knex(table).where('id', id).select('*');
 
-    if (rows.length === 0) {
-      return res.status(404).json({ error: 'Record not found' });
-    }
+//     if (rows.length === 0) {
+//       return res.status(404).json({ error: 'Record not found' });
+//     }
 
-    res.json(rows[0]);
-  } catch (error) {
-    console.error(`Get ${req.params.table} by ID error:`, error);
-    res.status(500).json({ error: 'Database error' });
-  }
-});
+//     res.json(rows[0]);
+//   } catch (error) {
+//     console.error(`Get ${req.params.table} by ID error:`, error);
+//     res.status(500).json({ error: 'Database error' });
+//   }
+// });
 
-server.patch(PROXY + '/api/:table/:id', async (req, res) => {
-  try {
-    const { table, id } = req.params;
-    const allowedTables = ['userData', 'buyCredits', 'redeemCredits', 'earnings', 'actions', 'createdKeys', 'notifications', 'wallet', 'reports', 'supportTickets'];
+// server.patch(PROXY + '/api/table/:table/:id', async (req, res) => {
+//   try {
+//     const { table, id } = req.params;
+//     const allowedTables = ['userData', 'CreditPurchases', 'redeemCredits', 'earnings', 'actions', 'createdKeys', 'notifications', 'wallet', 'reports', 'supportTickets'];
 
-    if (!allowedTables.includes(table)) {
-      return res.status(400).json({ error: 'Invalid table name' });
-    }
+//     if (!allowedTables.includes(table)) {
+//       return res.status(400).json({ error: 'Invalid table name' });
+//     }
 
-    const updateData = req.body;
-    const columns = Object.keys(updateData);
-    const values = Object.values(updateData);
+//     const updateData = req.body;
+//     const columns = Object.keys(updateData);
+//     const values = Object.values(updateData);
 
-    if (columns.length === 0) {
-      return res.status(400).json({ error: 'No data to update' });
-    }
+//     if (columns.length === 0) {
+//       return res.status(400).json({ error: 'No data to update' });
+//     }
 
-    const setClause = columns.map(col => `${col} = ?`).join(', ');
-    const query = `UPDATE ${table} SET ${setClause} WHERE id = ?`;
+//     const setClause = columns.map(col => `${col} = ?`).join(', ');
+//     const query = `UPDATE ${table} SET ${setClause} WHERE id = ?`;
 
-    const result = await knex.raw(query, [...values, id]);
+//     const result = await knex.raw(query, [...values, id]);
 
-    if (result[0].affectedRows === 0) {
-      return res.status(404).json({ error: 'Record not found' });
-    }
+//     if (result[0].affectedRows === 0) {
+//       return res.status(404).json({ error: 'Record not found' });
+//     }
 
-    // Get updated record
-    const updated = await knex(table).where('id', id).select('*');
-    res.json(updated[0]);
-  } catch (error) {
-    console.error(`Update ${req.params.table} error:`, error);
-    res.status(500).json({ error: 'Database error - update failed (patch)' });
-  }
-});
+//     // Get updated record
+//     const updated = await knex(table).where('id', id).select('*');
+//     res.json(updated[0]);
+//   } catch (error) {
+//     console.error(`Update ${req.params.table} error:`, error);
+//     res.status(500).json({ error: 'Database error - update failed (patch)' });
+//   }
+// });
 
 
 
@@ -4108,175 +4284,183 @@ cron.schedule('*/30 * * * *', async () => {
 
 });
 
-async function FetchRecentTransactionsCron() {
+// Drauwper burn-rate decay — every ENGINE_K minutes (default 5)
+const BURN_K = parseInt(process.env.BURN_K || '5', 10);
+cron.schedule(`*/${BURN_K} * * * *`, async () => {
   try {
-    console.log('🔄 Fetching recent transactions for all wallet addresses...');
-    // Iterate over walletAddressMap entries (key = chain, value = address) for the cron job
-    for (const [chainKey, addr] of Object.entries(walletAddressMap)) {
-      // const txs = await fetchRe,centTransactions(address);
-      const chain = String(chainKey || '').toUpperCase();
-      const address = String(addr || '').trim();
-      // Use a fixed reasonable limit for cron runs
-      const limit = 100;
+    const res = await axios.post(`http://localhost:${process.env.PORT || 3001}${PROXY}/api/engine/decay-tick`);
+    if (res.data.updated) console.log(`⏱  Burn decay tick: ${res.data.updated} drops updated`);
+  } catch (err) {
+    console.error('Decay tick cron error:', err.message);
+  }
+});
+
+// Top contributor rewards — runs hourly, pays out 3-day-old drops
+cron.schedule('0 * * * *', async () => {
+  try {
+    const res = await axios.post(`http://localhost:${process.env.PORT || 3001}${PROXY}/api/engine/contributor-rewards`);
+    if (res.data.rewardedDrops) console.log(`💰 Contributor rewards: ${res.data.rewardedDrops} drops paid out`);
+  } catch (err) {
+    console.error('Contributor rewards cron error:', err.message);
+  }
+});
+
+// Promo billing — every 12 hours (1 credit per impression, 10 credits per click since last billing run)
+cron.schedule('0 */12 * * *', async () => {
+  await runPromoBillingCron();
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  CRYPTO TRANSACTION SYNC - PRIMARY CRON JOB
+// ═══════════════════════════════════════════════════════════════════════════════
+//  Architecture:
+//  - Primary Method: TATUM API (unified multi-chain blockchain API)
+//  - Fallback APIs: Chain-specific APIs (Esplora, Etherscan, Solana RPC)
+//  - This function iterates all chains and delegates to FetchRecentTransactionsCronByChain
+//  - Each chain automatically tries TATUM first, then falls back to legacy APIs
+// ═══════════════════════════════════════════════════════════════════════════════
+async function FetchRecentTransactionsCron() {
+  const supportedChains = ['BTC', 'LTC', 'ETH', 'SOL'];
+
+  try {
+    console.log('🔄 Starting transaction sync for all chains...');
+    
+    for (const chain of supportedChains) {
       try {
-
-        if (!address || !chain) {
-          console.log('No address or chain provided');
-          continue; // skip this entry
-        }
-        let rows = [];
-        if (chain === 'BTC') rows = await fetchEsploraAddressTxs(BTC_ESPLORA, address, limit);
-        else if (chain === 'LTC') rows = await fetchEsploraAddressTxs(LTC_ESPLORA, address, limit);
-        else if (chain === 'ETH') rows = await fetchEth({ address, limit, chainId: 1, action: "txlist", extraParams: {} });
-        else if (chain === 'SOL') rows = await fetchSol(address, limit);
-        else {
-          console.log('Unsupported chain. Use BTC, LTC, ETH, SOL');
-          continue;
-        }
-        // return res.status(400).json({ error: 'Unsupported chain. Use BTC, LTC, ETH, SOL' });
-
-        // res.json({ chain, address, count: rows.length, txs: rows });
-
-        let txs = {
-          chain,
-          address,
-          count: rows.length,
-          txs: rows
-        };
-        // console.log(`✅ Fetched ${rows.length} transactions for ${chain} address ${address}`);
-
-
-        for (const tx of txs.txs) {
-          const transactionId = tx.hash;
-
-          // console.log(`Time: ${tx.time}, Direction: ${tx.direction}, Amount: ${tx.amount}, From: ${tx.from}, To: ${tx.to}, Hash: ${tx.hash}`);
-
-          const existingTxs = await knex(`CryptoTransactions_${chain}`)
-            .where('hash', transactionId)
-            .select('*');
-
-          // Check if transaction already exists
-          if (existingTxs.length > 0) {
-            // console.log(`Transaction ${transactionId} already exists in the database. Skipping.`);
-            continue; // Skip to next transaction
-          }
-
-          // Insert new transaction
-          await knex(`CryptoTransactions_${chain}`).insert({
-            time: tx.time,
-            direction: tx.direction,
-            amount: tx.amount,
-            fromAddress: tx.from,
-            toAddress: tx.to,
-            hash: tx.hash
-          });
-
-          // console.log(`Inserted transaction ${transactionId} into CryptoTransactions_${chain}`);
-        }
-
-
-      } catch (e) {
-        // res.status(500).json({ error: e.message || String(e) });
-        console.error(`❌ Error processing transactions for ${chain} address ${address}:`, e);
-        continue;
+        await FetchRecentTransactionsCronByChain(chain);
+        console.log(`✅ Completed sync for ${chain}`);
+      } catch (chainError) {
+        console.error(`❌ Failed to sync ${chain}:`, chainError.message);
+        // Continue with other chains even if one fails
       }
-      // console.log(`📈 Recent transactions for ${address}:`, txs);
     }
+    
+    console.log('🎉 Transaction sync complete for all chains');
   } catch (error) {
-    console.error('❌ Error fetching recent transactions:', error);
+    console.error('❌ Error in transaction sync cron job:', error);
   }
 }
 
 
 async function FetchRecentTransactionsCronByChain(cryptoChain) {
+
+  
+const walletAddressMap = {
+  BTC: 'bc1q4j9e7equq4xvlyu7tan4gdmkvze7wc0egvykr6',
+  LTC: 'ltc1qgg5aggedmvjx0grd2k5shg6jvkdzt9dtcqa4dh',
+  SOL: 'qaSpvAumg2L3LLZA8qznFtbrRKYMP1neTGqpNgtCPaU',
+  ETH: '0x9a61f30347258A3D03228F363b07692F3CBb7f27',
+};
+
   try {
-    console.log(`🔄 Fetching recent transactions for all ${cryptoChain || 'chain'} wallet addresses...`);
-    // Iterate over walletAddressMap entries (key = chain, value = address) for the cron job
+    console.log(`🔄 Fetching recent transactions for ${cryptoChain} wallet...`);
 
-    let [chainKey, addr] = walletAddressMap[cryptoChain]
-
-
-    // for (const [chainKey, addr] of Object.entries(walletAddressMap)) {
-    // const txs = await fetchRe,centTransactions(address);
-    const chain = cryptoChain ? cryptoChain : String(chainKey || '').toUpperCase();
+    const addr = walletAddressMap[cryptoChain];
+    const chain = String(cryptoChain || '').toUpperCase();
     const address = String(addr || '').trim();
-    // Use a fixed reasonable limit for cron runs
     const limit = 100;
-    try {
 
-      if (!address || !chain) {
-        console.log('No address or chain provided');
+    if (!address || !chain) {
+      console.log('❌ No address or chain provided');
+      return;
+    }
 
+    let rows = [];
+    let source = 'unknown';
+
+    // ═══════════════════════════════════════════════════════════════
+    //  PRIMARY: Try TATUM API first
+    // ═══════════════════════════════════════════════════════════════
+    if (TATUM_API_KEY) {
+      try {
+        rows = await fetchTatumTransactions(chain, address, limit);
+        source = 'TATUM';
+        console.log(`✅ TATUM: Fetched ${rows.length} ${chain} transactions`);
+      } catch (tatumError) {
+        console.warn(`⚠️ TATUM failed for ${chain}, falling back to legacy APIs:`, tatumError.message);
+        rows = []; // Reset for fallback
       }
-      let rows = [];
-      if (chain === 'BTC') rows = await fetchEsploraAddressTxs(BTC_ESPLORA, address, limit);
-      else if (chain === 'LTC') rows = await fetchEsploraAddressTxs(LTC_ESPLORA, address, limit);
-      else if (chain === 'ETH') rows = await fetchEth({ address, limit, chainId: 1, action: "txlist", extraParams: {} });
-      else if (chain === 'SOL') rows = await fetchSol(address, limit);
-      else {
-        console.log('Unsupported chain. Use BTC, LTC, ETH, SOL');
+    } else {
+      console.log(`⚠️ TATUM_API_KEY not set, using legacy APIs for ${chain}`);
+    }
 
+    // ═══════════════════════════════════════════════════════════════
+    //  FALLBACK: Use legacy APIs if TATUM fails or is not configured
+    // ═══════════════════════════════════════════════════════════════
+    if (rows.length === 0) {
+      try {
+        if (chain === 'BTC') {
+          rows = await fetchEsploraAddressTxs(BTC_ESPLORA, address, limit);
+          source = 'Blockstream Esplora';
+        } else if (chain === 'LTC') {
+          rows = await fetchEsploraAddressTxs(LTC_ESPLORA, address, limit);
+          source = 'Litecoin Esplora';
+        } else if (chain === 'ETH') {
+          rows = await fetchEth({ address, limit, chainId: 1, action: "txlist", extraParams: {} });
+          source = 'Etherscan';
+        } else if (chain === 'SOL') {
+          rows = await fetchSol(address, limit);
+          source = 'Solana RPC';
+        } else {
+          console.log(`❌ Unsupported chain: ${chain}`);
+          return;
+        }
+        console.log(`✅ ${source}: Fetched ${rows.length} ${chain} transactions (fallback)`);
+      } catch (fallbackError) {
+        console.error(`❌ Both TATUM and ${source} failed for ${chain}:`, fallbackError.message);
+        return;
       }
-      // return res.status(400).json({ error: 'Unsupported chain. Use BTC, LTC, ETH, SOL' });
+    }
 
-      let transactions = {
-        chain,
-        address,
-        count: rows.length,
-        txs: rows
-      };
+    // ═══════════════════════════════════════════════════════════════
+    //  Store transactions in database
+    // ═══════════════════════════════════════════════════════════════
+    let inserted = 0;
+    let skipped = 0;
 
-      for (const tx of transactions.txs) {
-        const transactionId = tx?.hash ?? null;
+    for (const tx of rows) {
+      try {
+        const transactionId = tx?.hash ?? tx?.signature ?? null;
 
         if (!transactionId) {
-          console.log(`Skipping ${chain} transaction with missing hash`);
+          console.log(`⚠️ Skipping ${chain} transaction with missing hash`);
+          skipped++;
           continue;
         }
 
-        // todo: only process transactions within last 30 minutes?
-        const txTime = new Date(tx?.time ?? 0);
-        const now = new Date();
-
-        const existingTxs = await knex(`CryptoTransactions_${chain}`)
-          .where('hash', transactionId)
-          .andWhere('time', '>=', new Date(now.getTime() - 30 * 60000))
-          .select('*');
-
         // Check if transaction already exists
+        const existingTxs = await knex(`${chain}_TX`)
+          .where('txHash', transactionId)
+          .select('txHash')
+          .limit(1);
+
         if (existingTxs.length > 0) {
-          // console.log(`Transaction ${transactionId} already exists in the database. Skipping.`);
-          continue; // Skip to next transaction
+          skipped++;
+          continue;
         }
 
-        // Insert new transaction (convert undefined values to null)
-        await knex(`CryptoTransactions_${chain}`).insert({
-          time: tx?.time ?? null,
-          direction: tx?.direction ?? null,
-          amount: tx?.amount ?? null,
-          fromAddress: tx?.from ?? null,
-          toAddress: tx?.to ?? null,
-          hash: transactionId
+        // Insert new transaction
+        await knex(`${chain}_TX`).insert({
+          created_at: tx.time,
+          direction: tx.direction,
+          amount: tx.amount,
+          fromAddress: tx.from,
+          toAddress: tx.to,
+          txHash: transactionId
         });
 
-        // console.log(`Inserted transaction ${transactionId} into CryptoTransactions_${chain}`);
+        inserted++;
+      } catch (insertError) {
+        console.error(`❌ Failed to insert ${chain} transaction:`, insertError.message);
       }
-
-
-    } catch (e) {
-      // res.status(500).json({ error: e.message || String(e) });
-      // console.error(`❌ Error processing transactions for ${chain} address ${address}:`, e);
-      console.error(`❌ Error processing transactions for ${chain} address ${address}:`, e.message || String(e));
-
     }
 
-    // }
+    console.log(`📊 ${chain} Summary: ${inserted} inserted, ${skipped} skipped (source: ${source})`);
+
   } catch (error) {
-    console.error('❌ Error fetching recent transactions:', error);
+    console.error(`❌ Error processing ${cryptoChain} transactions:`, error.message);
   }
 }
-
-
 
 
 // ========================================
@@ -4572,94 +4756,21 @@ server.get(PROXY + '/api/fingerprint/stats', authenticateToken, async (req, res)
 // ========================================
 
 
-// Python Flask app Control
 
-// const FLASKAPP_LINK = 'http://localhost:5000';
-const FLASKAPP_LINK = process.env.FLASKAPP_LINK || 'http://localhost:5000';
-const TTS_SERVER_LINK = process.env.TTS_SERVER_LINK || 'http://localhost:5001';
-
-server.post(PROXY + '/api/tts/google', authenticateToken, async (req, res) => {
-  try {
-    const {
-      text,
-      filename,
-      username,
-      speed,
-      pitch,
-      volume,
-      voice,
-      lang
-    } = req.body || {};
-
-    const payload = {
-      text,
-      filename,
-      username,
-      speed,
-      pitch,
-      volume,
-      voice,
-      lang
-    };
-
-    const { data } = await axios.post(
-      `${TTS_SERVER_LINK}/google-tts-speech`,
-      payload,
-      {
-        timeout: 60000,
-        headers: { 'Content-Type': 'application/json' }
-      }
-    );
-
-    if (data && typeof data.url === 'string' && data.url.startsWith('/audio/')) {
-      data.url = `${TTS_SERVER_LINK}${data.url}`;
-    }
-
-    res.json(data);
-  } catch (error) {
-    const status = error.response?.status || 500;
-    console.error('❌ Error calling TTS server:', error.response?.data || error.message);
-    res.status(status).json({
-      success: false,
-      error: 'TTS request failed',
-      details: error.response?.data || error.message
-    });
-  }
+server.get(PROXY + '/api/download', (req, res) => {
+  // Serve file directly from python inputs/outputs
+  const filename = req.query.filename || req.query.file;
+  if (!filename) return res.status(400).json({ error: 'No filename provided' });
+  const filePath = pythonService.getDownloadPath(filename);
+  if (!filePath) return res.status(404).json({ error: 'File not found' });
+  res.sendFile(filePath);
 });
 
-
-server.get(PROXY + '/api/flask-python/download', (req, res) => {
-  // Proxy the request to the Flask app
-  const axios = require('axios');
-  const FormData = require('form-data');
-  const form = new FormData();
-
-  form.append('file', req.files.file.data, req.files.file.name);
-
-  axios.post(`${FLASKAPP_LINK}/upload`, form, {
-    headers: form.getHeaders()
-  })
-    .then(response => {
-      res.json(response.data);
-    })
-    .catch(error => {
-      console.error('Error uploading to Flask app:', error);
-      res.status(500).json({ error: 'Failed to upload file to Python service' });
-    });
-});
-
-// Flask/Python service URL
-
-
-// Configure multer for file uploads
+// Configure multer for file uploads (using paths from python-service)
 const py_storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    const uploadDir = path.join(__dirname, 'python', 'inputs');
-    // Create directory if it doesn't exist
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-    cb(null, uploadDir);
+    fs.mkdirSync(pythonService.INPUTS_DIR, { recursive: true });
+    cb(null, pythonService.INPUTS_DIR);
   },
   filename: function (req, file, cb) {
     // Generate unique filename
@@ -4670,10 +4781,12 @@ const py_storage = multer.diskStorage({
   }
 });
 
+
+
 const upload = multer({
   storage: py_storage,
   dest: 'python/inputs',
-  limits: { fileSize: 250 * 1024 * 1024 }, // 10MB limit
+  limits: { fileSize: 250 * 1024 * 1024 }, // 250MB limit
   fileFilter: function (req, file, cb) {
     // Accept images, videos, and audio only
     if (!file.mimetype.startsWith('image/') && !file.mimetype.startsWith('video/') && !file.mimetype.startsWith('audio/')) {
@@ -4684,694 +4797,6 @@ const upload = multer({
 });
 
 
-
-// =============================
-// SCRAMBLE PHOTO ENDPOINT - UPDATED VERSION
-// Handles both old flat format and new nested format with noise parameters
-// =============================
-
-server.post(PROXY + '/api/audio-stegano-embed', upload.single('file'), authenticateToken, async (req, res) => {
-  console.log('🔊 Audio steganography request received');
-
-  try {
-    // 1) Ensure file was uploaded
-    if (!req.file) {
-      return res.status(400).json({
-        success: false,
-        error: 'No audio file provided'
-      });
-    }
-
-    console.log('✅ File uploaded:', req.file.filename);
-    console.log('📁 File path:', req.file.path);
-
-    // 2) Parse steganography data (user info) from params field
-    let steganoData;
-    try {
-      steganoData = typeof req.body.params === 'string'
-        ? JSON.parse(req.body.params)
-        : (req.body.params || {});
-    } catch (parseError) {
-      console.error('❌ Failed to parse steganography parameters:', parseError);
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid parameters format'
-      });
-    }
-
-    console.log('📋 Steganography data (user info):', steganoData);
-
-    //  user info for watermarking
-    const { username, time, userid } = steganoData;
-
-    if (!username || !userid) {
-      return res.status(400).json({
-        success: false,
-        error: 'Missing required user information (username, userid)'
-      });
-    }
-
-    // 3) Prepare Flask payload
-    const inputFile = req.file.filename;
-    const outputFile = `watermarked_${inputFile}`;
-
-    // Create secret message from user info
-    const secretMessage = JSON.stringify({
-      username,
-      userid,
-      timestamp: time || new Date().toISOString()
-    });
-
-    const flaskPayload = {
-      input: inputFile,
-      output: outputFile,
-      secret_message: secretMessage
-    };
-
-    console.log('🔄 Sending payload to Flask:', flaskPayload);
-    console.log('📡 Flask URL:', `${FLASKAPP_LINK}/audio-stegano-embed`);
-
-    // 4) Call Flask audio steganography endpoint
-    const flaskResponse = await axios.post(
-      `${FLASKAPP_LINK}/audio-stegano-embed`,
-      flaskPayload,
-      {
-        timeout: 60000,
-        headers: { 'Content-Type': 'application/json' }
-      }
-    );
-
-    console.log('✅ Flask response received:', flaskResponse.data);
-
-    const data = flaskResponse.data;
-
-    // 5) Send success response to frontend
-    res.json({
-      success: true,
-      output_file: data.output_file,
-      download_url: data.download_url,
-      message: data.message || 'Audio watermarked successfully',
-      watermark: {
-        username,
-        userid,
-        timestamp: time || new Date().toISOString()
-      },
-      ...data
-    });
-
-  } catch (error) {
-    console.error('❌ Error in /api/audio-stegano endpoint:', error.message);
-
-    // Cleanup uploaded file if processing failed
-    if (req.file && fs.existsSync(req.file.path)) {
-      try {
-        fs.unlinkSync(req.file.path);
-        console.log('🗑️  Cleaned up failed upload:', req.file.filename);
-      } catch (unlinkError) {
-        console.error('Failed to delete file:', unlinkError);
-      }
-    }
-
-    if (error.code === 'ECONNREFUSED') {
-      return res.status(503).json({
-        success: false,
-        error: 'Python/Flask service is not running. Please start the Flask server on port 5000.'
-      });
-    }
-
-    if (error.response) {
-      return res.status(error.response.status || 500).json({
-        success: false,
-        error: error.response.data?.error || 'Audio steganography failed in Python service',
-        details: error.response.data
-      });
-    }
-
-    res.status(500).json({
-      success: false,
-      error: 'Failed to apply audio steganography',
-      message: error.message
-    });
-  }
-});
-
-// =============================
-// SCRAMBLE PHOTO ENDPOINT - UPDATED VERSION
-// Handles both old flat format and new nested format with noise parameters
-// =============================
-
-server.post(PROXY + '/api/scramble-photo', authenticateToken, upload.single('file'), async (req, res) => {
-  console.log('📸 Scramble photo request received');
-
-  try {
-    // 1) Make sure a file came in
-    if (!req.file) {
-      return res.status(400).json({ error: 'No image file provided' });
-    }
-
-    console.log('✅ File uploaded:', req.file.filename);
-    console.log('📁 File path:', req.file.path);
-    console.log('👤 User info:', req.user);
-
-    // 2) Parse params from multipart/form-data
-    let params;
-    try {
-      params = typeof req.body.params === 'string'
-        ? JSON.parse(req.body.params)
-        : (req.body.params || {});
-    } catch (parseError) {
-      console.error('❌ Failed to parse parameters:', parseError);
-      return res.status(400).json({ error: 'Invalid parameters format' });
-    }
-
-    console.log('📋 Scrambling parameters (from frontend):', params);
-
-    // 3) Normalize for Flask
-    //
-    // IMPORTANT:
-    // - Ignore params.input from the client and instead use the actual stored filename.
-    // - Optionally reuse params.output, but better to tie it to the stored filename.
-    // - Handle both old flat format and new nested format (with scramble/noise objects)
-    const inputFile = req.file.filename; // file as saved by multer
-    const outputFile = `scrambled_${inputFile}`;
-
-    // Check if params has nested structure (new format) or flat structure (old format)
-    let scrambleParams = params;
-    let noiseParams = null;
-    let metadata = null;
-
-    if (params.scramble) {
-      // New nested format
-      scrambleParams = params.scramble;
-      noiseParams = params.noise;
-      metadata = params.metadata;
-      console.log('🆕 Detected new nested parameter format');
-    } else {
-      // Old flat format - for backwards compatibility
-      console.log('📦 Using legacy flat parameter format');
-    }
-
-    // Build the payload in the exact shape Flask expects
-    const flaskPayload = {
-      input: inputFile,
-      output: outputFile,
-      seed: scrambleParams.seed ?? params.seed ?? 123456,
-      mode: scrambleParams.mode || params.mode || 'scramble',
-      algorithm: scrambleParams.algorithm || params.algorithm || 'position',
-      percentage: scrambleParams.percentage ?? params.percentage ?? 100,
-      // Algorithm-specific params (check both nested and flat structure)
-      rows: scrambleParams.rows ?? params.rows,
-      cols: scrambleParams.cols ?? params.cols,
-      max_hue_shift: scrambleParams.max_hue_shift ?? scrambleParams.maxHueShift ?? params.max_hue_shift ?? params.maxHueShift,
-      max_intensity_shift: scrambleParams.max_intensity_shift ?? scrambleParams.maxIntensityShift ?? params.max_intensity_shift ?? params.maxIntensityShift,
-      // Noise parameters (if present)
-      noise_seed: params.noise_seed ?? noiseParams?.seed,
-      noise_intensity: params.noise_intensity ?? noiseParams?.intensity,
-      noise_mode: params.noise_mode ?? noiseParams?.mode,
-      noise_prng: params.noise_prng ?? noiseParams?.prng,
-      noise_tile_size: params.noise_tile_size ?? noiseParams?.tile_size ?? noiseParams?.tileSize,
-      creator: params.creator,
-      // user_id: req.user?.id ?? params.user_id,
-      // username: req.user?.username ?? params.username,
-      metadata: metadata ? JSON.stringify(metadata) : undefined
-    };
-
-    // Remove undefined keys so Flask doesn't see them at all
-    Object.keys(flaskPayload).forEach((key) => {
-      if (flaskPayload[key] === undefined) delete flaskPayload[key];
-    });
-
-    // Log noise parameters if present
-    if (noiseParams) {
-      console.log('🔊 Noise parameters:', {
-        seed: noiseParams.seed,
-        intensity: noiseParams.intensity,
-        mode: noiseParams.mode
-      });
-    }
-
-    console.log('🔄 Sending normalized payload to Flask:', flaskPayload);
-    console.log('📡 Flask URL:', `${FLASKAPP_LINK}/scramble-photo`);
-
-    // 4) Call Flask /scramble-photo as JSON
-    const flaskResponse = await axios.post(
-      `${FLASKAPP_LINK}/scramble-photo`,
-      flaskPayload,
-      {
-        timeout: 60000,
-        headers: { 'Content-Type': 'application/json' }
-      }
-    );
-
-    console.log('✅ Flask response received:', flaskResponse.data);
-
-    // Flask returns: { message, output_file, algorithm, seed, download_url, ... }
-    const data = flaskResponse.data;
-
-    // 5) Send a clean response back to the React frontend
-    res.json({
-      success: true,
-      output_file: data.output_file,
-      algorithm: data.algorithm,
-      seed: data.seed,
-      download_url: data.download_url,
-      message: data.message || 'Image scrambled successfully',
-      // Include noise parameters if they were used
-      noise: noiseParams ? {
-        seed: noiseParams.seed,
-        intensity: noiseParams.intensity,
-        mode: noiseParams.mode,
-        prng: noiseParams.prng
-      } : undefined,
-      // Include metadata if present
-      metadata: metadata,
-      // Include everything else from Flask, just in case
-      ...data
-    });
-
-  } catch (error) {
-    console.error('❌ Error in /api/scramble-photo endpoint:', error.message);
-
-    // Cleanup uploaded file if something failed
-    if (req.file && fs.existsSync(req.file.path)) {
-      try {
-        fs.unlinkSync(req.file.path);
-        console.log('🗑️  Cleaned up failed upload:', req.file.filename);
-      } catch (unlinkError) {
-        console.error('Failed to delete file:', unlinkError);
-      }
-    }
-
-    if (error.code === 'ECONNREFUSED') {
-      return res.status(503).json({
-        error: 'Python/Flask service is not running. Please start the Flask server on port 5000.'
-      });
-    }
-
-    if (error.response) {
-      // Flask returned an HTTP error
-      return res.status(error.response.status || 500).json({
-        error: error.response.data?.error || 'Scrambling failed in Python service',
-        details: error.response.data
-      });
-    }
-
-    res.status(500).json({
-      error: 'Failed to scramble photo',
-      message: error.message
-    });
-  }
-});
-
-// =============================
-// KEY CHANGES SUMMARY:
-// =============================
-// 1. Added detection for nested parameter format (params.scramble, params.noise, params.metadata)
-// 2. Maintains backward compatibility with old flat format
-// 3. Extracts noise parameters if present: seed, intensity, mode, prng
-// 4. Passes noise parameters to Flask (as noise_seed, noise_intensity, etc.)
-// 5. Includes noise parameters in response back to frontend
-// 6. Handles both camelCase (maxHueShift) and snake_case (max_hue_shift) for flexibility
-// 7. Logs noise parameters when present for debugging
-
-// =============================
-// UNSCRAMBLE PHOTO ENDPOINT - UPDATED VERSION
-// Handles both old flat format and new nested format with noise parameters
-// =============================
-
-server.post(PROXY + '/api/unscramble-photo', upload.single('file'), async (req, res) => {
-  console.log('🔓 Unscramble photo request received');
-
-  try {
-    // Check if file was uploaded
-    if (!req.file) {
-      return res.status(400).json({ error: 'No image file provided' });
-    }
-
-    console.log('✅ File uploaded:', req.file.filename);
-    console.log('📁 File path:', req.file.path);
-
-    // Parse parameters from request body
-    let params;
-    try {
-      params = typeof req.body.params === 'string'
-        ? JSON.parse(req.body.params)
-        : req.body.params;
-    } catch (parseError) {
-      console.error('❌ Failed to parse parameters:', parseError);
-      return res.status(400).json({ error: 'Invalid parameters format' });
-    }
-
-    console.log('📋 Unscrambling parameters (from frontend):', params);
-
-    // Check if params has nested structure (new format) or flat structure (old format)
-    let scrambleParams = params;
-    let noiseParams = null;
-    let metadata = null;
-
-    if (params.scramble) {
-      // New nested format
-      scrambleParams = params.scramble;
-      noiseParams = params.noise;
-      metadata = params.metadata;
-      console.log('🆕 Detected new nested parameter format');
-    } else {
-      // Old flat format - for backwards compatibility
-      console.log('📦 Using legacy flat parameter format');
-    }
-
-    // Prepare data to send to Flask
-    const flaskPayload = {
-      input: req.file.filename,
-      output: `unscrambled_${req.file.filename}`,
-      seed: scrambleParams.seed ?? params.seed,
-      mode: 'unscramble',
-      algorithm: scrambleParams.algorithm ?? params.algorithm,
-      percentage: scrambleParams.percentage ?? params.percentage ?? 100,
-      // Algorithm-specific params (check both nested and flat structure)
-      rows: scrambleParams.rows ?? params.rows,
-      cols: scrambleParams.cols ?? params.cols,
-      max_hue_shift: scrambleParams.max_hue_shift ?? scrambleParams.maxHueShift ?? params.max_hue_shift ?? params.maxHueShift,
-      max_intensity_shift: scrambleParams.max_intensity_shift ?? scrambleParams.maxIntensityShift ?? params.max_intensity_shift ?? params.maxIntensityShift,
-      // Noise parameters (if present)
-      noise_seed: params.noise_seed ?? noiseParams?.seed,
-      noise_intensity: params.noise_intensity ?? noiseParams?.intensity,
-      noise_mode: params.noise_mode ?? noiseParams?.mode,
-      noise_prng: params.noise_prng ?? noiseParams?.prng,
-      noise_tile_size: params.noise_tile_size ?? noiseParams?.tile_size ?? noiseParams?.tileSize,
-
-      creator: params.creator,
-      user_id: req.user?.id ?? params.user_id,
-      username: req.user?.username ?? params.username,
-      metadata: metadata ? JSON.stringify(metadata) : undefined
-    };
-
-    // Remove undefined keys so Flask doesn't see them at all
-    Object.keys(flaskPayload).forEach((key) => {
-      if (flaskPayload[key] === undefined) delete flaskPayload[key];
-    });
-
-    // Log noise parameters if present
-    if (noiseParams) {
-      console.log('🔊 Noise parameters detected:', {
-        seed: noiseParams.seed,
-        intensity: noiseParams.intensity,
-        mode: noiseParams.mode
-      });
-    }
-
-    console.log('🔄 Sending normalized payload to Flask:', flaskPayload);
-    console.log('🔄 Sending to Flask service:', FLASKAPP_LINK + '/unscramble-photo');
-
-    // Send request to Flask/Python service
-    const flaskResponse = await axios.post(
-      `${FLASKAPP_LINK}/unscramble-photo`,
-      flaskPayload,
-      {
-        timeout: 30000, // 30 second timeout
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      }
-    );
-
-    console.log('✅ Flask response received:', flaskResponse.data);
-
-    // Return Flask response to frontend with noise parameters included
-    res.json({
-      success: true,
-      output_file: flaskResponse.data.output_file || flaskResponse.data.unscrambledFileName,
-      unscrambledImageUrl: flaskResponse.data.unscrambledImageUrl,
-      message: 'Image unscrambled successfully',
-      // Include noise parameters so frontend knows to remove noise
-      noise: noiseParams ? {
-        seed: noiseParams.seed,
-        intensity: noiseParams.intensity,
-        mode: noiseParams.mode,
-        prng: noiseParams.prng
-      } : undefined,
-      // Include metadata if present
-      metadata: metadata,
-      ...flaskResponse.data
-    });
-
-  } catch (error) {
-    console.error('❌ Error in unscramble-photo endpoint:', error.message);
-
-    // Clean up uploaded file if processing failed
-    if (req.file && fs.existsSync(req.file.path)) {
-      try {
-        fs.unlinkSync(req.file.path);
-        console.log('🗑️  Cleaned up failed upload:', req.file.filename);
-      } catch (unlinkError) {
-        console.error('Failed to delete file:', unlinkError);
-      }
-    }
-
-    if (error.code === 'ECONNREFUSED') {
-      return res.status(503).json({
-        error: 'Python/Flask service is not running. Please start the Flask server on port 5000.'
-      });
-    }
-
-    if (error.response) {
-      // Flask returned an error
-      return res.status(error.response.status || 500).json({
-        error: error.response.data?.error || 'Unscrambling failed in Python service',
-        details: error.response.data
-      });
-    }
-
-    res.status(500).json({
-      error: 'Failed to unscramble photo',
-      message: error.message
-    });
-  }
-});
-
-
-
-server.post(PROXY + "/api/upload", authenticateToken, async (req, res) => {
-
-});
-
-// =============================
-// SCRAMBLE VIDEO ENDPOINT
-// =============================
-
-server.post(PROXY + '/api/scramble-video', upload.single('file'), async (req, res) => {
-  console.log('📸 Scramble video request received');
-
-  try {
-    // 1) Make sure a file came in
-    if (!req.file) {
-      return res.status(400).json({ error: 'No video file provided' });
-    }
-
-    console.log('✅ File uploaded:', req.file.filename);
-    console.log('📁 File path:', req.file.path);
-
-    // 2) Parse params from multipart/form-data
-    let params;
-    try {
-      params = typeof req.body.params === 'string'
-        ? JSON.parse(req.body.params)
-        : (req.body.params || {});
-    } catch (parseError) {
-      console.error('❌ Failed to parse parameters:', parseError);
-      return res.status(400).json({ error: 'Invalid parameters format' });
-    }
-
-    console.log('📋 Scrambling parameters (from frontend):', params);
-
-    // 3) Normalize for Flask
-    //
-    // IMPORTANT:
-    // - Ignore params.input from the client and instead use the actual stored filename.
-    // - Optionally reuse params.output, but better to tie it to the stored filename.
-    const inputFile = req.file.filename; // file as saved by multer
-    const outputFile = `scrambled_${inputFile}`;
-
-    // Build the payload in the exact shape Flask expects
-    const flaskPayload = {
-      input: inputFile,
-      output: outputFile,
-      seed: params.seed ?? 123456,
-      mode: params.mode || 'scramble',
-      algorithm: params.algorithm || 'position',
-      percentage: params.percentage ?? 100,
-      // Algorithm-specific params
-      rows: params.rows,
-      cols: params.cols,
-      max_hue_shift: params.max_hue_shift,
-      max_intensity_shift: params.max_intensity_shift,
-
-      creator: params.creator,
-      // user_id: req.user?.id ?? params.user_id,
-      // username: req.user?.username ?? params.username,
-      metadata: params.metadata ? JSON.stringify(params.metadata) : undefined
-    };
-
-    // Remove undefined keys so Flask doesn’t see them at all
-    Object.keys(flaskPayload).forEach((key) => {
-      if (flaskPayload[key] === undefined) delete flaskPayload[key];
-    });
-
-    console.log('🔄 Sending normalized payload to Flask:', flaskPayload);
-    console.log('📡 Flask URL:', `${FLASKAPP_LINK}/scramble-video`);
-
-    // 4) Call Flask /scramble-photo as JSON
-    const flaskResponse = await axios.post(
-      `${FLASKAPP_LINK}/scramble-video`,
-      flaskPayload,
-      {
-        timeout: 180000, // 3 minutes for video processing + WebM conversion
-        headers: { 'Content-Type': 'application/json' }
-      }
-    );
-
-    console.log('✅ Flask response received:', flaskResponse.data);
-
-    // Flask returns: { message, output_file, algorithm, seed, download_url, ... }
-    const data = flaskResponse.data;
-
-    // 5) Send a clean response back to the React frontend
-    res.json({
-      success: true,
-      output_file: data.output_file,
-      algorithm: data.algorithm,
-      seed: data.seed,
-      download_url: data.download_url,
-      message: data.message || 'Image scrambled successfully',
-      // Include everything else from Flask, just in case
-      ...data
-    });
-
-  } catch (error) {
-    console.error('❌ Error in /api/scramble-video endpoint:', error.message);
-
-    // Cleanup uploaded file if something failed
-    if (req.file && fs.existsSync(req.file.path)) {
-      try {
-        fs.unlinkSync(req.file.path);
-        console.log('🗑️  Cleaned up failed upload:', req.file.filename);
-      } catch (unlinkError) {
-        console.error('Failed to delete file:', unlinkError);
-      }
-    }
-
-    if (error.code === 'ECONNREFUSED') {
-      return res.status(503).json({
-        error: 'Python/Flask service is not running. Please start the Flask server on port 5000.'
-      });
-    }
-
-    if (error.response) {
-      // Flask returned an HTTP error
-      return res.status(error.response.status || 500).json({
-        error: error.response.data?.error || 'Scrambling failed in Python service',
-        details: error.response.data
-      });
-    }
-
-    res.status(500).json({
-      error: 'Failed to scramble video',
-      message: error.message
-    });
-  }
-});
-
-
-// =============================
-// UNSCRAMBLE VIDEO ENDPOINT
-// =============================
-server.post(PROXY + '/api/unscramble-video', upload.single('file'), async (req, res) => {
-  console.log('🔓 Unscramble video request received');
-
-  try {
-    // Check if file was uploaded
-    if (!req.file) {
-      return res.status(400).json({ error: 'No video file provided' });
-    }
-
-    console.log('✅ File uploaded:', req.file.filename);
-    console.log('📁 File path:', req.file.path);
-
-    // Parse parameters from request body
-    let params;
-    try {
-      params = typeof req.body.params === 'string'
-        ? JSON.parse(req.body.params)
-        : req.body.params;
-    } catch (parseError) {
-      console.error('❌ Failed to parse parameters:', parseError);
-      return res.status(400).json({ error: 'Invalid parameters format' });
-    }
-
-    console.log('📋 Unscrambling parameters:', params);
-
-    // Prepare data to send to Flask
-    const flaskPayload = {
-      localFileName: req.file.filename,
-      localFilePath: req.file.path,
-      params: params,
-      creator: params.creator,
-      // the user_id and username can come from the unscrambling user not the creator. check req.user first and fallback to params
-      user_id: req.user?.id ?? params.user_id,
-      username: req.user?.username ?? params.username,
-      metadata: params.metadata ? JSON.stringify(params.metadata) : undefined
-    };
-
-    console.log('🔄 Sending normalized payload to Flask:', flaskPayload);
-    console.log('🔄 Sending to Flask service:', FLASKAPP_LINK + '/unscramble-video');
-
-    // 4) Call Flask /unscramble-video as JSON
-    const flaskResponse = await axios.post(
-      `${FLASKAPP_LINK}/unscramble-video`,
-      flaskPayload,
-      {
-        timeout: 180000, // 3 minutes for video processing + WebM conversion
-        headers: { 'Content-Type': 'application/json' }
-      }
-    );
-
-    console.log('✅ Flask response received:', flaskResponse.data);
-
-
-    // Return Flask response to frontend
-    res.json({
-      success: true,
-      output_file: flaskResponse.data.output_file || flaskResponse.data.unscrambledFileName,
-      unscrambledImageUrl: flaskResponse.data.unscrambledImageUrl,
-      message: 'Image unscrambled successfully',
-      ...flaskResponse.data
-    });
-
-  } catch (error) {
-    console.error('❌ Error in /api/unscramble-video endpoint:', error.message);
-
-
-
-    if (error.code === 'ECONNREFUSED') {
-      return res.status(503).json({
-        error: 'Python/Flask service is not running. Please start the Flask server on port 5000.'
-      });
-    }
-
-    if (error.response) {
-      // Flask returned an error
-      return res.status(error.response.status || 500).json({
-        error: error.response.data?.error || 'Unscrambling failed in Python service',
-        details: error.response.data
-      });
-    }
-
-    res.status(500).json({
-      error: 'Failed to unscramble video',
-      message: error.message
-    });
-  }
-});
 
 // =============================
 // DOWNLOAD SCRAMBLED IMAGE
@@ -5402,518 +4827,17 @@ server.get(PROXY + '/api/download/:filename', (req, res) => {
 
 
 
-// Photo leak detection endpoint -server side
-server.post(PROXY + '/api/check-photo-leak', authenticateToken, async (req, res) => {
+// Rewrite this to handle generic file uploads
+server.post(PROXY + '/api/upload-drop-media', authenticateToken, async (req, res) => {
   console.log('\n' + '='.repeat(60));
-  console.log('🔍 NODE: Photo leak check request received');
+  console.log('🎥 NODE: uploading drop media request received');
   console.log('='.repeat(60));
 
   // Setup multer to handle multiple files
   const upload = multer({
     storage: multer.diskStorage({
       destination: (req, file, cb) => {
-        const uploadDir = path.join(__dirname, 'leak_uploads', 'images');
-        if (!fs.existsSync(uploadDir)) {
-          fs.mkdirSync(uploadDir, { recursive: true });
-        }
-        cb(null, uploadDir);
-      },
-      filename: (req, file, cb) => {
-        const originalName = file.originalname || 'upload';
-        const safeBase = path
-          .basename(originalName)
-          .replace(/\s+/g, '_')
-          .replace(/[^A-Za-z0-9._-]/g, '');
-        const ext = path.extname(safeBase);
-        const mimeExt = file.mimetype ? `.${file.mimetype.split('/').pop()}` : '';
-        const finalName = ext ? safeBase : `${safeBase}${mimeExt}`;
-        cb(null, finalName);
-      }
-    }),
-    limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
-    fileFilter: (req, file, cb) => {
-      if (file.mimetype.startsWith('image/')) {
-        cb(null, true);
-      } else {
-        cb(new Error('Only image files are allowed'));
-      }
-    }
-  });
-
-  // Accept both originalImage and leakedImage files
-  upload.fields([
-    { name: 'originalImage', maxCount: 1 },
-    { name: 'leakedImage', maxCount: 1 }
-  ])(req, res, async (err) => {
-    if (err) {
-      console.error('❌ NODE ERROR: Multer error:', err);
-      return res.status(400).json({ error: err.message });
-    }
-
-    const uploadedFiles = [];
-
-    try {
-      // Validate that both files were uploaded
-      if (!req.files || !req.files.originalImage || !req.files.leakedImage) {
-        return res.status(400).json({
-          error: 'Both originalImage and leakedImage files are required'
-        });
-      }
-
-      const originalImageFile = req.files.originalImage[0];
-      const leakedImageFile = req.files.leakedImage[0];
-      uploadedFiles.push(originalImageFile.path, leakedImageFile.path);
-
-      console.log('📤 NODE: Uploaded file paths:', uploadedFiles);
-
-      console.log(`📤 NODE: Original image saved as: ${originalImageFile.filename}`);
-      console.log(`📤 NODE: Leaked image saved in: ${leakedImageFile.filename}`);
-
-      // Parse optional keyData or keyCode
-      let keyData = null;
-      let keyCode = null;
-
-      if (req.body.keyData) {
-        try {
-          keyData = JSON.parse(req.body.keyData);
-          console.log('🔑 NODE: Key data provided');
-        } catch (parseError) {
-          console.warn('⚠️  Failed to parse keyData:', parseError);
-        }
-      }
-
-      if (req.body.keyCode) {
-        keyCode = req.body.keyCode;
-        console.log('🔑 NODE: Key code provided:', keyCode);
-      }
-
-      if (0) {
-        // AUTOMATIC LEAK DETECTION STEPS:
-        // // Step 1: Send to Flask to extract steganographic code by comparing both images
-        // console.log('📡 NODE: Sending both images to Flask for code extraction...');
-
-        // const flaskResponse = await axios.post(
-        //   `${FLASKAPP_LINK}/extract-photo-code`,
-        //   {
-        //     input: leakedImageFile.filename,
-        //     original: originalImageFile.filename,
-        //     keyData: keyData,
-        //     keyCode: keyCode
-        //   },
-        //   {
-        //     headers: { 'Content-Type': 'application/json' },
-        //     timeout: 30000
-        //   }
-        // );
-
-        // const { extracted_code } = flaskResponse.data;
-
-        // console.log(`🔑 NODE: Extracted code: ${extracted_code || 'None'}`);
-
-        // if (!extracted_code) {
-        //   // Cleanup uploaded files
-        //   uploadedFiles.forEach(filePath => {
-        //     try {
-        //       fs.unlinkSync(filePath);
-        //     } catch (cleanupErr) {
-        //       console.warn('⚠️  Could not delete uploaded file:', cleanupErr);
-        //     }
-        //   });
-
-        //   return res.json({
-        //     leakDetected: false,
-        //     extractedCode: null,
-        //     message: 'No steganographic code found in image'
-        //   });
-        // }
-
-        // // Step 2: Search database for matching code
-        // console.log('🔍 NODE: Searching database for matching code...');
-
-        // const [rows] = await pool.query(
-        //   `SELECT 
-        //     wc.*,
-        //     ud.username,
-        //     ud.email,
-        //     p.id as purchase_id,
-        //     p.createdAt as purchase_date
-        //   FROM watermark_codes wc
-        //   LEFT JOIN userData ud ON wc.user_id = ud.id
-        //   LEFT JOIN purchases p ON wc.purchase_id = p.id
-        //   WHERE wc.code = ?`,
-        //   [extracted_code]
-        // );
-
-        // if (rows.length === 0) {
-        //   console.log('✅ NODE: No match found in database - image is clean');
-
-        //   // Cleanup uploaded files
-        //   uploadedFiles.forEach(filePath => {
-        //     try {
-        //       fs.unlinkSync(filePath);
-        //     } catch (cleanupErr) {
-        //       console.warn('⚠️  Could not delete uploaded file:', cleanupErr);
-        //     }
-        //   });
-
-        //   return res.json({
-        //     leakDetected: false,
-        //     extractedCode: extracted_code,
-        //     message: 'Code extracted but not found in database'
-        //   });
-        // }
-
-        // // Step 3: Leak detected! Return details
-        // const leakData = rows[0];
-        // console.log('🚨 NODE: LEAK DETECTED!');
-        // console.log(`   User: ${leakData.username} (${leakData.user_id})`);
-        // console.log(`   File: ${leakData.filename}`);
-
-        // // Cleanup uploaded files
-        // uploadedFiles.forEach(filePath => {
-        //   try {
-        //     fs.unlinkSync(filePath);
-        //   } catch (cleanupErr) {
-        //     console.warn('⚠️  Could not delete uploaded file:', cleanupErr);
-        //   }
-        // });
-
-        // console.log('='.repeat(60) + '\n');
-
-        // return res.json({
-        //   leakDetected: true,
-        //   extractedCode: extracted_code,
-        //   leakData: {
-        //     id: leakData.id,
-        //     code: leakData.code,
-        //     user_id: leakData.user_id,
-        //     username: leakData.username,
-        //     email: leakData.email,
-        //     filename: leakData.filename,
-        //     media_type: leakData.media_type,
-        //     created_at: leakData.created_at,
-        //     purchase_id: leakData.purchase_id,
-        //     purchase_date: leakData.purchase_date,
-        //     device_fingerprint: leakData.device_fingerprint
-        //   },
-        //   message: 'Leak detected! Original owner identified.'
-        // });
-
-        // MANURL LEAK DETECTION STEPS:
-        // This will be done by me a human and a tool that I build to compare the two images side by side and highlight differences. I will look for signs of steganographic manipulation, such as noise patterns, pixel anomalies, or metadata inconsistencies. If I find a code or watermark, I will then search the database manually for a match and report back with my findings.
-
-        // CREATE TABLE
-        //   `leaks_reports`(
-        //     `id` int unsigned NOT NULL AUTO_INCREMENT,
-        //     `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        //     `username` varchar(255) DEFAULT NULL,
-        //     `creatorId` varchar(255) DEFAULT NULL,
-        //     `keyData` json DEFAULT NULL,
-        //     `decodeData` json DEFAULT NULL,
-        //     `originalMedia` varchar(255) DEFAULT NULL,
-        //     `leakedMedia` varchar(255) DEFAULT NULL,
-        //     `potentialLeakers` text,
-        //     PRIMARY KEY(`id`)
-        //   ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci
-
-      }
-
-
-
-      await knex('leaks_reports').insert({
-        username: req.user?.username,
-        creatorId: req.user?.id,
-        keyData: keyData ? JSON.stringify(keyData) : null,
-        decodeData: null,
-        originalMedia: originalImageFile.filename,
-        leakedMedia: leakedImageFile.filename
-      });
-
-      res.json({
-        leakDetected: false,
-        extractedCode: null,
-        message: 'Leak detection is currently manual. Please contact support with the original and leaked images for analysis.'
-      });
-
-    } catch (error) {
-      console.error('❌ NODE ERROR:', error);
-      console.log('='.repeat(60) + '\n');
-
-      // Cleanup on error
-      uploadedFiles.forEach(filePath => {
-        try {
-          fs.unlinkSync(filePath);
-        } catch (cleanupErr) {
-          console.warn('⚠️  Could not delete uploaded file:', cleanupErr);
-        }
-      });
-
-      return res.status(500).json({
-        error: error.message,
-        details: error.response?.data
-      });
-    }
-  });
-});
-
-// Audio leak detection endpoint
-server.post(PROXY + '/api/check-audio-leak', authenticateToken, async (req, res) => {
-  console.log('\n' + '='.repeat(60));
-  console.log('🔍 NODE: Audio leak check request received');
-  console.log('='.repeat(60));
-
-  // Setup multer to handle multiple files (originalAudio and leakedAudio)
-  const upload = multer({
-    storage: multer.diskStorage({
-      destination: (req, file, cb) => {
-        const uploadDir = path.join(__dirname, 'leak_uploads', 'images');
-        if (!fs.existsSync(uploadDir)) {
-          fs.mkdirSync(uploadDir, { recursive: true });
-        }
-        cb(null, uploadDir);
-      },
-      filename: (req, file, cb) => {
-        const originalName = file.originalname || 'upload';
-        const safeBase = path
-          .basename(originalName)
-          .replace(/\s+/g, '_')
-          .replace(/[^A-Za-z0-9._-]/g, '');
-        const ext = path.extname(safeBase);
-        const mimeExt = file.mimetype ? `.${file.mimetype.split('/').pop()}` : '';
-        const finalName = ext ? safeBase : `${safeBase}${mimeExt}`;
-        cb(null, finalName);
-      }
-    }),
-    limits: { fileSize: 50 * 1024 * 1024 }, // 50MB limit for audio files
-    fileFilter: (req, file, cb) => {
-      if (file.mimetype.startsWith('audio/')) {
-        cb(null, true);
-      } else {
-        cb(new Error('Only audio files are allowed'));
-      }
-    }
-  });
-
-  upload.fields([
-    { name: 'originalAudio', maxCount: 1 },
-    { name: 'leakedAudio', maxCount: 1 }
-  ])(req, res, async (err) => {
-    if (err) {
-      console.error('❌ NODE ERROR: Multer error:', err);
-      return res.status(400).json({ error: err.message });
-    }
-
-    const uploadedFiles = [];
-    const LEAK_CHECK_COST = 5; // Credits cost for leak checking
-
-    try {
-      // Validate that both files were uploaded
-      if (!req.files || !req.files.originalAudio || !req.files.leakedAudio) {
-        return res.status(400).json({
-          error: 'Both original and leaked audio files are required'
-        });
-      }
-
-      const originalAudioFile = req.files.originalAudio[0];
-      const leakedAudioFile = req.files.leakedAudio[0];
-      uploadedFiles.push(originalAudioFile.path, leakedAudioFile.path);
-
-      console.log(`📤 NODE: Original audio saved as: ${originalAudioFile.filename}`);
-      console.log(`📤 NODE: Leaked audio saved as: ${leakedAudioFile.filename}`);
-
-      // Parse optional keyData or keyCode
-      let keyData = null;
-      let keyCode = null;
-
-      if (req.body.keyData) {
-        try {
-          keyData = typeof req.body.keyData === 'string'
-            ? JSON.parse(req.body.keyData)
-            : req.body.keyData;
-          console.log('📋 NODE: Key data provided');
-        } catch (e) {
-          console.warn('⚠️  Failed to parse keyData:', e.message);
-        }
-      }
-
-      if (req.body.keyCode) {
-        keyCode = req.body.keyCode;
-        console.log(`🔑 NODE: Key code provided: ${keyCode}`);
-      }
-
-      if (0) {
-        // // Step 1: Extract steganographic code from the leaked audio
-        // console.log('📡 NODE: Sending leaked audio to Flask for code extraction...');
-
-        // const flaskResponse = await axios.post(
-        //   `${FLASKAPP_LINK}/audio-stegano-extract`,
-        //   {
-        //     input: leakedFile.filename,
-        //     original: originalFile.filename,
-        //     keyData: keyData,
-        //     keyCode: keyCode
-        //   },
-        //   {
-        //     headers: { 'Content-Type': 'application/json' },
-        //     timeout: 60000 // 60 seconds for audio processing
-        //   }
-        // );
-
-        // const { extracted_code, success } = flaskResponse.data;
-
-        // console.log(`🔑 NODE: Extracted code: ${extracted_code || 'None'}`);
-
-        // if (!extracted_code || !success) {
-        //   // Cleanup uploaded files
-        //   uploadedFiles.forEach(filePath => {
-        //     try {
-        //       fs.unlinkSync(filePath);
-        //     } catch (e) {
-        //       console.warn('⚠️  Could not delete file:', filePath);
-        //     }
-        //   });
-
-        //   return res.json({
-        //     leakDetected: false,
-        //     extractedCode: null,
-        //     message: 'No steganographic watermark found in the leaked audio',
-        //     creditsUsed: LEAK_CHECK_COST
-        //   });
-        // }
-
-        // // Step 2: Parse the extracted code to get user info
-        // let extractedUserInfo = null;
-        // try {
-        //   extractedUserInfo = JSON.parse(extracted_code);
-        //   console.log('📋 NODE: Parsed user info:', extractedUserInfo);
-        // } catch (parseError) {
-        //   console.log('⚠️  Could not parse extracted code as JSON, treating as plain text');
-        // }
-
-        // // Step 3: Search database for matching user
-        // console.log('🔍 NODE: Searching database for matching user...');
-
-        // let leakData = null;
-
-        // if (extractedUserInfo && extractedUserInfo.userid) {
-        //   // Search by user ID from watermark
-        //   const [rows] = await pool.query(
-        //     `SELECT 
-        //     ud.id,
-        //     ud.username,
-        //     ud.email,
-        //     ud.firstName,
-        //     ud.lastName,
-        //     ud.createdAt
-        //   FROM userData ud
-        //   WHERE ud.id = ?`,
-        //     [extractedUserInfo.userid]
-        //   );
-
-        //   if (rows.length > 0) {
-        //     leakData = {
-        //       ...rows[0],
-        //       watermark_username: extractedUserInfo.username,
-        //       watermark_timestamp: extractedUserInfo.timestamp,
-        //       extraction_method: 'steganography'
-        //     };
-        //   }
-        // }
-
-        // // Cleanup uploaded files
-        // uploadedFiles.forEach(filePath => {
-        //   try {
-        //     fs.unlinkSync(filePath);
-        //   } catch (e) {
-        //     console.warn('⚠️  Could not delete file:', filePath);
-        //   }
-        // });
-
-        // if (!leakData) {
-        //   console.log('✅ NODE: User not found in database');
-        //   return res.json({
-        //     leakDetected: false,
-        //     extractedCode: extracted_code,
-        //     message: 'Watermark found but user not in database',
-        //     creditsUsed: LEAK_CHECK_COST
-        //   });
-        // }
-
-        // // Step 4: Leak detected! Return details
-        // console.log('🚨 NODE: LEAK DETECTED!');
-        // console.log(`   User: ${leakData.username} (ID: ${leakData.id})`);
-        // console.log(`   Watermark timestamp: ${leakData.watermark_timestamp}`);
-        // console.log('='.repeat(60) + '\n');
-
-        // return res.json({
-        //   leakDetected: true,
-        //   extractedCode: extracted_code,
-        //   leakData: {
-        //     user_id: leakData.id,
-        //     username: leakData.username,
-        //     email: leakData.email,
-        //     firstName: leakData.firstName,
-        //     lastName: leakData.lastName,
-        //     watermark_username: leakData.watermark_username,
-        //     watermark_timestamp: leakData.watermark_timestamp,
-        //     account_created: leakData.createdAt,
-        //     extraction_method: leakData.extraction_method
-        //   },
-        //   message: '🚨 Leak detected! Original owner identified.',
-        //   creditsUsed: LEAK_CHECK_COST
-        // });
-
-      }
-
-
-
-      await knex('leaks_reports').insert({
-        username: req.user?.username,
-        creatorId: req.user?.id,
-        keyData: keyData ? JSON.stringify(keyData) : null,
-        decodeData: null,
-        originalMedia: originalAudioFile.filename,
-        leakedMedia: leakedAudioFile.filename
-      });
-
-      res.json({
-        leakDetected: false,
-        extractedCode: null,
-        message: 'Leak detection is currently manual. Please contact support with the original and leaked audio for analysis.'
-      });
-
-    } catch (error) {
-      console.error('❌ NODE ERROR:', error);
-      console.log('='.repeat(60) + '\n');
-
-      // Cleanup uploaded files on error
-      uploadedFiles.forEach(filePath => {
-        try {
-          fs.unlinkSync(filePath);
-        } catch (e) {
-          console.warn('⚠️  Could not delete file:', filePath);
-        }
-      });
-
-      return res.status(500).json({
-        error: error.message,
-        details: error.response?.data
-      });
-    }
-  });
-});
-
-// Video leak detection endpoint
-server.post(PROXY + '/api/check-video-leak', authenticateToken, async (req, res) => {
-  console.log('\n' + '='.repeat(60));
-  console.log('🎥 NODE: Video leak check request received');
-  console.log('='.repeat(60));
-
-  // Setup multer to handle multiple files
-  const upload = multer({
-    storage: multer.diskStorage({
-      destination: (req, file, cb) => {
-        const uploadDir = path.join(__dirname, 'leak_uploads', 'videos');
+        const uploadDir = path.join(__dirname, 'drop-files', 'videos', req.user?.username);
         if (!fs.existsSync(uploadDir)) {
           fs.mkdirSync(uploadDir, { recursive: true });
         }
@@ -5992,119 +4916,7 @@ server.post(PROXY + '/api/check-video-leak', authenticateToken, async (req, res)
       // PAUSE TO AVOID RATE LIMITS
       await new Promise(resolve => setTimeout(resolve, 3000));
 
-      if (0) {
-        // // Step 1: Send both videos to Flask to extract steganographic code
-        // console.log('📡 NODE: Sending both videos to Flask for code extraction...');
 
-        // const flaskResponse = await axios.post(
-        //   `${FLASKAPP_LINK}/extract-video-code`,
-        //   {
-        //     input: leakedVideoFile.filename,
-        //     original: originalVideoFile.filename,
-        //     keyData: keyData,
-        //     keyCode: keyCode
-        //   },
-        //   {
-        //     headers: { 'Content-Type': 'application/json' },
-        //     timeout: 120000 // 120 seconds for video processing
-        //   }
-        // );
-
-        // const { extracted_code } = flaskResponse.data;
-
-        // console.log(`🔑 NODE: Extracted code: ${extracted_code || 'None'}`);
-
-        // if (!extracted_code) {
-        //   // Cleanup uploaded files
-        //   uploadedFiles.forEach(filePath => {
-        //     try {
-        //       fs.unlinkSync(filePath);
-        //     } catch (cleanupErr) {
-        //       console.warn('⚠️  Could not delete uploaded file:', cleanupErr);
-        //     }
-        //   });
-
-        //   return res.json({
-        //     leakDetected: false,
-        //     extractedCode: null,
-        //     message: 'No steganographic code found in video',
-        //     creditsUsed: LEAK_CHECK_COST
-        //   });
-        // }
-
-        // // Step 2: Search database for matching code
-        // console.log('🔍 NODE: Searching database for matching code...');
-
-        // const [rows] = await pool.query(
-        //   `SELECT 
-        //   wc.*,
-        //   ud.username,
-        //   ud.email,
-        //   p.id as purchase_id,
-        //   p.createdAt as purchase_date
-        // FROM watermark_codes wc
-        // LEFT JOIN userData ud ON wc.user_id = ud.id
-        // LEFT JOIN purchases p ON wc.purchase_id = p.id
-        // WHERE wc.code = ?`,
-        //   [extracted_code]
-        // );
-
-        // if (rows.length === 0) {
-        //   console.log('✅ NODE: No match found in database - video is clean');
-
-        //   // Cleanup uploaded files
-        //   uploadedFiles.forEach(filePath => {
-        //     try {
-        //       fs.unlinkSync(filePath);
-        //     } catch (cleanupErr) {
-        //       console.warn('⚠️  Could not delete uploaded file:', cleanupErr);
-        //     }
-        //   });
-
-        //   return res.json({
-        //     leakDetected: false,
-        //     extractedCode: extracted_code,
-        //     message: 'Code extracted but not found in database',
-        //     creditsUsed: LEAK_CHECK_COST
-        //   });
-        // }
-
-        // // Step 3: Leak detected!
-        // const leakData = rows[0];
-        // console.log('🚨 NODE: LEAK DETECTED!');
-        // console.log(`   User: ${leakData.username} (${leakData.user_id})`);
-
-        // // Cleanup uploaded files
-        // uploadedFiles.forEach(filePath => {
-        //   try {
-        //     fs.unlinkSync(filePath);
-        //   } catch (cleanupErr) {
-        //     console.warn('⚠️  Could not delete uploaded file:', cleanupErr);
-        //   }
-        // });
-
-        // console.log('='.repeat(60) + '\n');
-
-        // return res.json({
-        //   leakDetected: true,
-        //   extractedCode: extracted_code,
-        //   leakData: {
-        //     id: leakData.id,
-        //     code: leakData.code,
-        //     user_id: leakData.user_id,
-        //     username: leakData.username,
-        //     email: leakData.email,
-        //     filename: leakData.filename,
-        //     media_type: leakData.media_type,
-        //     created_at: leakData.created_at,
-        //     purchase_id: leakData.purchase_id,
-        //     purchase_date: leakData.purchase_date,
-        //     device_fingerprint: leakData.device_fingerprint
-        //   },
-        //   message: 'Leak detected! Original owner identified.',
-        //   creditsUsed: LEAK_CHECK_COST
-        // });
-      }
 
       await knex('leaks_reports').insert({
         username: req.user?.username,
@@ -6281,65 +5093,59 @@ server.post('/api/analytics/unscramble-event', async (req, res) => {
 server.get('/download/:filename', (req, res) => {
   const filename = req.params.filename;
   // const videoDir = path.join(__dirname, 'videos');
-  const videoDir = path.join(__dirname, 'inputs');
-  // const videoDir = path.join(__dirname, 'outputs');
+  // const videoDir = path.join(__dirname, 'inputs');
+  const videoDir = path.join(__dirname, 'python/outputs');
   const filePath = path.join(videoDir, filename);
 
-  console.log('📥 Download request for video:', filename);
+  console.log('📥 Download request for media:', filename);
 
   res.download(filePath, (err) => {
     if (err) {
-      console.error('❌ Error downloading video:', err);
-      res.status(500).send('Error downloading video');
+      console.error('❌ Error downloading media:', err);
+      res.status(500).send('Error downloading media');
     } else {
-      console.log('✅ Video downloaded successfully:', filename);
+      console.log('✅ Media downloaded successfully:', filename);
     }
   });
 });
 
-// code from FRONTEND_URL
-
-//  if (!response.ok) {
-
-//         // TODO: Refund credits if applicable
-//         const response = await fetch(`${API_URL}/api/refund-credits`, {
-//           method: 'POST',
-//           // headers: {
-//           //   'Content-Type': 'application/json'
-//           // },
-
-//           body: {
-//             username: userData.username,
-//             email: userData.email,
-//             password: localStorage.getItem('passwordtxt'),
-//             cost: SCRAMBLE_COST,
-//             params: params,
-//           }
-
-//         });
-//         throw new Error(data.error || data.message || 'Scrambling failed');
-//       }
-
 // Handle refunding credits
 server.post(PROXY + '/api/refund-credits', authenticateToken, async (req, res) => {
   const { userId, credits, username, email, currentCredits } = req.body;
-  console.log('💸 Refund credits request received for user:', username, 'Credits to refund:', credits, "userId: ", userId);
+  // console.log('💸 Refund credits request received for user:', username, 'Credits to refund:', credits, "userId: ", userId);
   try {
     if (!userId || !credits) {
       return res.status(400).json({ success: false, message: 'Missing userId or credits' });
     }
 
+    // check the last transaction for the user 
+    const lastTransaction = await knex('actions')
+      .where('username', username)
+      .orderBy('date', 'desc')
+      .first();
+
+    if (!lastTransaction) {
+      return res.status(400).json({ success: false, message: 'No transactions found for user' });
+    }
+
+    // if (credits < (lastTransaction.action_cost || 0)) {
+    refundAmount = lastTransaction.action_cost || 0;
+    // console.warn(`⚠️ Attempting to refund less credits (${credits}) than the last transaction (${lastTransaction.action_cost}). Refunding only ${refundAmount} credits.`);
+    // } else {
+    // refundAmount = credits;
+    // }
+
     // Refund credits to user
     await knex('userData')
       .where('id', userId)
-      .increment('credits', credits);
+      .increment('credits', refundAmount);
 
-    console.log(`✅ Refunded ${credits} credits to user ${username} (ID: ${userId})`);
+    console.log(`✅ Refunded ${refundAmount} credits to user ${username} (ID: ${userId})`);
 
     await CreateNotification(
       'credits_refunded',
       'Credits Refunded',
-      `You have been refunded ${credits} credits.`,
+      `You have been refunded ${refundAmount} credits.`,
       'refund',
       username || 'anonymous'
     );
@@ -6351,9 +5157,9 @@ server.post(PROXY + '/api/refund-credits', authenticateToken, async (req, res) =
       email: email || 'anonymous@example.com',
       date: Date.now(),
       time: new Date().toLocaleTimeString(),
-      credits: currentCredits || credits,
+      credits: currentCredits,
       action_type: 'refunded-credits',
-      action_cost: credits || 15,
+      action_cost: refundAmount,
       action_description: 'Credits refunded due to failed operation'
     });
 
@@ -6810,7 +5616,7 @@ server.post(PROXY + '/api/payments/webhook', express.raw({ type: 'application/js
         "transactionId": transactionId,
       };
 
-      stripeBuycredits(data);
+      stripeCreditPurchases(data);
       console.log(`✅ Subscription created: ${subscription.id}`);
       break;
 
@@ -6881,7 +5687,7 @@ server.post(PROXY + '/api/subscription/webhook', express.raw({ type: 'applicatio
         "transactionId": transactionId,
       };
 
-      stripeBuycredits(data);
+      stripeCreditPurchases(data);
       console.log(`✅ Subscription created: ${subscription.id}`);
       break;
 
@@ -6941,16 +5747,23 @@ server.get('/stripe/success', async (req, res) => {
     };
 
     const PACKAGES = [
-      { credits: 2500, dollars: 2.5, label: "$2.50", color: '#4caf50', priceId: 'price_1SR9nNEViYxfJNd2pijdhiBM' },
-      { credits: 5250, dollars: 5, label: "$5.00", color: '#2196f3', priceId: 'price_1SR9lZEViYxfJNd20x2uwukQ' },
-      { credits: 11200, dollars: 10, label: "$10.00", color: '#9c27b0', popular: true, priceId: 'price_1SR9kzEViYxfJNd27aLA7kFW' },
-      { credits: 26000, dollars: 20, label: "$20.00", color: '#f57c00', priceId: 'price_1SR9mrEViYxfJNd2dD5NHFoL' },
+
+      { credits: 5000, dollars: 5, label: "$5.25", color: '#2196f3', priceId: 'price_1SR9lZEViYxfJNd20x2uwukQ' },
+      { credits: 10000, dollars: 10, label: "$9.85", color: '#9c27b0', popular: true, priceId: 'price_1SR9kzEViYxfJNd27aLA7kFW' },
+      { credits: 25000, dollars: 25, label: "$24.50", color: '#e91e63' },
+      { credits: 50000, dollars: 50, label: "$48.50", color: '#ff5722' },
+      { credits: 100000, dollars: 100, label: "$95.00", color: '#795548' },
     ];
 
     const packageData = PACKAGES.find(pkg => pkg.dollars === potentialVerifiedPayment.amount / 100);
 
     // TODO: update your DB: mark sale as paid for `myUserOrOrderId` or `username`
     // e.g. await Orders.markPaid({ userId: myUserOrOrderId, stripePaymentIntentId: paymentIntent.id });
+
+    if (!packageData) {
+      console.error(`[ERROR] No package found for amount: $${potentialVerifiedPayment.amount / 100}`);
+      return res.status(400).json({ error: 'Unrecognized payment amount — package not found' });
+    }
 
     const data = {
       username: user.username,
@@ -6973,7 +5786,7 @@ server.get('/stripe/success', async (req, res) => {
 
     }
 
-    await stripeBuycredits(data);
+    await stripeCreditPurchases(data);
 
     // For now just show something
     res.json({
@@ -7036,6 +5849,264 @@ async function getCustomerDetails(customerId) {
   }
 }
 
+async function safeInsertWalletTransaction(tx) {
+  const fallbackTypes = {
+    credit_purchase: 'purchase',
+    contribution_refund: 'bonus',
+    contributor_reward: 'bonus',
+    download_payment: 'contribution',
+    creator_earning: 'bonus',
+    creator_payout: 'admin_adjustment',
+  };
+
+  try {
+    await knex('walletTransactions').insert(tx);
+  } catch (error) {
+    const isTypeError = error?.code === 'WARN_DATA_TRUNCATED'
+      && /column 'type'/i.test(error?.sqlMessage || error?.message || '');
+    const fallbackType = fallbackTypes[tx?.type];
+
+    if (!isTypeError || !fallbackType) throw error;
+
+    console.warn(`⚠️ walletTransactions.type "${tx.type}" is not supported by the current DB schema. Falling back to "${fallbackType}".`);
+    await knex('walletTransactions').insert({ ...tx, type: fallbackType });
+  }
+}
+
+function toMySQLDateTime(value) {
+  if (!value) return null;
+  const date = typeof value === 'number' && value < 1e12
+    ? new Date(value * 1000)
+    : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString().slice(0, 19).replace('T', ' ');
+}
+
+async function ensureStripeTransactionsTable() {
+  await knex.raw(`
+    CREATE TABLE IF NOT EXISTS stripeTransactions (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      stripeObjectType VARCHAR(50) DEFAULT 'payment_intent',
+      stripeBalanceTransactionId VARCHAR(255) DEFAULT NULL,
+      stripePaymentIntentId VARCHAR(255) DEFAULT NULL,
+      stripeChargeId VARCHAR(255) DEFAULT NULL,
+      stripeCheckoutSessionId VARCHAR(255) DEFAULT NULL,
+      stripeCustomerId VARCHAR(255) DEFAULT NULL,
+      stripeInvoiceId VARCHAR(255) DEFAULT NULL,
+      stripeSubscriptionId VARCHAR(255) DEFAULT NULL,
+      stripeSourceId VARCHAR(255) DEFAULT NULL,
+      stripeSourceType VARCHAR(50) DEFAULT NULL,
+      status VARCHAR(50) NOT NULL DEFAULT 'unknown',
+      amount INT NOT NULL DEFAULT 0,
+      amountReceived INT NOT NULL DEFAULT 0,
+      fee INT NOT NULL DEFAULT 0,
+      net INT NOT NULL DEFAULT 0,
+      currency VARCHAR(10) NOT NULL DEFAULT 'USD',
+      paymentMethodTypes JSON DEFAULT NULL,
+      description TEXT,
+      receiptEmail VARCHAR(255) DEFAULT NULL,
+      customerEmail VARCHAR(255) DEFAULT NULL,
+      customerName VARCHAR(255) DEFAULT NULL,
+      livemode TINYINT(1) NOT NULL DEFAULT 0,
+      metadata JSON DEFAULT NULL,
+      rawPayload JSON DEFAULT NULL,
+      stripeCreatedAt DATETIME DEFAULT NULL,
+      availableOn DATETIME DEFAULT NULL,
+      syncedAt DATETIME DEFAULT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uq_stripe_payment_intent (stripePaymentIntentId),
+      UNIQUE KEY uq_stripe_charge (stripeChargeId),
+      UNIQUE KEY uq_stripe_balance_txn (stripeBalanceTransactionId),
+      KEY idx_stripe_customer (stripeCustomerId),
+      KEY idx_stripe_status (status),
+      KEY idx_stripe_created_at (stripeCreatedAt),
+      KEY idx_stripe_source_id (stripeSourceId),
+      KEY idx_stripe_object_type (stripeObjectType)
+    ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci
+  `);
+
+  const alterStatements = [
+    "ALTER TABLE stripeTransactions MODIFY COLUMN stripePaymentIntentId VARCHAR(255) NULL",
+    "ALTER TABLE stripeTransactions MODIFY COLUMN stripeChargeId VARCHAR(255) NULL",
+    "ALTER TABLE stripeTransactions ADD COLUMN stripeObjectType VARCHAR(50) DEFAULT 'payment_intent'",
+    "ALTER TABLE stripeTransactions ADD COLUMN stripeBalanceTransactionId VARCHAR(255) DEFAULT NULL",
+    "ALTER TABLE stripeTransactions ADD COLUMN stripeSourceId VARCHAR(255) DEFAULT NULL",
+    "ALTER TABLE stripeTransactions ADD COLUMN stripeSourceType VARCHAR(50) DEFAULT NULL",
+    "ALTER TABLE stripeTransactions ADD COLUMN fee INT NOT NULL DEFAULT 0",
+    "ALTER TABLE stripeTransactions ADD COLUMN net INT NOT NULL DEFAULT 0",
+    "ALTER TABLE stripeTransactions ADD COLUMN availableOn DATETIME DEFAULT NULL",
+    "ALTER TABLE stripeTransactions ADD UNIQUE KEY uq_stripe_balance_txn (stripeBalanceTransactionId)",
+    "ALTER TABLE stripeTransactions ADD KEY idx_stripe_source_id (stripeSourceId)",
+    "ALTER TABLE stripeTransactions ADD KEY idx_stripe_object_type (stripeObjectType)"
+  ];
+
+  for (const sql of alterStatements) {
+    try {
+      await knex.raw(sql);
+    } catch (error) {
+      const message = error?.message || String(error);
+      if (/Duplicate column name|Duplicate key name/i.test(message)) continue;
+      console.warn('Stripe table alter skipped:', message);
+    }
+  }
+
+  await knex('stripeTransactions')
+    .where('stripeObjectType', 'payment_intent')
+    .update({ stripeChargeId: null })
+    .catch(() => {});
+}
+
+function normalizeStripeTransaction(paymentIntent) {
+  const customer = paymentIntent?.customer && typeof paymentIntent.customer === 'object'
+    ? paymentIntent.customer
+    : null;
+  const charge = paymentIntent?.latest_charge && typeof paymentIntent.latest_charge === 'object'
+    ? paymentIntent.latest_charge
+    : null;
+  const billing = charge?.billing_details || {};
+  const metadata = paymentIntent?.metadata || {};
+
+  return {
+    stripeObjectType: 'payment_intent',
+    stripeBalanceTransactionId: null,
+    stripePaymentIntentId: paymentIntent.id,
+    stripeChargeId: null,
+    stripeCheckoutSessionId: metadata.checkout_session_id || metadata.checkoutSessionId || metadata.session_id || null,
+    stripeCustomerId: customer?.id || (typeof paymentIntent.customer === 'string' ? paymentIntent.customer : null),
+    stripeInvoiceId: typeof paymentIntent.invoice === 'string' ? paymentIntent.invoice : paymentIntent.invoice?.id || null,
+    stripeSubscriptionId: metadata.subscription_id || metadata.stripe_subscription_id || metadata.subscriptionId || null,
+    stripeSourceId: paymentIntent.id,
+    stripeSourceType: 'payment_intent',
+    status: paymentIntent.status || 'unknown',
+    amount: Number(paymentIntent.amount || 0),
+    amountReceived: Number(paymentIntent.amount_received || 0),
+    fee: 0,
+    net: Number(paymentIntent.amount_received || paymentIntent.amount || 0),
+    currency: String(paymentIntent.currency || 'USD').toUpperCase(),
+    paymentMethodTypes: JSON.stringify(paymentIntent.payment_method_types || []),
+    description: paymentIntent.description || null,
+    receiptEmail: paymentIntent.receipt_email || null,
+    customerEmail: customer?.email || billing.email || null,
+    customerName: customer?.name || billing.name || null,
+    livemode: paymentIntent.livemode ? 1 : 0,
+    metadata: JSON.stringify(metadata),
+    rawPayload: JSON.stringify(paymentIntent),
+    stripeCreatedAt: toMySQLDateTime(paymentIntent.created),
+    availableOn: null,
+    syncedAt: toMySQLDateTime(Date.now()),
+  };
+}
+
+function normalizeStripeBalanceTransaction(balanceTx) {
+  const source = balanceTx?.source && typeof balanceTx.source === 'object'
+    ? balanceTx.source
+    : null;
+  const billing = source?.billing_details || {};
+  const sourceMetadata = source?.metadata || {};
+
+  return {
+    stripeObjectType: 'balance_transaction',
+    stripeBalanceTransactionId: balanceTx.id,
+    stripePaymentIntentId: null,
+    stripeChargeId: source?.object === 'charge' ? source.id : null,
+    stripeCheckoutSessionId: sourceMetadata.checkout_session_id || sourceMetadata.checkoutSessionId || sourceMetadata.session_id || null,
+    stripeCustomerId: source?.customer || null,
+    stripeInvoiceId: source?.invoice || null,
+    stripeSubscriptionId: sourceMetadata.subscription_id || sourceMetadata.stripe_subscription_id || sourceMetadata.subscriptionId || source?.subscription || null,
+    stripeSourceId: typeof balanceTx.source === 'string' ? balanceTx.source : source?.id || null,
+    stripeSourceType: source?.object || balanceTx.type || null,
+    status: source?.status || balanceTx.type || 'unknown',
+    amount: Number(balanceTx.amount || 0),
+    amountReceived: Number(balanceTx.amount || 0),
+    fee: Number(balanceTx.fee || 0),
+    net: Number(balanceTx.net || 0),
+    currency: String(balanceTx.currency || 'USD').toUpperCase(),
+    paymentMethodTypes: JSON.stringify(source?.payment_method_details?.type ? [source.payment_method_details.type] : []),
+    description: source?.description || balanceTx.description || null,
+    receiptEmail: source?.receipt_email || null,
+    customerEmail: billing.email || source?.customer_details?.email || null,
+    customerName: billing.name || source?.customer_details?.name || null,
+    livemode: balanceTx.livemode ? 1 : 0,
+    metadata: JSON.stringify(sourceMetadata),
+    rawPayload: JSON.stringify(balanceTx),
+    stripeCreatedAt: toMySQLDateTime(balanceTx.created),
+    availableOn: toMySQLDateTime(balanceTx.available_on),
+    syncedAt: toMySQLDateTime(Date.now()),
+  };
+}
+
+async function upsertStripeTransactionRecord(record) {
+  await knex.raw(
+    `INSERT INTO stripeTransactions (
+      stripeObjectType, stripeBalanceTransactionId, stripePaymentIntentId, stripeChargeId,
+      stripeCheckoutSessionId, stripeCustomerId, stripeInvoiceId, stripeSubscriptionId,
+      stripeSourceId, stripeSourceType, status, amount, amountReceived, fee, net, currency,
+      paymentMethodTypes, description, receiptEmail, customerEmail, customerName,
+      livemode, metadata, rawPayload, stripeCreatedAt, availableOn, syncedAt
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON DUPLICATE KEY UPDATE
+      stripeObjectType = VALUES(stripeObjectType),
+      stripeChargeId = VALUES(stripeChargeId),
+      stripeCheckoutSessionId = VALUES(stripeCheckoutSessionId),
+      stripeCustomerId = VALUES(stripeCustomerId),
+      stripeInvoiceId = VALUES(stripeInvoiceId),
+      stripeSubscriptionId = VALUES(stripeSubscriptionId),
+      stripeSourceId = VALUES(stripeSourceId),
+      stripeSourceType = VALUES(stripeSourceType),
+      status = CASE
+        WHEN stripeTransactions.status IN ('pending', 'processing', 'canceled') THEN stripeTransactions.status
+        ELSE VALUES(status)
+      END,
+      amount = VALUES(amount),
+      amountReceived = VALUES(amountReceived),
+      fee = VALUES(fee),
+      net = VALUES(net),
+      currency = VALUES(currency),
+      paymentMethodTypes = VALUES(paymentMethodTypes),
+      description = VALUES(description),
+      receiptEmail = VALUES(receiptEmail),
+      customerEmail = VALUES(customerEmail),
+      customerName = VALUES(customerName),
+      livemode = VALUES(livemode),
+      metadata = VALUES(metadata),
+      rawPayload = VALUES(rawPayload),
+      stripeCreatedAt = VALUES(stripeCreatedAt),
+      availableOn = VALUES(availableOn),
+      syncedAt = VALUES(syncedAt),
+      updated_at = CURRENT_TIMESTAMP`,
+    [
+      record.stripeObjectType,
+      record.stripeBalanceTransactionId,
+      record.stripePaymentIntentId,
+      record.stripeChargeId,
+      record.stripeCheckoutSessionId,
+      record.stripeCustomerId,
+      record.stripeInvoiceId,
+      record.stripeSubscriptionId,
+      record.stripeSourceId,
+      record.stripeSourceType,
+      record.status,
+      record.amount,
+      record.amountReceived,
+      record.fee,
+      record.net,
+      record.currency,
+      record.paymentMethodTypes,
+      record.description,
+      record.receiptEmail,
+      record.customerEmail,
+      record.customerName,
+      record.livemode,
+      record.metadata,
+      record.rawPayload,
+      record.stripeCreatedAt,
+      record.availableOn,
+      record.syncedAt,
+    ]
+  );
+}
+
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 /**
@@ -7043,7 +6114,10 @@ const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
  */
 async function getRecentPayments(limit = 10, includeCustomerDetails = true) {
   try {
-    const paymentIntents = await stripe.paymentIntents.list({ limit });
+    const paymentIntents = await stripe.paymentIntents.list({
+      limit,
+      expand: ['data.customer', 'data.latest_charge']
+    });
     const results = [];
 
     for (const pi of paymentIntents.data) {
@@ -7054,17 +6128,22 @@ async function getRecentPayments(limit = 10, includeCustomerDetails = true) {
         currency: pi.currency,
         description: pi.description,
         created: pi.created,
-        customer_id: pi.customer,
-        metadata: pi.metadata  // Payment metadata (custom fields from checkout)
+        customer_id: typeof pi.customer === 'string' ? pi.customer : pi.customer?.id || null,
+        metadata: pi.metadata
       };
 
-      // Fetch customer details if requested and customer ID exists
       if (includeCustomerDetails && pi.customer) {
-        const customerDetails = await getCustomerDetails(pi.customer);
-        if (customerDetails) {
-          paymentData.customer = customerDetails;
+        if (typeof pi.customer === 'object') {
+          paymentData.customer = {
+            id: pi.customer.id,
+            email: pi.customer.email,
+            name: pi.customer.name,
+            phone: pi.customer.phone,
+            metadata: pi.customer.metadata || {}
+          };
         } else {
-          paymentData.customer = null;
+          const customerDetails = await getCustomerDetails(pi.customer);
+          paymentData.customer = customerDetails || null;
         }
       }
 
@@ -7072,8 +6151,6 @@ async function getRecentPayments(limit = 10, includeCustomerDetails = true) {
     }
 
     console.log(`[DEBUG] Fetched ${results.length} payment intents`);
-    // console.log(results);
-    // console.log('='.repeat(60));
     return { success: true, count: results.length, payments: results };
   } catch (error) {
     const errorMessage = error.message || String(error);
@@ -7082,179 +6159,449 @@ async function getRecentPayments(limit = 10, includeCustomerDetails = true) {
   }
 }
 
+async function getRecentCheckoutSessions({ limit = 50, timeRangeStart, timeRangeEnd } = {}) {
+  const params = {
+    limit: Math.min(Math.max(parseInt(limit, 10) || 50, 1), 100),
+    expand: ['data.payment_intent', 'data.payment_intent.latest_charge']
+  };
+
+  const created = {};
+  if (Number.isFinite(timeRangeStart)) created.gte = Math.floor(timeRangeStart / 1000);
+  if (Number.isFinite(timeRangeEnd)) created.lte = Math.floor(timeRangeEnd / 1000);
+  if (Object.keys(created).length > 0) params.created = created;
+
+  return stripe.checkout.sessions.list(params);
+}
+
+async function syncStripeTransactionsCron(limit = 100) {
+  if (!process.env.STRIPE_SECRET_KEY) {
+    console.warn('⚠️ STRIPE_SECRET_KEY is missing. Stripe transaction sync skipped.');
+    return { success: false, skipped: true, reason: 'missing_secret_key' };
+  }
+
+  await ensureStripeTransactionsTable();
+
+  const safeLimit = Math.min(Math.max(parseInt(limit, 10) || 100, 1), 100);
+  const lookbackHours = parseInt(process.env.STRIPE_SYNC_HOURS || '8760', 10); // default: 1 year
+  const baseParams = {
+    limit: safeLimit,
+    expand: ['data.customer', 'data.latest_charge']
+  };
+
+  if (Number.isFinite(lookbackHours) && lookbackHours > 0) {
+    const createdSinceUnix = Math.floor(Date.now() / 1000) - (lookbackHours * 60 * 60);
+    baseParams.created = { gte: createdSinceUnix };
+  }
+
+  let paymentIntents = await stripe.paymentIntents.list(baseParams);
+
+  if ((!paymentIntents?.data || paymentIntents.data.length === 0) && baseParams.created) {
+    console.warn(`⚠️ Stripe sync found no payment intents in the last ${lookbackHours} hours. Falling back to the latest ${safeLimit} payment intents.`);
+    const fallbackParams = { ...baseParams };
+    delete fallbackParams.created;
+    paymentIntents = await stripe.paymentIntents.list(fallbackParams);
+  }
+
+  const balanceTransactions = await stripe.balanceTransactions.list({
+    limit: safeLimit,
+    expand: ['data.source']
+  });
+
+  let inserted = 0;
+  let updated = 0;
+
+  for (const pi of paymentIntents.data || []) {
+    const [existing] = await knex('stripeTransactions')
+      .where('stripePaymentIntentId', pi.id)
+      .select('id')
+      .limit(1);
+
+    const record = normalizeStripeTransaction(pi);
+    await upsertStripeTransactionRecord(record);
+
+    if (existing) updated += 1;
+    else inserted += 1;
+  }
+
+  for (const tx of balanceTransactions.data || []) {
+    const [existing] = await knex('stripeTransactions')
+      .where('stripeBalanceTransactionId', tx.id)
+      .select('id')
+      .limit(1);
+
+    const record = normalizeStripeBalanceTransaction(tx);
+    await upsertStripeTransactionRecord(record);
+
+    if (existing) updated += 1;
+    else inserted += 1;
+  }
+
+  console.log(`💳 Stripe sync complete: ${inserted} inserted, ${updated} updated, ${(paymentIntents.data || []).length} payment intents scanned, ${(balanceTransactions.data || []).length} balance transactions scanned.`);
+  return {
+    success: true,
+    inserted,
+    updated,
+    paymentIntentsScanned: (paymentIntents.data || []).length,
+    balanceTransactionsScanned: (balanceTransactions.data || []).length,
+    scanned: (paymentIntents.data || []).length + (balanceTransactions.data || []).length,
+  };
+}
+
+cron.schedule('*/30 * * * *', async () => {
+  try {
+    await syncStripeTransactionsCron(100);
+  } catch (err) {
+    console.error('Stripe transaction cron error:', err.message || err);
+  }
+});
+
+const STRIPE_AUTO_APPROVE_MIN_MATCH_SCORE = parseInt(process.env.STRIPE_AUTO_APPROVE_MIN_MATCH_SCORE || '2', 10);
+const STRIPE_MANUAL_REVIEW_MAX_PER_DAY = parseInt(process.env.STRIPE_MANUAL_REVIEW_MAX_PER_DAY || '3', 10);
+const STRIPE_MANUAL_REVIEW_MAX_PER_HOUR = parseInt(process.env.STRIPE_MANUAL_REVIEW_MAX_PER_HOUR || '1', 10);
+
+function toCount(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+async function enforceStripeManualReviewRateLimit(userId) {
+  if (!userId) return;
+
+  const base = knex('CreditPurchases')
+    .where('userId', userId)
+    .where('paymentMethod', 'stripe')
+    .whereIn('status', ['processing', 'pending']);
+
+  const [hourlyRow] = await base.clone()
+    .where('created_at', '>=', knex.raw('DATE_SUB(NOW(), INTERVAL 1 HOUR)'))
+    .count({ count: 'id' });
+
+  const [dailyRow] = await base.clone()
+    .where('created_at', '>=', knex.raw('DATE_SUB(NOW(), INTERVAL 1 DAY)'))
+    .count({ count: 'id' });
+
+  const hourlyCount = toCount(hourlyRow?.count);
+  const dailyCount = toCount(dailyRow?.count);
+
+  if (hourlyCount >= STRIPE_MANUAL_REVIEW_MAX_PER_HOUR) {
+    const err = new Error('Manual review request limit reached. You can submit only 1 manual-review Stripe request per hour.');
+    err.httpStatus = 429;
+    throw err;
+  }
+
+  if (dailyCount >= STRIPE_MANUAL_REVIEW_MAX_PER_DAY) {
+    const err = new Error('Manual review request limit reached. You can submit up to 3 manual-review Stripe requests per day.');
+    err.httpStatus = 429;
+    throw err;
+  }
+}
+
 // Sent from the client: timeRange, user, packageData from buy Credits page
 server.post(PROXY + '/api/verify-stripe-payment', async (req, res) => {
 
-  const { timeRange, user, packageData } = req.body;
+  const { timeRange, user, packageData, checkoutSessionId } = req.body;
 
-  const paymentData = {
-    timeRange,
-    package: packageData,
-    user
-  };
+  if (!user || (!checkoutSessionId && (!packageData || !timeRange))) {
+    return res.status(400).json({
+      error: 'Missing required fields: user is required, and either checkoutSessionId or packageData + timeRange must be provided',
+      status: 'invalid_input'
+    });
+  }
 
-  try {
-    // post to a local flask server for verification
-    // const flaskResponse = await axios.post('http://0.0.0.0:5005/verify-payment-data', paymentData, async (req, res) => {
-    //   return paymentData;
-    // }, {
-    //   headers: { 'Content-Type': 'application/json' },
-    //   timeout: 30000
-    // });
+  // fetchRecentStripePayments(20, true).then(result => {
 
-    const { package: pkg, timeRange, user } = paymentData;
+  let pkg = null;
+  if (packageData) {
+    const parsedAmount = Math.round(Number(packageData.amount || 0));
+    const parsedDollars = Number(packageData.dollars || 0);
+    const parsedCredits = Math.floor(Number(packageData.credits || 0));
 
-    if (!pkg || !timeRange || !user) {
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0 || !Number.isFinite(parsedDollars) || parsedDollars <= 0 || !Number.isFinite(parsedCredits) || parsedCredits <= 0) {
       return res.status(400).json({
-        error: 'Missing required fields: package, timeRange, and user are required',
+        error: 'Invalid packageData payload. amount, dollars, and credits are required.',
         status: 'invalid_input'
       });
     }
 
-    console.log(`[INFO] Verifying payment data for package: ${JSON.stringify(pkg)}, timeRange: ${JSON.stringify(timeRange)}, user: ${JSON.stringify(user)}`);
+    pkg = {
+      amount: parsedAmount,
+      dollars: parsedDollars,
+      credits: parsedCredits,
+    };
+  }
+  const timeOffsetMs = 3 * 60 * 1000; // 3 minutes buffer on either side
+  const timeRangeStart = timeRange?.start ? (timeRange.start - timeOffsetMs) : null;   // unix ms
+  const timeRangeEnd   = timeRange?.end ? (timeRange.end + timeOffsetMs) : null;     // unix ms
+  const userReferenceId = String(user.id || '').trim();
 
-    const timeRangeStart = timeRange.start;
-    const timeRangeEnd = timeRange.end;
+  if (!userReferenceId) {
+    return res.status(400).json({
+      error: 'User id is required for Stripe client_reference_id verification.',
+      status: 'invalid_input'
+    });
+  }
 
+  console.log(`[INFO] verify-stripe-payment: pkg=${JSON.stringify(pkg)}, timeRange=${JSON.stringify(timeRange)}, userRef=${userReferenceId}`);
 
+  try {
+    // ── Step 1: Verify through Checkout Session (client_reference_id) ──
+    let matchedCheckoutSession = null;
 
-    // Fetch recent payments to search through
-    const details = await getRecentPayments(20, true);
-
-    // console.log("Recent payments fetched:", details.payments);
-
-    if (details.error) {
-      console.error('[ERROR] Could not fetch recent payments:', details.error);
-      const statusCode = details.status === 'server_error' ? 500 : 404;
-      return res.status(statusCode).json(details);
-    }
-
-
-
-    let possiblePaymentFound = false;
-    const possibleMatchingPayments = [];
-
-    console.log(`[INFO] Searching through ${details.payments.length} recent payments for matches.`);
-
-    // Verify creation time and amount
-    for (const payment of details.payments || []) {
-      const created = payment.created * 1000; // convert to ms
-
-      console.log(`[DEBUG] Checking payment ${payment.id}: created=${created}, amount=${payment.amount}`);
-
-      // Check time range
-      if (timeRangeStart && created < timeRangeStart) {
-        continue;
-      }
-      if (timeRangeEnd && created > timeRangeEnd) {
-        continue;
-      }
-
-      // Check payment amount
-      if (payment.amount !== pkg.amount) {
-        continue;
-      }
-
-      console.log(`[DEBUG] Possible matching payment found: ${payment.id}`);
-
-      possiblePaymentFound = true;
-      possibleMatchingPayments.push(payment);
-    }
-
-
-    console.log(' Is there a possibleMatchingPayment?: ', possiblePaymentFound);
-    if (!possiblePaymentFound) {
-      console.log('[INFO] No possible matching payments found in the specified time range.');
-      return res.status(404).json({
-        error: 'No PaymentIntent found in the specified time range',
-        status: 'not_found'
+    if (checkoutSessionId) {
+      const directSession = await stripe.checkout.sessions.retrieve(checkoutSessionId, {
+        expand: ['payment_intent', 'payment_intent.latest_charge']
       });
+
+      const directRef = String(directSession.client_reference_id || directSession.metadata?.userId || '').trim();
+      if (directRef !== userReferenceId) {
+        return res.status(403).json({
+          error: 'Checkout session does not belong to the authenticated account.',
+          status: 'forbidden'
+        });
+      }
+
+      if (!pkg && Number.isFinite(Number(directSession.amount_total))) {
+        pkg = {
+          amount: Number(directSession.amount_total),
+          dollars: Number(directSession.amount_total || 0) / 100,
+          credits: Math.floor((Number(directSession.amount_total || 0) / 100) * 1000),
+        };
+      }
+
+      matchedCheckoutSession = directSession;
+    }
+
+    if (!matchedCheckoutSession) {
+      const recentSessions = await getRecentCheckoutSessions({
+        limit: 100,
+        timeRangeStart,
+        timeRangeEnd,
+      });
+
+      let bestSession = null;
+      let bestSessionScore = -1;
+
+      for (const session of recentSessions.data || []) {
+        const refId = String(session.client_reference_id || session.metadata?.userId || '').trim();
+        if (!refId || refId !== userReferenceId) continue;
+        if (session.mode !== 'payment') continue;
+
+        const amountMatches = pkg ? Number(session.amount_total || 0) === Number(pkg.amount || 0) : true;
+        if (!amountMatches) continue;
+
+        const score =
+          (session.payment_status === 'paid' ? 4 : 0) +
+          (session.status === 'complete' ? 2 : 0) +
+          (session.payment_intent ? 2 : 0);
+
+        if (score > bestSessionScore) {
+          bestSessionScore = score;
+          bestSession = session;
+        }
+      }
+
+      matchedCheckoutSession = bestSession;
     }
 
     let potentialVerifiedPayment = null;
+    let matchSource = 'checkout_session_client_reference_id';
 
-    // If multiple possible payments found, verify customer details
-    if (possibleMatchingPayments.length > 1) {
-      for (const payment of possibleMatchingPayments) {
-        const customerData = payment.customer || {};
-        const email = customerData.email || '';
-        const name = customerData.name || '';
-        const phone = customerData.phone || '';
+    if (matchedCheckoutSession) {
+      const paymentIntentObj = matchedCheckoutSession.payment_intent && typeof matchedCheckoutSession.payment_intent === 'object'
+        ? matchedCheckoutSession.payment_intent
+        : null;
+      const paymentIntentId = paymentIntentObj?.id || (typeof matchedCheckoutSession.payment_intent === 'string' ? matchedCheckoutSession.payment_intent : null);
+      const resolvedPi = paymentIntentObj || (paymentIntentId ? await stripe.paymentIntents.retrieve(paymentIntentId, { expand: ['latest_charge'] }) : null);
 
-        if (email !== user.email) {
-          continue;
-        }
-        if (name !== user.name) {
-          continue;
-        }
-        if (phone !== user.phone) {
-          continue;
-        }
-
-        potentialVerifiedPayment = payment;
-        break;
+      if (!resolvedPi) {
+        return res.status(404).json({
+          error: 'Checkout session found but no linked payment intent was available yet.',
+          status: 'not_found',
+        });
       }
-    } else {
-      potentialVerifiedPayment = possibleMatchingPayments[0];
+
+      const resolvedCharge = resolvedPi.latest_charge && typeof resolvedPi.latest_charge === 'object' ? resolvedPi.latest_charge : null;
+
+      potentialVerifiedPayment = {
+        id: resolvedPi.id,
+        stripeChargeId: resolvedCharge?.id || null,
+        status: resolvedPi.status || (matchedCheckoutSession.payment_status === 'paid' ? 'succeeded' : 'processing'),
+        amount: Number(resolvedPi.amount || matchedCheckoutSession.amount_total || 0),
+        currency: String(resolvedPi.currency || matchedCheckoutSession.currency || 'USD').toUpperCase(),
+        created: resolvedPi.created,
+        customer: {
+          email: matchedCheckoutSession.customer_details?.email || matchedCheckoutSession.customer_email || '',
+          name: matchedCheckoutSession.customer_details?.name || '',
+          phone: matchedCheckoutSession.customer_details?.phone || '',
+        },
+        _matchScore: 5,
+        _matchSource: matchSource,
+        stripeCheckoutSessionId: matchedCheckoutSession.id,
+      };
+
+      if (!pkg && Number.isFinite(Number(potentialVerifiedPayment.amount))) {
+        pkg = {
+          amount: Number(potentialVerifiedPayment.amount),
+          dollars: Number(potentialVerifiedPayment.amount || 0) / 100,
+          credits: Math.floor((Number(potentialVerifiedPayment.amount || 0) / 100) * 1000),
+        };
+      }
+    }
+
+    // No Checkout Session match means no auto-verifiable payment candidate.
+    if (!potentialVerifiedPayment) {
+      matchSource = 'checkout_session_client_reference_id';
     }
 
     if (!potentialVerifiedPayment) {
-      return res.status(404).json({
-        error: 'No matching PaymentIntent found after verification',
-        status: 'not_found'
-      });
-    }
+      if (!pkg) {
+        return res.status(400).json({
+          error: 'Unable to determine purchase package for manual review.',
+          status: 'invalid_input'
+        });
+      }
 
-    console.log(`[INFO] Verified PaymentIntent: ${potentialVerifiedPayment.id}`);
+      await enforceStripeManualReviewRateLimit(user.id);
 
-    const PACKAGES = [
-      { credits: 2500, dollars: 2.5, label: "$2.50", color: '#4caf50', priceId: 'price_1SR9nNEViYxfJNd2pijdhiBM' },
-      { credits: 5250, dollars: 5, label: "$5.00", color: '#2196f3', priceId: 'price_1SR9lZEViYxfJNd20x2uwukQ' },
-      { credits: 11200, dollars: 10, label: "$10.00", color: '#9c27b0', popular: true, priceId: 'price_1SR9kzEViYxfJNd27aLA7kFW' },
-      { credits: 26000, dollars: 20, label: "$20.00", color: '#f57c00', priceId: 'price_1SR9mrEViYxfJNd2dD5NHFoL' },
-    ];
-
-    const packageData = PACKAGES.find(pkg => pkg.dollars === potentialVerifiedPayment.amount / 100);
-
-
-    if (potentialVerifiedPayment.status == 'succeeded') {
-      // Log the purchase in the database
-      const data = {
+      const pendingResult = await stripeCreditPurchases({
         username: user.username,
         userId: user.id,
         name: user.name,
         email: user.email,
-        walletAddress: "Stripe",
-        transactionId: potentialVerifiedPayment.id,
+        walletAddress: 'Stripe',
+        transactionId: null,
+        stripePaymentIntentId: null,
+        stripeChargeId: null,
         blockExplorerLink: 'Stripe Payment',
         currency: 'USD',
-        amount: potentialVerifiedPayment.amount,
-        cryptoAmount: packageData.dollars,
+        amount: pkg.amount,
+        cryptoAmount: pkg.dollars,
         rate: null,
-        session_id: user.id, // this is a useless metric here but i am keep it for reference and to maintain similar data structure
+        session_id: user.id,
         orderLoggingEnabled: false,
         userAgent: user.userAgent,
         ip: user.ip,
-        dollars: packageData.dollars,
-        credits: packageData.credits
+        dollars: pkg.dollars,
+        credits: pkg.credits,
+        status: 'processing',
+        shouldCredit: false,
+        manualReviewReason: 'no_auto_match',
+      });
 
-      }
-
-      await stripeBuycredits(data);
+      console.log('[INFO] No payment matched time window + amount. Queued for manual review.');
+      return res.status(202).json({
+        success: true,
+        status: 'pending',
+        pending: true,
+        autoApproved: false,
+        purchaseId: pendingResult?.purchaseId || null,
+        matchSource,
+        message: 'This payment could not be auto-verified and has been submitted for manual review. Credits will be applied once approved.',
+      });
     }
 
-    console.log('Payment verification completed successfully.');
+    // ── Step 3: Package lookup ─────────────────────────────────────────────
+    const PACKAGES = [
+      { credits: 5000,   dollars: 5.25,   label: '$5.00',   color: '#2196f3', priceId: 'price_1SR9lZEViYxfJNd20x2uwukQ' },
+      { credits: 10000,  dollars: 9.85,  label: '$10.00',  color: '#9c27b0', popular: true, priceId: 'price_1SR9kzEViYxfJNd27aLA7kFW' },
+      // { credits: 20000,  dollars: 20,  label: '$20.00',  color: '#f57c00', priceId: 'price_1SR9mrEViYxfJNd2dD5NHFoL' },
+      { credits: 25000,  dollars: 24.50,  label: '$25.00',  color: '#e91e63' },
+      { credits: 50000,  dollars: 48.50,  label: '$50.00',  color: '#ff5722' },
+      { credits: 100000, dollars: 95, label: '$100.00', color: '#795548' },
+    ];
 
+    const matchedPackage = PACKAGES.find(p => Math.round(p.dollars) === Math.round(potentialVerifiedPayment.amount / 100)); //round to nearest dollar to avoid minor discrepancies (e.g. $9.85 stored as 985 but package = 1000).
+
+    if (!matchedPackage) {
+      console.error(`[ERROR] No package for amount $${Math.round(potentialVerifiedPayment.amount / 100)}`);
+      return res.status(400).json({ error: 'Unrecognized payment amount — package not found', status: 'invalid_amount' });
+    }
+
+    const autoApproved = potentialVerifiedPayment.status === 'succeeded'
+      && Number(potentialVerifiedPayment._matchScore || 0) >= STRIPE_AUTO_APPROVE_MIN_MATCH_SCORE;
+
+    const purchaseData = {
+      username:          user.username,
+      userId:            user.id,
+      name:              user.name,
+      email:             user.email,
+      walletAddress:     'Stripe',
+      transactionId:     potentialVerifiedPayment.id,
+      stripePaymentIntentId: potentialVerifiedPayment.id,
+      stripeChargeId: potentialVerifiedPayment.stripeChargeId || null,
+      stripeCheckoutSessionId: potentialVerifiedPayment.stripeCheckoutSessionId || null,
+      blockExplorerLink: 'Stripe Payment',
+      currency:          'USD',
+      amount:            potentialVerifiedPayment.amount,
+      cryptoAmount:      matchedPackage.dollars,
+      rate:              null,
+      session_id:        user.id,
+      orderLoggingEnabled: false,
+      userAgent:         user.userAgent,
+      ip:                user.ip,
+      dollars:           matchedPackage.dollars,
+      credits:           matchedPackage.credits,
+      status: autoApproved ? 'completed' : 'processing',
+      shouldCredit: autoApproved,
+      manualReviewReason: autoApproved ? null : `score_${Number(potentialVerifiedPayment._matchScore || 0)}_status_${potentialVerifiedPayment.status}`,
+    };
+
+    if (!autoApproved) {
+      const [existingPending] = await knex('CreditPurchases')
+        .where('paymentMethod', 'stripe')
+        .where('stripePaymentIntentId', potentialVerifiedPayment.id)
+        .whereIn('status', ['processing', 'pending'])
+        .select('id')
+        .limit(1);
+
+      if (existingPending) {
+        return res.status(202).json({
+          success: true,
+          status: 'pending',
+          pending: true,
+          autoApproved: false,
+          purchaseId: existingPending.id,
+          paymentIntentId: potentialVerifiedPayment.id,
+          message: 'This payment could not be auto-verified and is already pending manual review.',
+        });
+      }
+
+      await enforceStripeManualReviewRateLimit(user.id);
+
+      await knex('stripeTransactions')
+        .where('stripePaymentIntentId', potentialVerifiedPayment.id)
+        .update({ status: 'pending', syncedAt: knex.fn.now() })
+        .catch(() => {});
+
+      await stripeCreditPurchases(purchaseData);
+
+      console.log(`[INFO] Stripe payment queued for manual review. pi=${potentialVerifiedPayment.id}, score=${potentialVerifiedPayment._matchScore}`);
+      return res.status(202).json({
+        success: true,
+        status: 'pending',
+        pending: true,
+        autoApproved: false,
+        paymentIntentId: potentialVerifiedPayment.id,
+        matchSource: potentialVerifiedPayment._matchSource,
+        matchScore: potentialVerifiedPayment._matchScore,
+        message: 'This payment could not be auto-verified and has been submitted for manual review. Credits will be applied once approved.',
+      });
+    }
+
+    await stripeCreditPurchases(purchaseData);
+
+    console.log(`[INFO] Payment verification complete. status=${potentialVerifiedPayment.status}, source=${potentialVerifiedPayment._matchSource}, score=${potentialVerifiedPayment._matchScore}`);
     return res.json(potentialVerifiedPayment);
 
   } catch (error) {
     console.error('Payment verification error:', error.message);
-    res.status(500).json({ error: 'Payment verification failed' });
+    const statusCode = Number(error?.httpStatus) || 500;
+    res.status(statusCode).json({ error: error.message || 'Payment verification failed', status: statusCode === 429 ? 'rate_limited' : 'server_error' });
   }
 });
 
 // async function fetchEth({
-async function stripeBuycredits(data) {
+async function stripeCreditPurchases(data) {
 
   try {
     const {
@@ -7266,7 +6613,7 @@ async function stripeBuycredits(data) {
       transactionId,
       blockExplorerLink,
       currency,
-      amount,
+      // amount,
       cryptoAmount,
       rate,
       session_id,
@@ -7274,8 +6621,16 @@ async function stripeBuycredits(data) {
       userAgent,
       ip,
       dollars,
-      credits
+      credits,
+      stripePaymentIntentId,
+      stripeChargeId,
+      stripeCheckoutSessionId,
+      status = 'completed',
+      shouldCredit = true,
+      manualReviewReason = null,
     } = data;
+
+    const amount = Math.round((data.amount || 0)/ 100)*100; // Store amount in cents to avoid floating point issues. round to nearest 100 cents to tolerate small promotional discounts (e.g. $9.85 stored as 985 but package = 1000).
 
     console.log('💰 Logging Stripe purchase for user:', username);
 
@@ -7283,13 +6638,20 @@ async function stripeBuycredits(data) {
     // console.log("data: ", data)
 
 
-    // check for duplicate transactionId
-    if (transactionId) {
-      const existing = await knex('buyCredits')
-        .where('transactionId', transactionId);
-      if (existing.length > 0) {
-        console.log('⚠️  Duplicate transaction ID detected:', transactionId);
-        return ({ error: 'Duplicate transaction ID' });
+    // check for duplicate transaction / payment intent
+    if (transactionId || stripePaymentIntentId) {
+      let existingQuery = knex('CreditPurchases').select('id', 'status').where('paymentMethod', 'stripe');
+
+      if (stripePaymentIntentId) {
+        existingQuery = existingQuery.where('stripePaymentIntentId', stripePaymentIntentId);
+      } else if (transactionId) {
+        existingQuery = existingQuery.where('transactionHash', transactionId);
+      }
+
+      const existing = await existingQuery.first();
+      if (existing) {
+        console.log('⚠️ Duplicate Stripe purchase detected:', stripePaymentIntentId || transactionId);
+        return ({ success: true, duplicate: true, purchaseId: existing.id, status: existing.status });
       }
     }
 
@@ -7300,31 +6662,48 @@ async function stripeBuycredits(data) {
       console.log('✅ Logging purchase for user:', username);
 
       const PACKAGES = [
-        { credits: 2500, dollars: 2.5, label: "$2.50 Package", color: '#4caf50', priceId: 'price_1SR9nNEViYxfJNd2pijdhiBM' },
-        { credits: 5250, dollars: 5, label: "$5.00 Package", color: '#2196f3', priceId: 'price_1SR9lZEViYxfJNd20x2uwukQ' },
-        { credits: 11200, dollars: 10, label: "$10.00 Package", color: '#9c27b0', popular: true, priceId: 'price_1SR9kzEViYxfJNd27aLA7kFW' },
-        { credits: 26000, dollars: 20, label: "$20.00 Package", color: '#f57c00', priceId: 'price_1SR9mrEViYxfJNd2dD5NHFoL' },
+        // { credits: 2500, dollars: 2.5, label: "$2.50 Package", color: '#4caf50', priceId: 'price_1SR9nNEViYxfJNd2pijdhiBM' },
+        { credits: 5000, dollars: 5.25, label: "$5.00 Package", color: '#2196f3', priceId: 'price_1SR9lZEViYxfJNd20x2uwukQ' },
+        { credits: 10000, dollars: 9.85, label: "$10.00 Package", color: '#9c27b0', popular: true, priceId: 'price_1SR9kzEViYxfJNd27aLA7kFW' },
+        // { credits: 20000, dollars: 20, label: "$20.00 Package", color: '#f57c00', priceId: 'price_1SR9mrEViYxfJNd2dD5NHFoL' },
+        { credits: 25000, dollars: 24.50, label: "$25.00 Package", color: '#e91e63' },
+        { credits: 50000, dollars: 48.50, label: "$50.00 Package", color: '#ff5722' },
+        { credits: 100000, dollars: 95, label: "$100.00 Package", color: '#795548' },
       ];
 
-      const packageData = PACKAGES.find(pkg => pkg.dollars === amount / 100);
+      const packageData = PACKAGES.find(pkg => Math.round(pkg.dollars) === Math.round(amount / 100)); //round to nearest dollar to avoid minor discrepancies (e.g. $9.85 stored as 985 but package = 1000).
 
-      const [purchaseId] = await knex('buyCredits').insert({
+      if (!packageData) {
+        console.error(`[ERROR] stripeCreditPurchases: No package matched amount $${amount / 100}`);
+        return { error: 'Unrecognized payment amount — package not found' };
+      }
+
+      const validPackageEnums = new Set(['5000', '10000', '25000', '50000', '100000']);
+      const packageEnumValue = String(packageData.credits);
+      const packageColumnValue = validPackageEnums.has(packageEnumValue) ? packageEnumValue : 'custom';
+
+      const [purchaseId] = await knex('CreditPurchases').insert({
         username,
+        userId,
         id: Math.random().toString(36).substring(2, 10),
         name,
         email,
         walletAddress,
         transactionHash: transactionId,
+        stripePaymentIntentId: stripePaymentIntentId || transactionId,
+        stripeChargeId: stripeChargeId || null,
+        stripeCheckoutSessionId: stripeCheckoutSessionId || null,
         blockExplorerLink: "www.stripe.com",
         currency,
         amount,
         cryptoAmount,
-        package: packageData.label,
+        package: packageColumnValue,
+        status,
         rate,
         date: Date.now(),
         time: new Date().toISOString(),
         session_id,
-        orderLoggingEnabled,
+        // orderLoggingEnabled,
         userAgent,
         ip,
         credits: packageData.credits,
@@ -7332,22 +6711,57 @@ async function stripeBuycredits(data) {
       });
       const purchases = { insertId: purchaseId };
 
-      await CreateNotification(
-        'credits_purchased',
-        'Credits Purchased',
-        `You have purchased ${amount} credits for $${dollars}.`,
-        'purchase',
-        username || 'anonymous'
-      );
-
       // Update user credits
-      if (amount !== undefined && amount !== null && amount > 0) {
+      if (shouldCredit && amount !== undefined && amount !== null && amount > 0) {
+        // Get purchase ID for wallet transaction reference
+        const purchaseRecordId = await knex('CreditPurchases')
+          .where('stripePaymentIntentId', stripePaymentIntentId || transactionId)
+          .orWhere('transactionHash', transactionId)
+          .select('id')
+          .first()
+          .then(row => row?.id);
+
+        // Increment user credits using userId (more reliable than username)
         await knex('userData')
-          .where('username', username)
+          .where('id', userId)
           .increment('credits', Math.floor(credits));
+
+        // Get updated balance
+        const userRow = await knex('userData')
+          .select('credits')
+          .where('id', userId)
+          .first();
+
+        // Create wallet transaction record
+        await safeInsertWalletTransaction({
+          id: require('crypto').randomUUID(),
+          userId: userId,
+          type: 'credit_purchase',
+          amount: Math.floor(credits),
+          balanceAfter: Number(userRow?.credits || 0),
+          relatedPurchaseId: purchaseRecordId,
+          description: 'Stripe payment completed',
+          created_at: knex.fn.now(),
+        });
+
+        await CreateNotification(
+          'credits_purchased',
+          'Credits Purchased',
+          `You have purchased ${Math.floor(credits).toLocaleString()} credits for $${dollars}.`,
+          'purchase',
+          username || 'anonymous'
+        );
+      } else {
+        await CreateNotification(
+          'credit_purchase_pending',
+          'Payment Pending Manual Review',
+          `Your Stripe purchase is pending manual review${manualReviewReason ? ` (${manualReviewReason})` : ''}. Credits will be applied once approved.`,
+          'purchase',
+          username || 'anonymous'
+        );
       }
 
-      return ({ success: true, purchases });
+      return ({ success: true, purchases, purchaseId, pending: !shouldCredit, status });
       // } else {
       //   // invladid transaction
       //   return res.status(400).json({ error: 'Transaction verification failed: ' + result.error });
@@ -7749,13 +7163,11 @@ async function stripeBuySubscription(data) {
     // check for duplicate transactionId
     if (transactionId) {
       // const [existing] = await pool.execute(
-      //   'SELECT * FROM buyCredits WHERE transactionHash = ?',
+      //   'SELECT * FROM CreditPurchases WHERE transactionHash = ?',
       //   [transactionId]
       // );
-      const [existing] = await pool.execute(
-        'SELECT * FROM buyCredits WHERE transactionId = ?',
-        [transactionId]
-      );
+      const existing = await knex('CreditPurchases')
+        .where('transactionId', transactionId);
       if (existing.length > 0) {
         console.log('⚠️  Duplicate transaction ID detected:', transactionId);
         return ({ error: 'Duplicate transaction ID' });
@@ -7799,26 +7211,24 @@ async function stripeBuySubscription(data) {
       const currentTime = Date.now();
       const periodEndTime = currentTime + 30 * 24 * 60 * 60 * 1000;
 
-      const [subscription] = await pool.execute(
-        'INSERT into subscriptions (username, user_id, stripe_subscription_id, stripe_customer_id, plan_id, plan_name, status, current_period_start, current_period_end, cancel_at_period_end, canceled_at, trial_start, trial_end, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        [
-          username,
-          userId,
-          stripe_subscription_id,  // Fixed: was using transactionId
-          stripe_customer_id,
-          priceId,
-          label,
-          'active',
-          toMySQLDateTime(currentTime),
-          toMySQLDateTime(periodEndTime),
-          0,
-          null,
-          null,
-          null,
-          toMySQLDateTime(currentTime),
-          toMySQLDateTime(currentTime)
-        ]
-      );
+      const [subscriptionInsertId] = await knex('subscriptions').insert({
+        username,
+        user_id: userId,
+        stripe_subscription_id,
+        stripe_customer_id,
+        plan_id: priceId,
+        plan_name: label,
+        status: 'active',
+        current_period_start: toMySQLDateTime(currentTime),
+        current_period_end: toMySQLDateTime(periodEndTime),
+        cancel_at_period_end: 0,
+        canceled_at: null,
+        trial_start: null,
+        trial_end: null,
+        created_at: toMySQLDateTime(currentTime),
+        updated_at: toMySQLDateTime(currentTime)
+      });
+      const subscription = { insertId: subscriptionInsertId };
 
       function convertUTCtoMySQLDatetime(utcSeconds) {
         const date = new Date(utcSeconds * 1000);
@@ -7826,32 +7236,30 @@ async function stripeBuySubscription(data) {
       }
 
 
-      const [purchases] = await pool.execute(
-        'INSERT into buyCredits (username, id, name, email, walletAddress, transactionHash, blockExplorerLink, currency, amount, cryptoAmount, rate, date, time, session_id, orderLoggingEnabled, userAgent, ip, credits, created_at, paymentMethod, package) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        [
-          username,
-          Math.random().toString(36).substring(2, 10),
-          name,
-          email,
-          " Bonus credits", //walletAddress,
-          transactionId,
-          "www.stripe.com/subscriptions",
-          currency,
-          Math.floor(credits) / 2, // log half the amount as credits, the other half will be bonus credits
-          cryptoAmount, // keep the same cryptoAmount for reference
-          rate,  // keep the same rate for reference 1 usd = 1000 credits
-          Date.now(),
-          new Date().toISOString(),
-          session_id,
-          orderLoggingEnabled,
-          userAgent,
-          ip,
-          credits !== undefined && credits !== null ? Math.floor(credits) / 2 : 0,
-          convertUTCtoMySQLDatetime(stripe_subscription_id),
-          "stripe_subscription",
-          dollars + "$ " + planType + '_subscription',
-        ]
-      );
+      const [purchaseInsertId] = await knex('CreditPurchases').insert({
+        username,
+        id: Math.random().toString(36).substring(2, 10),
+        name,
+        email,
+        walletAddress: " Bonus credits",
+        transactionHash: transactionId,
+        blockExplorerLink: "www.stripe.com/subscriptions",
+        currency,
+        amount: Math.floor(credits) / 2,
+        cryptoAmount,
+        rate,
+        date: Date.now(),
+        time: new Date().toISOString(),
+        session_id,
+        orderLoggingEnabled,
+        userAgent,
+        ip,
+        credits: credits !== undefined && credits !== null ? Math.floor(credits) / 2 : 0,
+        created_at: convertUTCtoMySQLDatetime(stripe_subscription_id),
+        paymentMethod: "stripe_subscription",
+        package: dollars + "$ " + planType + '_subscription'
+      });
+      const purchases = { insertId: purchaseInsertId };
 
       await CreateNotification(
         'credits_purchased',
@@ -7865,10 +7273,33 @@ async function stripeBuySubscription(data) {
 
       // Update user credits
       if (credits !== undefined && credits !== null && credits > 0) {
-        await pool.execute(
-          'UPDATE userData SET credits = credits + ?, accountType = ? WHERE username = ?',
-          [Math.floor(credits) / 2, planType, username]
-        );
+        const bonusCredits = Math.floor(credits) / 2;
+
+        // Update credits using userId (more reliable than username)
+        await knex('userData')
+          .where('id', userId)
+          .update({
+            credits: knex.raw('credits + ?', [bonusCredits]),
+            accountType: planType
+          });
+
+        // Get updated balance
+        const userRow = await knex('userData')
+          .select('credits')
+          .where('id', userId)
+          .first();
+
+        // Create wallet transaction record for subscription bonus credits
+        await safeInsertWalletTransaction({
+          id: require('crypto').randomUUID(),
+          userId: userId,
+          type: 'credit_purchase',
+          amount: bonusCredits,
+          balanceAfter: Number(userRow?.credits || 0),
+          relatedPurchaseId: purchaseInsertId || null,
+          description: `Subscription bonus credits - ${plan} plan`,
+          created_at: knex.fn.now(),
+        });
       }
 
       return ({ success: true, purchases, subscription });
@@ -7895,24 +7326,41 @@ server.use((error, req, res, next) => {
   });
 });
 
+// ─── Drauwper routes (drops, contributions, reviews, etc.) ───
+drauwperRoutes(server, pool, authenticateToken, PROXY, { storage, BUCKET_NAME, DEST_PREFIX });
+
+// Serve banner uploads locally (dev fallback when GCS not configured)
+server.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// ─── Admin panel (mounted before 404 catch-all) ───
+const adminRouter = createAdminRouter({
+  pool,
+  analytics,
+  logs,
+  dbConfig,
+  getLogFilePath: () => LOG_FILE,
+});
+
+server.use('/admin', adminRouter);
+
 // 404 handler for undefined routes (MUST BE LAST!)
 server.use((req, res) => {
   res.status(404).json({ error: 'Route not found' });
 });
 
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 4000;
 server.listen(PORT, async () => {
   try {
     // Test database connection
-    await pool.execute('SELECT 1');
+    await knex.raw('SELECT 1');
     console.log('🚀 Express Server with MySQL is running on port', PORT);
     console.log('�️  Database: KeyChingDB (MySQL)');
     console.log('🌐 API Base URL: http://localhost:' + PORT + PROXY + '/api');
-    console.log('� Flask Service: ' + FLASKAPP_LINK);
+    // console.log('🐍 Python Service: python-service.cjs (direct child_process)');
     console.log('📋 Available endpoints:');
     console.log('   - GET /api/userData');
-    console.log('   - GET /api/createdKeys');
-    console.log('   - GET /api/unlocks/:username');
+    // console.log('   - GET /api/createdKeys');
+    // console.log('   - GET /api/unlocks/:username');
     console.log('   - GET /api/purchases/:username');
     console.log('   - GET /api/redemptions/:username');
     console.log('   - GET /api/notifications/:username');
@@ -7924,6 +7372,10 @@ server.listen(PORT, async () => {
     console.log('   - GET /api/:table');
     console.log('   - GET /api/:table/:id');
     console.log('   - PATCH /api/:table/:id');
+
+    syncStripeTransactionsCron(100).catch((err) => {
+      console.error('Initial Stripe transaction sync error:', err.message || err);
+    });
   } catch (error) {
     console.error('❌ Failed to connect to MySQL database:', error.message);
     console.log('📝 Please ensure:');
@@ -7936,13 +7388,13 @@ server.listen(PORT, async () => {
 // Graceful shutdown
 process.on('SIGTERM', async () => {
   console.log('🛑 Received SIGTERM, shutting down gracefully...');
-  await pool.end();
+  await knex.destroy();
   process.exit(0);
 });
 
 process.on('SIGINT', async () => {
   console.log('🛑 Received SIGINT, shutting down gracefully...');
-  await pool.end();
+  await knex.destroy();
   process.exit(0);
 });
 

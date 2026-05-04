@@ -1,0 +1,10 @@
+-- Add promo performance metrics and tagging support. for Ad submissions
+ALTER TABLE promoSubmissions
+  ADD COLUMN IF NOT EXISTS clicks INT DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS dislikes INT DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS likes INT DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS neutrals INT DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS impressions INT DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS billedImpressions INT DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS billedClicks INT DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS tags TINYTEXT;

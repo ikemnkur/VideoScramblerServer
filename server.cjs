@@ -126,6 +126,8 @@ const corsOptions = {
       'http://localhost:3002',
       'http://localhost:5001',
       'http://localhost:5000',
+      "http://localhost:5173",
+      "http://localhost:5174",
       // 'https://key-ching.com',
       'https://video-scrambler-crty1jhe8-ikemnkurs-projects.vercel.app',
       'https://videoscrambler.com',
@@ -1911,11 +1913,11 @@ server.get(PROXY + '/api/purchases/:username', async (req, res) => {
   try {
     const username = req.params.username;
 
-    const purchases = await knex('buyCredits')
+    const purchases = await knex('CreditPurchases')
       .where('username', username)
-      .orderBy('date', 'desc');
+      .orderBy('created_at', 'desc');
 
-    res.json({ success: true, insertId: result.insertId });
+    res.json({ success: true, purchases });
   } catch (error) {
     console.error('Purchases error:', error);
     res.status(500).json({ error: 'Database error - purchase retrieval failed' });
@@ -2096,18 +2098,23 @@ server.get(PROXY + '/api/actions', authenticateToken, async (req, res) => {
 server.get(PROXY + '/api/buyCredits/:username', authenticateToken, async (req, res) => {
   try {
     const { username } = req.params;
-    const {since} = req.query;
+    const { since } = req.query;
 
-    const purchases = await knex('buyCredits')
+    const purchases = await knex('CreditPurchases')
       .where('username', username)
-      .andWhere('time', '>', since || 0)
-      .orderBy('date', 'desc');
+      .modify(qb => {
+        if (since) {
+          const sinceDate = new Date(isNaN(Number(since)) ? since : Number(since));
+          if (!isNaN(sinceDate.getTime())) qb.andWhere('created_at', '>', sinceDate);
+        }
+      })
+      .orderBy('created_at', 'desc');
 
     console.log(`Retrieved ${purchases.length} purchases for user ${username} since ${since || 'the beginning'}.`);
 
     res.json(purchases);
   } catch (error) {
-    console.error('Get buyCredits error:', error);
+    console.error('Get CreditPurchases error:', error);
     res.status(500).json({ error: 'Database error - credit purchases retrieval failed' });
   }
 });
@@ -2115,12 +2122,12 @@ server.get(PROXY + '/api/buyCredits/:username', authenticateToken, async (req, r
 // Get all credit purchases (admin/debug use)
 server.get(PROXY + '/api/buyCredits', authenticateToken, async (req, res) => {
   try {
-    const purchases = await knex('buyCredits')
-      .orderBy('date', 'desc');
+    const purchases = await knex('CreditPurchases')
+      .orderBy('created_at', 'desc');
 
     res.json(purchases);
   } catch (error) {
-    console.error('Get all buyCredits error:', error);
+    console.error('Get all CreditPurchases error:', error);
     res.status(500).json({ error: 'Database error - credit purchases retrieval failed' });
   }
 });
@@ -2160,9 +2167,9 @@ server.post(PROXY + '/api/purchases/:username', authenticateToken, async (req, r
 
     // check for duplicate transactionId
     if (transactionId) {
-      const existing = await knex('buyCredits')
-        .where('transactionHash', transactionId)
-        .select('*');
+      const existing = await knex('CreditPurchases')
+        .where('txHash', transactionId)
+        .select('id');
       if (existing.length > 0) {
         return res.status(400).json({ error: 'Duplicate transaction ID' });
       }
@@ -2189,26 +2196,24 @@ server.post(PROXY + '/api/purchases/:username', authenticateToken, async (req, r
       }
 
       if (result.success) {
-        const purchases = await knex('buyCredits').insert({
-          username,
+        const purchases = await knex('CreditPurchases').insert({
           id: Math.random().toString(36).substring(2, 10),
-          name,
+          userId,
+          username,
           email,
-          walletAddress,
-          transactionHash: transactionId,
-          transactionId: transactionId,
-          blockExplorerLink,
-          currency,
-          amount: amount / 100,
-          cryptoAmount: cryptoAmount || 0,
-          rate: rate || 1.00,
-          date: Date.now(),
-          time: new Date().toISOString(),
-          session_id,
-          orderLoggingEnabled,
-          userAgent,
-          ip,
-          credits: amount !== undefined && amount !== null ? Math.floor(amount) : 0
+          credits: amount !== undefined && amount !== null ? Math.floor(amount) : 0,
+          amountPaid: amount != null ? amount / 100 : 0,
+          currency: currency || 'USD',
+          paymentMethod: (currency || 'btc').toLowerCase(),
+          status: 'processing',
+          txHash: transactionId || null,
+          walletAddress: walletAddress || null,
+          blockExplorerLink: blockExplorerLink || null,
+          cryptoAmount: cryptoAmount || null,
+          exchangeRate: rate || null,
+          session_id: session_id || null,
+          userAgent: userAgent || null,
+          ip: ip || null,
         });
 
         await CreateNotification(
@@ -2254,6 +2259,15 @@ const BTC_ESPLORA = process.env.BTC_ESPLORA || 'https://blockstream.info/api';
 const LTC_ESPLORA = process.env.LTC_ESPLORA || 'https://litecoinspace.org/api';
 const ETHERSCAN_API_KEY = process.env.ETHERSCAN_API_KEY || '';
 const SOLANA_RPC_URL = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
+
+// ═══════════════════════════════════════════════════════════════
+//  TATUM API INTEGRATION (Primary method for crypto transactions)
+// ═══════════════════════════════════════════════════════════════
+const TATUM_API_KEY = process.env.TATUM_API_KEY || '';
+if (!TATUM_API_KEY) {
+  console.warn('⚠️ Warning: TATUM_API_KEY not set. Falling back to legacy APIs only.');
+}
+const TATUM_BASE_URL = 'https://api.tatum.io/v3';
 
 function ts(sec) {
   if (!sec) return '';
@@ -2484,6 +2498,378 @@ async function fetchSol(address, limit = 100) {
 }
 
 
+// ═══════════════════════════════════════════════════════════════
+//  TATUM FETCH + NORMALIZE FUNCTIONS
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Fetch transaction history for an address using TATUM API (Primary Method)
+ * @param {string} chain - Chain symbol: BTC, LTC, ETH, SOL
+ * @param {string} address - Wallet address
+ * @param {number} limit - Max transactions to fetch
+ * @returns {Promise<Array>} Normalized transaction array
+ */
+async function fetchTatumTransactions(chain, address, limit = 100) {
+  if (!TATUM_API_KEY) {
+    throw new Error('TATUM_API_KEY not configured');
+  }
+
+  const chainMap = {
+    BTC: 'bitcoin',
+    LTC: 'litecoin',
+    ETH: 'ethereum',
+    SOL: 'solana'
+  };
+
+  const tatumChain = chainMap[chain];
+  if (!tatumChain) {
+    throw new Error(`Unsupported chain for TATUM: ${chain}`);
+  }
+
+  try {
+    let url;
+    let params = { pageSize: Math.min(50, limit) };
+
+    switch (chain) {
+      case 'BTC':
+      case 'LTC':
+        url = `${TATUM_BASE_URL}/${tatumChain}/transaction/address/${address}`;
+        params.pageSize = Math.min(50, limit);
+        break;
+      case 'ETH':
+        url = `${TATUM_BASE_URL}/ethereum/account/transaction/${address}`;
+        params.pageSize = Math.min(50, limit);
+        break;
+      case 'SOL':
+        url = `${TATUM_BASE_URL}/solana/account/transaction/${address}`;
+        params.limit = Math.min(50, limit);
+        break;
+      default:
+        throw new Error(`Unsupported chain: ${chain}`);
+    }
+
+    console.log(`🔄 TATUM: Fetching ${chain} transactions for ${address.slice(0, 10)}...`);
+
+    const { data } = await axios.get(url, {
+      headers: { 'x-api-key': TATUM_API_KEY },
+      params,
+      timeout: 15000
+    });
+
+    return normalizeTatumResponse(chain, address, data);
+
+  } catch (error) {
+    if (error.response?.status === 429) {
+      console.warn(`⚠️ TATUM rate limit exceeded for ${chain}`);
+    } else if (error.response?.status === 403) {
+      console.warn(`⚠️ TATUM API key invalid or expired for ${chain}`);
+    } else {
+      console.warn(`⚠️ TATUM API error for ${chain}:`, error.message);
+    }
+    throw error;
+  }
+}
+
+/**
+ * Safely convert various timestamp formats to MySQL datetime string.
+ * Handles: Unix seconds, Unix milliseconds, ISO strings, Date objects.
+ */
+function safeTimestampToDateTime(timestamp) {
+  if (!timestamp) return null;
+
+  try {
+    let date;
+
+    if (timestamp instanceof Date) {
+      date = timestamp;
+    } else if (typeof timestamp === 'string') {
+      date = new Date(timestamp);
+    } else if (typeof timestamp === 'number') {
+      // If timestamp > 10 billion, it's already in milliseconds
+      if (timestamp > 10000000000) {
+        date = new Date(timestamp);
+      } else {
+        date = new Date(timestamp * 1000);
+      }
+    } else {
+      return null;
+    }
+
+    const year = date.getFullYear();
+    if (year < 2009 || year > 2050 || isNaN(year)) {
+      console.warn(`⚠️ Invalid timestamp year: ${year} from value: ${timestamp}`);
+      return null;
+    }
+
+    // MySQL datetime format: YYYY-MM-DD HH:MM:SS
+    return date.toISOString().replace('T', ' ').slice(0, 19);
+
+  } catch (error) {
+    console.warn(`⚠️ Failed to convert timestamp ${timestamp}:`, error.message);
+    return null;
+  }
+}
+
+/**
+ * Normalize TATUM API responses to our standard format.
+ */
+function normalizeTatumResponse(chain, myAddress, data) {
+  const results = [];
+  const txList = Array.isArray(data) ? data : (data?.data || data?.result || []);
+
+  for (const tx of txList) {
+    try {
+      let normalized;
+
+      switch (chain) {
+        case 'BTC':
+        case 'LTC':
+          normalized = normalizeTatumBtcLtc(tx, myAddress);
+          break;
+        case 'ETH':
+          normalized = normalizeTatumEth(tx, myAddress);
+          break;
+        case 'SOL':
+          normalized = normalizeTatumSol(tx, myAddress);
+          break;
+        default:
+          continue;
+      }
+
+      if (normalized && normalized.direction) {
+        results.push(normalized);
+      } else if (normalized && !normalized.direction) {
+        console.log(`⚠️ Skipping ${chain} tx ${(normalized.hash || '??').slice(0, 10)}... - doesn't involve our wallet`);
+      }
+    } catch (err) {
+      console.warn(`⚠️ Failed to normalize ${chain} tx:`, err.message);
+    }
+  }
+
+  return results;
+}
+
+function normalizeTatumBtcLtc(tx, myAddress) {
+  const inputs = tx.inputs || [];
+  const outputs = tx.outputs || [];
+  let spent = 0n, received = 0n;
+
+  for (const input of inputs) {
+    if (input.coin?.address === myAddress) {
+      spent += BigInt(Math.floor((input.coin?.value || 0) * 1e8));
+    }
+  }
+
+  for (const output of outputs) {
+    if (output.address === myAddress) {
+      received += BigInt(Math.floor((output.value || 0) * 1e8));
+    }
+  }
+
+  const net = received - spent;
+  const direction = net > 0n ? 'IN' : net < 0n ? 'OUT' : null;
+
+  return {
+    time: safeTimestampToDateTime(tx.time),
+    direction,
+    amount: fmt((net < 0n ? -net : net).toString(), 8),
+    from: direction === 'IN' ? (inputs[0]?.coin?.address || null) : myAddress,
+    to: direction === 'IN' ? myAddress : (outputs[0]?.address || null),
+    hash: tx.hash
+  };
+}
+
+function normalizeTatumEth(tx, myAddress) {
+  const from = (tx.from || '').toLowerCase();
+  const to = (tx.to || '').toLowerCase();
+  const me = myAddress.toLowerCase();
+
+  const direction = (to === me && from !== me) ? 'IN'
+    : (from === me && to !== me) ? 'OUT'
+    : null;
+
+  return {
+    time: safeTimestampToDateTime(tx.timestamp),
+    direction,
+    amount: fmt(tx.value || '0', 18),
+    from: tx.from || null,
+    to: tx.to || null,
+    hash: tx.hash
+  };
+}
+
+function normalizeTatumSol(tx, myAddress) {
+  const meta = tx.meta || {};
+  const message = tx.transaction?.message || {};
+  const accounts = message.accountKeys || [];
+
+  const idx = accounts.findIndex(a => a === myAddress);
+  let net = 0n;
+
+  if (idx >= 0) {
+    const pre = BigInt(meta.preBalances?.[idx] || 0);
+    const post = BigInt(meta.postBalances?.[idx] || 0);
+    net = post - pre;
+  }
+
+  const direction = net > 0n ? 'IN' : net < 0n ? 'OUT' : null;
+  const counterparty = accounts.find(a => a !== myAddress) || null;
+
+  return {
+    time: safeTimestampToDateTime(tx.blockTime),
+    direction,
+    amount: fmt((net < 0n ? -net : net).toString(), 9),
+    from: direction === 'IN' ? counterparty : myAddress,
+    to: direction === 'IN' ? myAddress : counterparty,
+    signature: tx.signature || tx.hash
+  };
+}
+
+// ────────────────────────────────────────────────────────────────
+//  TATUM WEBHOOK HANDLER (Real-time transaction notifications)
+// ────────────────────────────────────────────────────────────────
+
+server.post('/webhooks/crypto-payments', async (req, res) => {
+  try {
+    const data = req.body;
+    console.log('🔔 TATUM Webhook received:', JSON.stringify(data, null, 2));
+
+    const { address, amount, asset, txId, type, currency } = data;
+
+    if (type !== 'incoming-tx' && type !== 'native_transfer' && type !== 'NATIVE') {
+      console.log(`⚠️ Ignoring non-incoming transaction type: ${type}`);
+      return res.status(200).send('OK');
+    }
+
+    const chain = (asset || currency || '').toUpperCase();
+    console.log(`✅ Incoming ${chain} transaction: ${amount} to ${address}`);
+    console.log(`🔗 Transaction ID: ${txId}`);
+
+    if (['BTC', 'LTC', 'ETH', 'SOL'].includes(chain)) {
+      setTimeout(() => {
+        FetchRecentTransactionsCronByChain(chain).catch(err => {
+          console.error(`Failed to fetch ${chain} transactions after webhook:`, err.message);
+        });
+      }, 2000);
+    }
+
+    res.status(200).send('OK');
+  } catch (error) {
+    console.error('❌ TATUM webhook error:', error);
+    res.status(200).send('OK'); // Still return 200 to prevent retries
+  }
+});
+
+// ────────────────────────────────────────────────────────────────
+//  VERIFY TRANSACTION ON CHAIN (TATUM primary + legacy fallback)
+// ────────────────────────────────────────────────────────────────
+
+async function verifyTxOnChain(currency, txHash) {
+  const sym = currency.toUpperCase();
+  const receiver = walletAddressMap[sym];
+  if (!receiver) return { found: false, tx: null, error: `Unsupported currency: ${sym}` };
+
+  const table = `CryptoTransactions_${sym}`;
+
+  // STEP 1: Check database cache (fast path)
+  try {
+    const [cached] = await knex(table).where('hash', txHash).select('*').limit(1);
+    if (cached && cached.direction === 'IN') {
+      console.log(`✅ Transaction found in cache: ${txHash.slice(0, 10)}... (${sym})`);
+      return { found: true, tx: cached, error: null };
+    }
+  } catch (e) {
+    console.error(`verifyTxOnChain: DB check error (${sym}):`, e.message);
+  }
+
+  // STEP 2: Fetch fresh transactions from blockchain
+  let liveTxs = [];
+  let source = 'unknown';
+
+  // PRIMARY: Try TATUM API first
+  if (TATUM_API_KEY) {
+    try {
+      liveTxs = await fetchTatumTransactions(sym, receiver, 50);
+      source = 'TATUM';
+      console.log(`✅ TATUM: Fetched ${liveTxs.length} ${sym} transactions for verification`);
+    } catch (tatumError) {
+      console.warn(`⚠️ TATUM failed for ${sym} verification, using fallback:`, tatumError.message);
+      liveTxs = [];
+    }
+  }
+
+  // FALLBACK: Use legacy APIs if TATUM fails or not configured
+  if (liveTxs.length === 0) {
+    try {
+      if (sym === 'BTC') {
+        liveTxs = await fetchEsploraAddressTxs(BTC_ESPLORA, receiver, 50);
+        source = 'Blockstream Esplora';
+      } else if (sym === 'LTC') {
+        liveTxs = await fetchEsploraAddressTxs(LTC_ESPLORA, receiver, 50);
+        source = 'Litecoin Esplora';
+      } else if (sym === 'ETH') {
+        liveTxs = await fetchEth({ address: receiver, limit: 50 });
+        source = 'Etherscan';
+      } else if (sym === 'SOL') {
+        liveTxs = await fetchSol(receiver, 50);
+        source = 'Solana RPC';
+      }
+      console.log(`✅ ${source}: Fetched ${liveTxs.length} ${sym} transactions (fallback)`);
+    } catch (fallbackErr) {
+      console.error(`❌ Both TATUM and ${source} failed for ${sym}:`, fallbackErr.message);
+      return { found: false, tx: null, error: `Failed to fetch ${sym} transactions from blockchain` };
+    }
+  }
+
+  // STEP 3: Store fresh transactions in cache
+  try {
+    for (const row of liveTxs) {
+      const hash = row.hash || row.signature;
+      if (!hash) continue;
+      try {
+        const [existing] = await knex(table).where('hash', hash).select('hash').limit(1);
+        if (existing) continue;
+        await knex(table).insert({
+          time: row.time,
+          direction: row.direction,
+          amount: row.amount,
+          fromAddress: row.from,
+          toAddress: row.to,
+          hash
+        });
+      } catch (insertErr) {
+        if (!insertErr.message.includes('Duplicate')) {
+          console.warn(`⚠️ Failed to cache ${sym} transaction:`, insertErr.message);
+        }
+      }
+    }
+  } catch (cacheErr) {
+    console.error(`verifyTxOnChain: cache storage error (${sym}):`, cacheErr.message);
+  }
+
+  // STEP 4: Verify transaction from fresh data or re-check cache
+  try {
+    const matchedTx = liveTxs.find(tx =>
+      (tx.hash === txHash || tx.signature === txHash) &&
+      tx.direction === 'IN'
+    );
+    if (matchedTx) {
+      console.log(`✅ Transaction verified on-chain: ${txHash.slice(0, 10)}... (${sym}, source: ${source})`);
+      return { found: true, tx: matchedTx, error: null };
+    }
+
+    const [fresh] = await knex(table).where('hash', txHash).select('*').limit(1);
+    if (fresh && fresh.direction === 'IN') {
+      console.log(`✅ Transaction verified in cache: ${txHash.slice(0, 10)}... (${sym})`);
+      return { found: true, tx: fresh, error: null };
+    }
+  } catch (verifyErr) {
+    console.error(`verifyTxOnChain: verification error (${sym}):`, verifyErr.message);
+  }
+
+  console.log(`⚠️ Transaction not found or not inbound: ${txHash.slice(0, 10)}... (${sym})`);
+  return { found: false, tx: null, error: null };
+}
 
 
 // // -------- Unified endpoint --------
@@ -2716,10 +3102,13 @@ server.post(PROXY + '/api/upload/transaction-screenshot/:username/:txHash', auth
         const connection = await db.getConnection();
 
         // Optionally update user profilePic in DB
-        await connection.query(
-          'UPDATE buyCredits SET transactionScreenshot = ? WHERE transactionScreenshot IS NULL and username = ? and transactionHash = ? and created_at >= NOW() - INTERVAL 1 HOUR ORDER BY created_at DESC LIMIT 1',
-          [imageUrl, username, txHash]
-        );
+        // NOTE: CreditPurchases does not have a transactionScreenshot column.
+        // Screenshot URL is returned to the client but not stored on the purchase record.
+        // If you need screenshot storage, add a separate table or column to CreditPurchases.
+        // await connection.query(
+        //   'UPDATE CreditPurchases SET ... WHERE txHash = ? AND username = ? ...',
+        //   [imageUrl, username, txHash]
+        // );
 
         if (!uploadDone) {
           uploadDone = true;
@@ -2972,7 +3361,7 @@ server.post(PROXY + '/api/profile-picture/:username', authenticateToken, async (
 server.get(PROXY + '/api/:table', async (req, res) => {
   try {
     const table = req.params.table;
-    const allowedTables = ['userData', 'buyCredits', 'redeemCredits', 'earnings', 'actions', 'createdKeys', 'notifications', 'wallet', 'reports', 'supportTickets'];
+    const allowedTables = ['userData', 'CreditPurchases', 'redeemCredits', 'earnings', 'actions', 'createdKeys', 'notifications', 'wallet', 'reports', 'supportTickets'];
 
     if (!allowedTables.includes(table)) {
       return res.status(400).json({ error: 'Invalid table name' });
@@ -2989,7 +3378,7 @@ server.get(PROXY + '/api/:table', async (req, res) => {
 server.get(PROXY + '/api/:table/:id', async (req, res) => {
   try {
     const { table, id } = req.params;
-    const allowedTables = ['userData', 'buyCredits', 'redeemCredits', 'earnings', 'actions', 'notifications', 'wallet', 'reports', 'supportTickets'];
+    const allowedTables = ['userData', 'CreditPurchases', 'redeemCredits', 'earnings', 'actions', 'notifications', 'wallet', 'reports', 'supportTickets'];
 
     if (!allowedTables.includes(table)) {
       return res.status(400).json({ error: 'Invalid table name' });
@@ -3011,7 +3400,7 @@ server.get(PROXY + '/api/:table/:id', async (req, res) => {
 server.patch(PROXY + '/api/:table/:id', async (req, res) => {
   try {
     const { table, id } = req.params;
-    const allowedTables = ['userData', 'buyCredits', 'redeemCredits', 'earnings', 'actions', 'createdKeys', 'notifications', 'wallet', 'reports', 'supportTickets'];
+    const allowedTables = ['userData', 'CreditPurchases', 'redeemCredits', 'earnings', 'actions', 'createdKeys', 'notifications', 'wallet', 'reports', 'supportTickets'];
 
     if (!allowedTables.includes(table)) {
       return res.status(400).json({ error: 'Invalid table name' });
@@ -3058,6 +3447,7 @@ const { time } = require('console');
 const { Server } = require('http');
 const { json } = require('stream/consumers');
 const { emit } = require('process');
+const { now } = require('moment/moment');
 
 cron.schedule('*/30 * * * *', async () => {
 
@@ -3148,66 +3538,93 @@ async function FetchRecentTransactionsCron() {
 
 async function FetchRecentTransactionsCronByChain(cryptoChain) {
   try {
-    console.log(`🔄 Fetching recent transactions for all ${cryptoChain || 'chain'} wallet addresses...`);
-    // Iterate over walletAddressMap entries (key = chain, value = address) for the cron job
+    console.log(`🔄 Fetching recent transactions for ${cryptoChain} wallet...`);
 
-    let [chainKey, addr] = walletAddressMap[cryptoChain]
-
-
-    // for (const [chainKey, addr] of Object.entries(walletAddressMap)) {
-    // const txs = await fetchRe,centTransactions(address);
-    const chain = cryptoChain ? cryptoChain : String(chainKey || '').toUpperCase();
+    const addr = walletAddressMap[cryptoChain];
+    const chain = String(cryptoChain || '').toUpperCase();
     const address = String(addr || '').trim();
-    // Use a fixed reasonable limit for cron runs
     const limit = 100;
-    try {
 
-      if (!address || !chain) {
-        console.log('No address or chain provided');
+    if (!address || !chain) {
+      console.log('❌ No address or chain provided');
+      return;
+    }
 
+    let rows = [];
+    let source = 'unknown';
+
+    // ═══════════════════════════════════════════════════════════════
+    //  PRIMARY: Try TATUM API first
+    // ═══════════════════════════════════════════════════════════════
+    if (TATUM_API_KEY) {
+      try {
+        rows = await fetchTatumTransactions(chain, address, limit);
+        source = 'TATUM';
+        console.log(`✅ TATUM: Fetched ${rows.length} ${chain} transactions`);
+      } catch (tatumError) {
+        console.warn(`⚠️ TATUM failed for ${chain}, falling back to legacy APIs:`, tatumError.message);
+        rows = [];
       }
-      let rows = [];
-      if (chain === 'BTC') rows = await fetchEsploraAddressTxs(BTC_ESPLORA, address, limit);
-      else if (chain === 'LTC') rows = await fetchEsploraAddressTxs(LTC_ESPLORA, address, limit);
-      else if (chain === 'ETH') rows = await fetchEth({ address, limit, chainId: 1, action: "txlist", extraParams: {} });
-      else if (chain === 'SOL') rows = await fetchSol(address, limit);
-      else {
-        console.log('Unsupported chain. Use BTC, LTC, ETH, SOL');
+    } else {
+      console.log(`⚠️ TATUM_API_KEY not set, using legacy APIs for ${chain}`);
+    }
 
+    // ═══════════════════════════════════════════════════════════════
+    //  FALLBACK: Use legacy APIs if TATUM fails or is not configured
+    // ═══════════════════════════════════════════════════════════════
+    if (rows.length === 0) {
+      try {
+        if (chain === 'BTC') {
+          rows = await fetchEsploraAddressTxs(BTC_ESPLORA, address, limit);
+          source = 'Blockstream Esplora';
+        } else if (chain === 'LTC') {
+          rows = await fetchEsploraAddressTxs(LTC_ESPLORA, address, limit);
+          source = 'Litecoin Esplora';
+        } else if (chain === 'ETH') {
+          rows = await fetchEth({ address, limit, chainId: 1, action: "txlist", extraParams: {} });
+          source = 'Etherscan';
+        } else if (chain === 'SOL') {
+          rows = await fetchSol(address, limit);
+          source = 'Solana RPC';
+        } else {
+          console.log(`❌ Unsupported chain: ${chain}`);
+          return;
+        }
+        console.log(`✅ ${source}: Fetched ${rows.length} ${chain} transactions (fallback)`);
+      } catch (fallbackError) {
+        console.error(`❌ Both TATUM and ${source} failed for ${chain}:`, fallbackError.message);
+        return;
       }
-      // return res.status(400).json({ error: 'Unsupported chain. Use BTC, LTC, ETH, SOL' });
+    }
 
-      let transactions = {
-        chain,
-        address,
-        count: rows.length,
-        txs: rows
-      };
+    // ═══════════════════════════════════════════════════════════════
+    //  Store transactions in database
+    // ═══════════════════════════════════════════════════════════════
+    let inserted = 0;
+    let skipped = 0;
 
-      for (const tx of transactions.txs) {
-        const transactionId = tx?.hash ?? null;
+    for (const tx of rows) {
+      try {
+        const transactionId = tx?.hash ?? tx?.signature ?? null;
 
         if (!transactionId) {
-          console.log(`Skipping ${chain} transaction with missing hash`);
+          console.log(`⚠️ Skipping ${chain} transaction with missing hash`);
+          skipped++;
           continue;
         }
 
-        // todo: only process transactions within last 30 minutes?
-        const txTime = new Date(tx?.time ?? 0);
         const now = new Date();
-
         const existingTxs = await knex(`CryptoTransactions_${chain}`)
           .where('hash', transactionId)
           .andWhere('time', '>=', new Date(now.getTime() - 30 * 60000))
-          .select('*');
+          .select('hash')
+          .limit(1);
 
-        // Check if transaction already exists
         if (existingTxs.length > 0) {
-          // console.log(`Transaction ${transactionId} already exists in the database. Skipping.`);
-          continue; // Skip to next transaction
+          skipped++;
+          continue;
         }
 
-        // Insert new transaction (convert undefined values to null)
         await knex(`CryptoTransactions_${chain}`).insert({
           time: tx?.time ?? null,
           direction: tx?.direction ?? null,
@@ -3217,20 +3634,16 @@ async function FetchRecentTransactionsCronByChain(cryptoChain) {
           hash: transactionId
         });
 
-        // console.log(`Inserted transaction ${transactionId} into CryptoTransactions_${chain}`);
+        inserted++;
+      } catch (insertError) {
+        console.error(`❌ Failed to insert ${chain} transaction:`, insertError.message);
       }
-
-
-    } catch (e) {
-      // res.status(500).json({ error: e.message || String(e) });
-      // console.error(`❌ Error processing transactions for ${chain} address ${address}:`, e);
-      console.error(`❌ Error processing transactions for ${chain} address ${address}:`, e.message || String(e));
-
     }
 
-    // }
+    console.log(`📊 ${chain} Summary: ${inserted} inserted, ${skipped} skipped (source: ${source})`);
+
   } catch (error) {
-    console.error('❌ Error fetching recent transactions:', error);
+    console.error(`❌ Error processing ${cryptoChain} transactions:`, error.message);
   }
 }
 
@@ -5582,6 +5995,104 @@ server.post(PROXY + '/api/subscription/cancel', async (req, res) => {
   }
 });
 
+// Change subscription plan (upgrade or downgrade)
+server.post(PROXY + '/api/subscription/change-plan', authenticateToken, async (req, res) => {
+  try {
+    const { userId, newPlanType } = req.body;
+
+    if (!userId || !newPlanType) {
+      return res.status(400).json({
+        success: false,
+        message: 'userId and newPlanType are required'
+      });
+    }
+
+    const PLAN_PRICE_IDS = {
+      basic:    'price_1SR08eEViYxfJNd2ihaRH9Fk',
+      standard: 'price_1SR09uEViYxfJNd2jL3JklFl',
+      premium:  'price_1SR0A9EViYxfJNd258I14txA',
+    };
+
+    const newPriceId = PLAN_PRICE_IDS[newPlanType];
+    if (!newPriceId) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid plan type: ${newPlanType}. Must be basic, standard, or premium.`
+      });
+    }
+
+    // Look up the user's active subscription in the DB
+    const subscriptions = await knex('subscriptions')
+      .where('user_id', userId)
+      .whereIn('status', ['active', 'canceling', 'trialing'])
+      .orderBy('created_at', 'desc')
+      .limit(1);
+
+    if (subscriptions.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'No active subscription found for this user'
+      });
+    }
+
+    const sub = subscriptions[0];
+    const stripeSubId = sub.stripe_subscription_id;
+
+    if (!stripeSubId) {
+      return res.status(400).json({
+        success: false,
+        message: 'No Stripe subscription ID on record'
+      });
+    }
+
+    // Retrieve the subscription from Stripe to get the subscription item ID
+    const stripeSub = await stripe.subscriptions.retrieve(stripeSubId);
+    const itemId = stripeSub.items.data[0]?.id;
+
+    if (!itemId) {
+      return res.status(500).json({
+        success: false,
+        message: 'Could not find subscription item in Stripe'
+      });
+    }
+
+    // Update the Stripe subscription to the new price
+    await stripe.subscriptions.update(stripeSubId, {
+      items: [{ id: itemId, price: newPriceId }],
+      proration_behavior: 'always_invoice', // charge/credit pro-rated amount immediately
+    });
+
+    const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+
+    // Update the subscriptions table
+    await knex('subscriptions')
+      .where('id', sub.id)
+      .update({
+        plan_id: newPriceId,
+        plan_name: newPlanType,
+        updated_at: now,
+      });
+
+    // Update the user's accountType
+    await knex('userData')
+      .where('id', userId)
+      .update({ accountType: newPlanType });
+
+    console.log(`✅ Plan changed to ${newPlanType} for user ${userId}`);
+
+    res.json({
+      success: true,
+      message: `Plan changed to ${newPlanType} successfully`
+    });
+  } catch (error) {
+    console.error('Change plan error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to change plan: ' + error.message
+    });
+  }
+});
+
 
 
 // // Webhook handler for asynchronous events.
@@ -5673,7 +6184,7 @@ server.post(PROXY + '/api/payments/webhook', express.raw({ type: 'application/js
         "transactionId": transactionId,
       };
 
-      stripeBuycredits(data);
+      stripeBuyCredits(data);
       console.log(`✅ Subscription created: ${subscription.id}`);
       break;
 
@@ -5744,7 +6255,7 @@ server.post(PROXY + '/api/subscription/webhook', express.raw({ type: 'applicatio
         "transactionId": transactionId,
       };
 
-      stripeBuycredits(data);
+      stripeBuyCredits(data);
       console.log(`✅ Subscription created: ${subscription.id}`);
       break;
 
@@ -5836,7 +6347,7 @@ server.get('/stripe/success', async (req, res) => {
 
     }
 
-    await stripeBuycredits(data);
+    await stripeBuyCredits(data);
 
     // For now just show something
     res.json({
@@ -5979,6 +6490,10 @@ server.post(PROXY + '/api/verify-stripe-payment', async (req, res) => {
     const timeRangeStart = timeRange.start;
     const timeRangeEnd = timeRange.end;
 
+    const timeNow = Date.now();
+
+    console.log('Time range for payment verification:', (timeNow - timeRangeStart) / 1000, 'seconds ago, to', (timeNow - timeRangeEnd) / 1000, 'seconds ago');
+
 
 
     // Fetch recent payments to search through
@@ -6003,18 +6518,29 @@ server.post(PROXY + '/api/verify-stripe-payment', async (req, res) => {
     for (const payment of details.payments || []) {
       const created = payment.created * 1000; // convert to ms
 
-      console.log(`[DEBUG] Checking payment ${payment.id}: created=${created}, amount=${payment.amount}`);
+      const timeNow = Date.now();
 
-      // Check time range
+      console.log(`[DEBUG] Checking payment ${payment.id}: created=${(timeNow - created)/1000} seconds ago, amount=${payment.amount}`);
+
+      // Skip payments older than 10 minutes (safety guard)
+      if ((timeNow - created) > 10 * 60 * 1000) {
+        console.log(`[DEBUG] Payment ${payment.id} is too old (${Math.round((timeNow - created)/1000)}s), skipping.`);
+        continue;
+      }
+
+      // Check that the payment falls within the user's payment window
       if (timeRangeStart && created < timeRangeStart) {
+        console.log(`[DEBUG] Payment ${payment.id} was created before the payment window started, skipping.`);
         continue;
       }
       if (timeRangeEnd && created > timeRangeEnd) {
+        console.log(`[DEBUG] Payment ${payment.id} was created after the payment window ended, skipping.`);
         continue;
       }
 
       // Check payment amount
-      if (payment.amount !== pkg.amount) {
+      if ((payment.amount - pkg.amount)/pkg.amount > 0.10) { // allow 10% variance for fees or currency conversion
+        console.log(`[DEBUG] Payment ${payment.id} amount mismatch: got ${payment.amount}, expected ${pkg.amount}, skipping.`);
         continue;
       }
 
@@ -6077,8 +6603,17 @@ server.post(PROXY + '/api/verify-stripe-payment', async (req, res) => {
       { credits: 26000, dollars: 20, label: "$20.00", color: '#f57c00', priceId: 'price_1SR9mrEViYxfJNd2dD5NHFoL' },
     ];
 
-    const packageData = PACKAGES.find(pkg => pkg.dollars === potentialVerifiedPayment.amount / 100);
+    const paidDollars = potentialVerifiedPayment.amount / 100;
+    // Find closest package by amount (within $1 tolerance) rather than exact match
+    const packageData = PACKAGES.find(pkg => Math.abs(pkg.dollars - paidDollars) <= 1.0);
 
+    if (!packageData) {
+      console.error(`[ERROR] No matching package for amount $${paidDollars} (${potentialVerifiedPayment.amount} cents)`);
+      return res.status(400).json({
+        error: `Payment amount $${paidDollars} does not match any credit package`,
+        status: 'amount_mismatch'
+      });
+    }
 
     if (potentialVerifiedPayment.status == 'succeeded') {
       // Log the purchase in the database
@@ -6094,16 +6629,15 @@ server.post(PROXY + '/api/verify-stripe-payment', async (req, res) => {
         amount: potentialVerifiedPayment.amount,
         cryptoAmount: packageData.dollars,
         rate: null,
-        session_id: user.id, // this is a useless metric here but i am keep it for reference and to maintain similar data structure
+        session_id: user.id,
         orderLoggingEnabled: false,
         userAgent: user.userAgent,
         ip: user.ip,
         dollars: packageData.dollars,
         credits: packageData.credits
-
       }
 
-      await stripeBuycredits(data);
+      await stripeBuyCredits(data);
     }
 
     console.log('Payment verification completed successfully.');
@@ -6117,7 +6651,7 @@ server.post(PROXY + '/api/verify-stripe-payment', async (req, res) => {
 });
 
 // async function fetchEth({
-async function stripeBuycredits(data) {
+async function stripeBuyCredits(data) {
 
   try {
     const {
@@ -6148,8 +6682,9 @@ async function stripeBuycredits(data) {
 
     // check for duplicate transactionId
     if (transactionId) {
-      const existing = await knex('buyCredits')
-        .where('transactionId', transactionId);
+      const existing = await knex('CreditPurchases')
+        .where('stripePaymentIntentId', transactionId)
+        .select('id');
       if (existing.length > 0) {
         console.log('⚠️  Duplicate transaction ID detected:', transactionId);
         return ({ error: 'Duplicate transaction ID' });
@@ -6171,29 +6706,45 @@ async function stripeBuycredits(data) {
 
       const packageData = PACKAGES.find(pkg => pkg.dollars === amount / 100);
 
-      const [purchaseId] = await knex('buyCredits').insert({
-        username,
+      const [purchaseId] = await knex('CreditPurchases').insert({
         id: Math.random().toString(36).substring(2, 10),
-        name,
+        userId,
+        username,
         email,
-        walletAddress,
-        transactionHash: transactionId,
-        blockExplorerLink: "www.stripe.com",
-        currency,
-        amount,
-        cryptoAmount,
-        package: packageData.label,
-        rate,
-        date: Date.now(),
+        name: name || null,
+        credits: packageData?.credits || credits || 0,
+        package: 'custom',
+        amountPaid: amount / 100,
+        amount: amount || 0,
+        currency: 'USD',
+        paymentMethod: 'stripe',
+        status: 'completed',
+        stripePaymentIntentId: transactionId || null,
+        stripeCheckoutSessionId: session_id || null,
+        session_id: session_id || null,
+        userAgent: userAgent || null,
+        ip: ip || null,
+        date: String(Date.now()),
         time: new Date().toISOString(),
-        session_id,
-        orderLoggingEnabled,
-        userAgent,
-        ip,
-        credits: packageData.credits,
-        paymentMethod: 'stripe'
+        rate: null,
       });
       const purchases = { insertId: purchaseId };
+
+      // Log raw payment event to stripeTransactions
+      await knex('stripeTransactions').insert({
+        stripeObjectType: 'payment_intent',
+        stripePaymentIntentId: transactionId || null,
+        status: 'succeeded',
+        amount: amount || 0,
+        amountReceived: amount || 0,
+        currency: 'USD',
+        customerEmail: email || null,
+        customerName: name || null,
+        metadata: JSON.stringify({ userId, username, credits: packageData?.credits || credits }),
+        livemode: process.env.NODE_ENV === 'production' ? 1 : 0,
+        syncedAt: new Date().toISOString().slice(0, 19).replace('T', ' '),
+        stripeCreatedAt: new Date().toISOString().slice(0, 19).replace('T', ' '),
+      }).catch(err => console.warn('⚠️ stripeTransactions insert (non-fatal):', err.message));
 
       await CreateNotification(
         'credits_purchased',
@@ -6611,12 +7162,9 @@ async function stripeBuySubscription(data) {
 
     // check for duplicate transactionId
     if (transactionId) {
-      // const [existing] = await pool.execute(
-      //   'SELECT * FROM buyCredits WHERE transactionHash = ?',
-      //   [transactionId]
-      // );
-      const existing = await knex('buyCredits')
-        .where('transactionId', transactionId);
+      const existing = await knex('CreditPurchases')
+        .where('stripePaymentIntentId', transactionId)
+        .select('id');
       if (existing.length > 0) {
         console.log('⚠️  Duplicate transaction ID detected:', transactionId);
         return ({ error: 'Duplicate transaction ID' });
@@ -6685,35 +7233,53 @@ async function stripeBuySubscription(data) {
       }
 
 
-      const [purchaseInsertId] = await knex('buyCredits').insert({
-        username,
+      const [purchaseInsertId] = await knex('CreditPurchases').insert({
         id: Math.random().toString(36).substring(2, 10),
-        name,
+        userId,
+        username,
         email,
-        walletAddress: " Bonus credits",
-        transactionHash: transactionId,
-        blockExplorerLink: "www.stripe.com/subscriptions",
-        currency,
-        amount: Math.floor(credits) / 2,
-        cryptoAmount,
-        rate,
-        date: Date.now(),
-        time: new Date().toISOString(),
-        session_id,
-        orderLoggingEnabled,
-        userAgent,
-        ip,
+        name: name || null,
         credits: credits !== undefined && credits !== null ? Math.floor(credits) / 2 : 0,
-        created_at: convertUTCtoMySQLDatetime(stripe_subscription_id),
-        paymentMethod: "stripe_subscription",
-        package: dollars + "$ " + planType + '_subscription'
+        package: 'custom',
+        amountPaid: dollars || 0,
+        amount: Math.round((dollars || 0) * 100),
+        currency: currency || 'USD',
+        paymentMethod: 'stripe',
+        status: 'completed',
+        stripePaymentIntentId: transactionId || null,
+        stripeCheckoutSessionId: session_id || null,
+        session_id: session_id || null,
+        userAgent: userAgent || null,
+        ip: ip || null,
+        date: String(Date.now()),
+        time: new Date().toISOString(),
+        rate: null,
       });
       const purchases = { insertId: purchaseInsertId };
 
+      // Log raw payment event to stripeTransactions
+      await knex('stripeTransactions').insert({
+        stripeObjectType: 'invoice',
+        stripePaymentIntentId: transactionId || null,
+        stripeSubscriptionId: stripe_subscription_id || null,
+        stripeCustomerId: stripe_customer_id || null,
+        status: 'succeeded',
+        amount: Math.round((dollars || 0) * 100),
+        amountReceived: Math.round((dollars || 0) * 100),
+        currency: currency || 'USD',
+        customerEmail: email || null,
+        customerName: name || null,
+        description: `${planType} subscription`,
+        metadata: JSON.stringify({ userId, username, planType, priceId }),
+        livemode: process.env.NODE_ENV === 'production' ? 1 : 0,
+        syncedAt: new Date().toISOString().slice(0, 19).replace('T', ' '),
+        stripeCreatedAt: new Date().toISOString().slice(0, 19).replace('T', ' '),
+      }).catch(err => console.warn('⚠️ stripeTransactions insert (non-fatal):', err.message));
+
       await CreateNotification(
-        'credits_purchased',
-        'Credits Purchased',
-        `You have purchased a $${plan} plan for $${dollars}, and you also have received ${Math.floor(credits) / 2} bonus credits!!!`,
+        'subscription_activated',
+        'Subscription Activated',
+        `Your ${plan} plan ($${dollars}/month) is now active. You received ${credits !== undefined && credits !== null ? Math.floor(credits) / 2 : 0} bonus credits.`,
         'purchase',
         username || 'anonymous'
       );
