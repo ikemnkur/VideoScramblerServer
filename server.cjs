@@ -15,6 +15,8 @@ const fs = require('fs');
 const path = require('path');
 const util = require('util'); // Node.js utility for formatting arguments
 const emailService = require('./AmazonSESemailService.cjs');
+const speakeasy = require('speakeasy');
+const QRCode = require('qrcode');
 
 // const authenticateToken = require('../middleware/auth');
 const authenticateToken = require('./middleware/auth');
@@ -389,6 +391,34 @@ const fetchCryptoRate = async (cryptoCurrency) => {
 
 
 // ----------------------------------------------------
+// Crypto Rate Proxy
+// ----------------------------------------------------
+// GET /api/crypto-rate?coins=bitcoin,ethereum,litecoin,solana
+// Also accepts legacy ?coin=bitcoin (single coin)
+server.get(PROXY + '/api/crypto-rate', async (req, res) => {
+  try {
+    // Support both ?coin=bitcoin (legacy) and ?coins=bitcoin,ethereum,...
+    const coinsParam = req.query.coins || req.query.coin || 'bitcoin';
+    // Sanitise: only allow alphanumeric + commas to prevent injection
+    const sanitised = coinsParam.replace(/[^a-z0-9,\-]/gi, '');
+    const url = `https://api.coingecko.com/api/v3/simple/price?ids=${sanitised}&vs_currencies=usd`;
+    const response = await fetch(url, { headers: { Accept: 'application/json' } });
+    if (!response.ok) throw new Error(`CoinGecko responded ${response.status}`);
+    const data = await response.json();
+    res.json(data);
+  } catch (err) {
+    console.error('crypto-rate proxy error:', err.message);
+    // Return hardcoded fallback so the frontend always gets something usable
+    res.json({
+      bitcoin:  { usd: 95000 },
+      ethereum: { usd: 3500  },
+      litecoin: { usd: 110   },
+      solana:   { usd: 165   },
+    });
+  }
+});
+
+// ----------------------------------------------------
 // Authentication Routes
 // ----------------------------------------------------
 
@@ -441,6 +471,20 @@ server.post(PROXY + '/api/auth/login', async (req, res) => {
         .where('email', email)
         .update({ loginStatus: true, lastLogin: currentDateTime });
 
+      // If 2FA is enabled, issue a short-lived temp token instead of the full session token
+      if (user.twoFactorEnabled && user.twoFactorSecret) {
+        const tempToken = jwt.sign(
+          { id: user.id, email: user.email, twoFactorPending: true },
+          process.env.JWT_SECRET,
+          { expiresIn: '5m' }
+        );
+        return res.json({
+          requiresTwoFactor: true,
+          tempToken,
+          message: '2FA verification required'
+        });
+      }
+
       // Generate a proper JWT-like token (in production, use actual JWT)
       // const token = Buffer.from(`${user.id}_${Date.now()}_${Math.random()}`).toString('base64');
 
@@ -450,7 +494,7 @@ server.post(PROXY + '/api/auth/login', async (req, res) => {
         email: user.email,
         username: user.username,  // Add this line
         credits: user.credits
-      }, process.env.JWT_SECRET, { expiresIn: '2h' });
+      }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN || '7d' });
 
       // conver random amounts to crypto amounts based on current rates 
       const btcRate = await fetchCryptoRate('BTC');
@@ -470,7 +514,7 @@ server.post(PROXY + '/api/auth/login', async (req, res) => {
 
       res.json({
         token,
-        tokenExpiry: new Date(Date.now() + 7200 * 1000),
+        tokenExpiry: new Date(Date.now() + 7 * 24 * 3600 * 1000),
         user: { id: user.id, username: user.username, email: user.email, credits: user.credits },
         accountType: user.accountType,
         message: 'Login successful',
@@ -570,7 +614,7 @@ server.post(PROXY + '/api/user', authenticateToken, async (req, res) => {
       email: user.email,
       username: user.username,  // Add this line
       credits: user.credits
-    }, process.env.JWT_SECRET, { expiresIn: '2h' });
+    }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN || '7d' });
 
 
     res.json({
@@ -581,7 +625,7 @@ server.post(PROXY + '/api/user', authenticateToken, async (req, res) => {
       dayPassMode: user.dayPassMode,
       planExpiry: user.planExpiry,
       token: token,
-      tokenExpiry: new Date(Date.now() + 7200 * 1000),
+      tokenExpiry: new Date(Date.now() + 7 * 24 * 3600 * 1000),
       accountType: user.accountType,
       message: 'Login successful'
     });
@@ -801,7 +845,7 @@ server.post(PROXY + '/api/auth/register', async (req, res) => {
       email: newUser.email,
       username: newUser.username,  // Add this line
       credits: newUser.credits
-    }, process.env.JWT_SECRET, { expiresIn: '2h' });
+    }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN || '7d' });
 
     // const token = Buffer.from(`${userId}_${Date.now()}_${Math.random()}`).toString('base64');
 
@@ -1397,6 +1441,206 @@ server.post(PROXY + '/api/auth/logout', async (req, res) => {
       success: false,
       message: 'Server error occurred during logout'
     });
+  }
+});
+
+// ============================================================
+// 2FA Routes
+// ============================================================
+
+// POST /api/auth/2fa/verify — called during login with tempToken + TOTP code
+server.post(PROXY + '/api/auth/2fa/verify', async (req, res) => {
+  try {
+    const { tempToken, code } = req.body;
+
+    if (!tempToken || !code) {
+      return res.status(400).json({ success: false, message: 'tempToken and code are required' });
+    }
+
+    let decoded;
+    try {
+      decoded = jwt.verify(tempToken, process.env.JWT_SECRET);
+    } catch {
+      return res.status(401).json({ success: false, message: 'Invalid or expired session. Please log in again.' });
+    }
+
+    if (!decoded.twoFactorPending) {
+      return res.status(400).json({ success: false, message: 'Invalid token type' });
+    }
+
+    const user = await knex('userData').where('id', decoded.id).first();
+    if (!user || !user.twoFactorEnabled || !user.twoFactorSecret) {
+      return res.status(400).json({ success: false, message: '2FA is not configured for this account' });
+    }
+
+    const isValid = speakeasy.totp.verify({
+      secret: user.twoFactorSecret,
+      encoding: 'base32',
+      token: String(code).replace(/\s/g, ''),
+      window: 1
+    });
+
+    if (!isValid) {
+      return res.status(401).json({ success: false, message: 'Invalid 2FA code. Please try again.' });
+    }
+
+    // Issue full session token
+    const token = jwt.sign(
+      { id: user.id, email: user.email, username: user.username, credits: user.credits },
+      process.env.JWT_SECRET,
+      { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
+    );
+
+    const userData = { ...user };
+    delete userData.passwordHash;
+    delete userData.twoFactorSecret;
+    delete userData.recoveryCodes;
+
+    res.json({
+      success: true,
+      token,
+      tokenExpiry: new Date(Date.now() + 7 * 24 * 3600 * 1000),
+      user: { id: user.id, username: user.username, email: user.email, credits: user.credits },
+      accountType: user.accountType,
+      message: 'Login successful'
+    });
+
+  } catch (error) {
+    console.error('2FA verify error:', error);
+    res.status(500).json({ success: false, message: 'Server error during 2FA verification' });
+  }
+});
+
+// POST /api/auth/2fa/setup — generates a new TOTP secret and QR code (authenticated)
+server.post(PROXY + '/api/auth/2fa/setup', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const user = await knex('userData').where('id', userId).first();
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    if (user.twoFactorEnabled) {
+      return res.status(400).json({ success: false, message: '2FA is already enabled. Disable it first to reset.' });
+    }
+
+    const secret = speakeasy.generateSecret({
+      name: `VideoScrambler (${user.email})`,
+      length: 20
+    });
+
+    // Temporarily store the secret (not yet enabled — user must verify first)
+    await knex('userData').where('id', userId).update({ twoFactorSecret: secret.base32 });
+
+    const qrCodeDataUrl = await QRCode.toDataURL(secret.otpauth_url);
+
+    res.json({
+      success: true,
+      secret: secret.base32,
+      qrCode: qrCodeDataUrl,
+      message: 'Scan the QR code with your authenticator app, then call /2fa/enable with a valid code to activate.'
+    });
+
+  } catch (error) {
+    console.error('2FA setup error:', error);
+    res.status(500).json({ success: false, message: 'Server error during 2FA setup' });
+  }
+});
+
+// POST /api/auth/2fa/enable — verifies TOTP code and enables 2FA (authenticated)
+server.post(PROXY + '/api/auth/2fa/enable', authenticateToken, async (req, res) => {
+  try {
+    const { code } = req.body;
+    const userId = req.user.id;
+
+    if (!code) {
+      return res.status(400).json({ success: false, message: 'TOTP code is required' });
+    }
+
+    const user = await knex('userData').where('id', userId).first();
+    if (!user || !user.twoFactorSecret) {
+      return res.status(400).json({ success: false, message: 'Run /2fa/setup first to generate a secret' });
+    }
+
+    const isValid = speakeasy.totp.verify({
+      secret: user.twoFactorSecret,
+      encoding: 'base32',
+      token: String(code).replace(/\s/g, ''),
+      window: 1
+    });
+
+    if (!isValid) {
+      return res.status(401).json({ success: false, message: 'Invalid code. Make sure your authenticator app is synced.' });
+    }
+
+    // Generate recovery codes
+    const recoveryCodes = Array.from({ length: 8 }, () =>
+      Math.random().toString(36).slice(2, 8).toUpperCase() + '-' +
+      Math.random().toString(36).slice(2, 8).toUpperCase()
+    );
+
+    await knex('userData').where('id', userId).update({
+      twoFactorEnabled: true,
+      recoveryCodes: JSON.stringify(recoveryCodes)
+    });
+
+    res.json({
+      success: true,
+      recoveryCodes,
+      message: '2FA enabled successfully. Save your recovery codes in a safe place.'
+    });
+
+  } catch (error) {
+    console.error('2FA enable error:', error);
+    res.status(500).json({ success: false, message: 'Server error during 2FA activation' });
+  }
+});
+
+// POST /api/auth/2fa/disable — disables 2FA (authenticated, requires TOTP code)
+server.post(PROXY + '/api/auth/2fa/disable', authenticateToken, async (req, res) => {
+  try {
+    const { code } = req.body;
+    const userId = req.user.id;
+
+    const user = await knex('userData').where('id', userId).first();
+    if (!user || !user.twoFactorEnabled) {
+      return res.status(400).json({ success: false, message: '2FA is not currently enabled' });
+    }
+
+    const isValid = speakeasy.totp.verify({
+      secret: user.twoFactorSecret,
+      encoding: 'base32',
+      token: String(code).replace(/\s/g, ''),
+      window: 1
+    });
+
+    if (!isValid) {
+      return res.status(401).json({ success: false, message: 'Invalid 2FA code' });
+    }
+
+    await knex('userData').where('id', userId).update({
+      twoFactorEnabled: false,
+      twoFactorSecret: null,
+      recoveryCodes: null
+    });
+
+    res.json({ success: true, message: '2FA disabled successfully' });
+
+  } catch (error) {
+    console.error('2FA disable error:', error);
+    res.status(500).json({ success: false, message: 'Server error during 2FA disable' });
+  }
+});
+
+// GET /api/auth/2fa/status — returns whether 2FA is enabled for the authenticated user
+server.get(PROXY + '/api/auth/2fa/status', authenticateToken, async (req, res) => {
+  try {
+    const user = await knex('userData').where('id', req.user.id).first('twoFactorEnabled');
+    res.json({ success: true, twoFactorEnabled: !!user?.twoFactorEnabled });
+  } catch (error) {
+    console.error('2FA status error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
   }
 });
 
@@ -2136,119 +2380,97 @@ server.get(PROXY + '/api/buyCredits', authenticateToken, async (req, res) => {
 
 server.post(PROXY + '/api/purchases/:username', authenticateToken, async (req, res) => {
   try {
+    // Accept flat body (new format) or legacy { data: {...} } wrapper
+    const bodyData = req.body.data || req.body;
     const {
       username,
-      userId,
-      name,
-      email,
-      walletAddress,
-      transactionId,
-      blockExplorerLink,
       currency,
-      amount,
+      amount,      // cents (e.g. 1000 = $10.00)
+      credits,     // computed credit count from frontend
+      transactionId,
+      walletAddress,
       cryptoAmount,
-      rate,
-      session_id,
-      orderLoggingEnabled,
-      userAgent,
-      ip
-    } = req.body.data;  // <-- Changed from req.body to req.body.data
+      screenshot,
+    } = bodyData;
 
-    console.log('Logging purchase data:', req.body);
+    console.log('Purchase submission:', { username, currency, amount, credits, transactionId, walletAddress });
 
-
-    const packageData = [
-      { credits: 2500, dollars: 2.5, label: "$2.50 Package", color: '#4caf50', priceId: 'price_1SR9nNEViYxfJNd2pijdhiBM' },
-      { credits: 5250, dollars: 5, label: "$5.00 Package", color: '#2196f3', priceId: 'price_1SR9lZEViYxfJNd20x2uwukQ' },
-      { credits: 11200, dollars: 10, label: "$10.00 Package", color: '#9c27b0', popular: true, priceId: 'price_1SR9kzEViYxfJNd27aLA7kFW' },
-      { credits: 26000, dollars: 20, label: "$20.00 Package", color: '#f57c00', priceId: 'price_1SR9mrEViYxfJNd2dD5NHFoL' },
-    ];
-
-
-    // check for duplicate transactionId
-    if (transactionId) {
-      const existing = await knex('CreditPurchases')
-        .where('txHash', transactionId)
-        .select('id');
-      if (existing.length > 0) {
-        return res.status(400).json({ error: 'Duplicate transaction ID' });
-      }
+    if (!username || !currency || !transactionId || !walletAddress) {
+      return res.status(400).json({ error: 'Missing required fields: username, currency, transactionId, walletAddress' });
     }
 
+    // Check for duplicate transactionId
+    const existing = await knex('CreditPurchases').where('txHash', transactionId).select('id');
+    if (existing.length > 0) {
+      return res.status(400).json({ error: 'This transaction has already been submitted' });
+    }
 
-    // Basic validation
+    const creditCount = credits ? Math.floor(credits) : 0;
+    const amountPaid = amount != null ? amount / 100 : 0;
+
+    // Try to verify the transaction against the DB (populated by cron)
+    let verified = false;
     try {
-
-      const crypto = currency
-      const txHash = transactionId;
-      const senderAddress = walletAddress;
-
-      if (!crypto || !txHash || !senderAddress) {
-        return res.status(400).json({ error: 'Missing required fields for transaction verification' });
+      const txResult = await checkTransaction(currency, transactionId, walletAddress, cryptoAmount);
+      // checkTransaction returns the tx amount from DB if found, or { success: false } on error/not-found
+      if (txResult && typeof txResult !== 'object') {
+        verified = true; // found in DB
+      } else if (txResult && txResult.success === false) {
+        verified = false;
       }
-      // Verify the transaction using blockchain APIs
-      const result = await checkTransaction(crypto, txHash, walletAddress, cryptoAmount);
-
-      if (result === cryptoAmount) {
-        console.log('Transaction verified successfully:', result);
-      } else {
-        return res.status(400).json({ error: 'Transaction amount does not match expected amount' });
-      }
-
-      if (result.success) {
-        const purchases = await knex('CreditPurchases').insert({
-          id: Math.random().toString(36).substring(2, 10),
-          userId,
-          username,
-          email,
-          credits: amount !== undefined && amount !== null ? Math.floor(amount) : 0,
-          amountPaid: amount != null ? amount / 100 : 0,
-          currency: currency || 'USD',
-          paymentMethod: (currency || 'btc').toLowerCase(),
-          status: 'processing',
-          txHash: transactionId || null,
-          walletAddress: walletAddress || null,
-          blockExplorerLink: blockExplorerLink || null,
-          cryptoAmount: cryptoAmount || null,
-          exchangeRate: rate || null,
-          session_id: session_id || null,
-          userAgent: userAgent || null,
-          ip: ip || null,
-        });
-
-        await CreateNotification(
-          'credits_purchased',
-          'Credits Purchased',
-          `You have purchased ${packageData?.credits || credits || 0} credits for $${packageData?.dollars}.`,
-          'purchase',
-          username || 'anonymous'
-        );
-
-        res.json(purchases);
-      } else {
-        // invladid transaction
-        return res.status(400).json({ error: 'Transaction verification failed: ' + result.error });
-      }
-    } catch (error) {
-      console.error('Transaction verification error:', error);
-      return res.status(400).json({ error: 'Transaction verification failed: ' + error.message });
+    } catch (verifyErr) {
+      console.warn('Transaction verification error (treating as pending):', verifyErr.message);
     }
 
-    // Insert credits into USERDATA records
+    const status = verified ? 'verified' : 'pending';
+    const purchaseId = Math.random().toString(36).substring(2, 10);
 
-    // Update user credits
-    if (amount !== undefined && amount !== null && amount > 0) {
-      await knex('userData')
-        .where('username', username)
-        .increment('credits', Math.floor(amount));
+    await knex('CreditPurchases').insert({
+      id: purchaseId,
+      username,
+      credits: creditCount,
+      amountPaid,
+      currency: currency || 'USD',
+      paymentMethod: (currency || 'crypto').toLowerCase(),
+      status,
+      txHash: transactionId || null,
+      walletAddress: walletAddress || null,
+      cryptoAmount: cryptoAmount || null,
+      screenshot: screenshot ? screenshot.substring(0, 1048576) : null, // cap at 1MB
+    });
+
+    if (verified) {
+      // Immediately credit the user
+      await knex('userData').where('username', username).increment('credits', creditCount);
+
+      await CreateNotification(
+        'credits_purchased',
+        'Credits Purchased',
+        `Your crypto transaction was verified. ${creditCount.toLocaleString()} credits added to your account.`,
+        'purchase',
+        username
+      );
+
+      return res.json({ verified: true, credits: creditCount, message: `Transaction verified! ${creditCount.toLocaleString()} credits added.` });
+    } else {
+      // Pending manual review — credits applied by admin when confirmed
+      await CreateNotification(
+        'credits_pending',
+        'Purchase Pending Review',
+        `Your crypto purchase of ${creditCount.toLocaleString()} credits is pending verification.`,
+        'purchase',
+        username
+      );
+
+      return res.status(202).json({
+        verified: false,
+        pending: true,
+        message: 'Your transaction has been submitted for review. Credits will be applied within 24 hours once confirmed.',
+      });
     }
-
-
-
-
   } catch (error) {
     console.error('Purchases error:', error);
-    res.status(500).json({ error: 'Database error - purchase logging failed' });
+    res.status(500).json({ error: 'Server error — purchase could not be recorded' });
   }
 });
 
@@ -2881,10 +3103,8 @@ async function verifyTxOnChain(currency, txHash) {
 
 server.post(PROXY + '/api/lookup-transaction', async (req, res) => {
 
-  FetchRecentTransactionsCron();
-
-  // wait a few seconds to allow the cron job to possibly update the database
-  // await new Promise((timeout) => setTimeout(timeout, 1000)); // wait 5 seconds for the cron to possibly update the DB
+  // NOTE: transaction sync is handled by the cron job — do NOT call FetchRecentTransactionsCron() here
+  // as it causes race conditions with concurrent inserts.
 
 
   // key value pairs: ETH, BTC, LTC, SOL, XRP
@@ -3357,6 +3577,158 @@ server.post(PROXY + '/api/profile-picture/:username', authenticateToken, async (
 });
 
 
+// ─────────────────────────────────────────────
+// SCRAMBLE KEY MANAGEMENT
+// ─────────────────────────────────────────────
+
+// POST /api/keys/register — called by scrambler after key is generated
+server.post(PROXY + '/api/keys/register', authenticateToken, async (req, res) => {
+  try {
+    const { key_id, media_type = 'video', algorithm, max_uses = null, expires_at = null } = req.body;
+
+    if (!key_id) {
+      return res.status(400).json({ error: 'key_id is required' });
+    }
+
+    // Convert ISO 8601 string to MySQL datetime format (YYYY-MM-DD HH:MM:SS)
+    const mysqlExpiry = expires_at
+      ? new Date(expires_at).toISOString().replace('T', ' ').slice(0, 19)
+      : null;
+
+    // Upsert: update limits if key already exists
+    const existing = await knex('scrambleKeys').where({ key_id }).first();
+    if (existing) {
+      await knex('scrambleKeys').where({ key_id }).update({
+        max_uses: max_uses !== null ? parseInt(max_uses) : null,
+        expires_at: mysqlExpiry,
+      });
+      console.log(`🔑 Key limits updated: ${key_id}`);
+      return res.json({ success: true, key_id, message: 'Key limits updated' });
+    }
+
+    await knex('scrambleKeys').insert({
+      key_id,
+      owner_id: req.user.id,
+      owner_username: req.user.username,
+      media_type,
+      algorithm: algorithm || null,
+      max_uses: max_uses !== null ? parseInt(max_uses) : null,
+      use_count: 0,
+      expires_at: mysqlExpiry,
+      revoked: 0
+    });
+
+    console.log(`🔑 Key registered: ${key_id} by ${req.user.username}`);
+    res.json({ success: true, key_id });
+  } catch (err) {
+    console.error('❌ Key registration error:', err);
+    res.status(500).json({ error: 'Failed to register key' });
+  }
+});
+
+// POST /api/keys/validate — called by unscrambler before charging credits
+// No auth required — anyone with the key_id can check validity
+server.post(PROXY + '/api/keys/validate', async (req, res) => {
+  try {
+    const { key_id } = req.body;
+
+    if (!key_id) {
+      return res.status(400).json({ error: 'key_id is required' });
+    }
+
+    const keyRecord = await knex('scrambleKeys').where({ key_id }).first();
+
+    if (!keyRecord) {
+      // Key not in DB — it was created before this feature or is unregistered; allow it
+      return res.json({ valid: true, registered: false, reason: 'unregistered key (pre-feature)' });
+    }
+
+    if (keyRecord.revoked) {
+      return res.json({ valid: false, registered: true, reason: 'Key has been revoked' });
+    }
+
+    if (keyRecord.expires_at && new Date(keyRecord.expires_at) < new Date()) {
+      return res.json({ valid: false, registered: true, reason: 'Key has expired' });
+    }
+
+    if (keyRecord.max_uses !== null && keyRecord.use_count >= keyRecord.max_uses) {
+      return res.json({ valid: false, registered: true, reason: `Key usage limit reached (${keyRecord.max_uses} uses)` });
+    }
+
+    res.json({
+      valid: true,
+      registered: true,
+      use_count: keyRecord.use_count,
+      max_uses: keyRecord.max_uses,
+      expires_at: keyRecord.expires_at,
+      remaining_uses: keyRecord.max_uses !== null ? keyRecord.max_uses - keyRecord.use_count : null
+    });
+  } catch (err) {
+    console.error('❌ Key validation error:', err);
+    res.status(500).json({ error: 'Failed to validate key' });
+  }
+});
+
+// POST /api/keys/use — called after successful unscramble to log usage
+server.post(PROXY + '/api/keys/use', authenticateToken, async (req, res) => {
+  try {
+    const { key_id } = req.body;
+
+    if (!key_id) {
+      return res.status(400).json({ error: 'key_id is required' });
+    }
+
+    const keyRecord = await knex('scrambleKeys').where({ key_id }).first();
+
+    if (!keyRecord) {
+      // Unregistered key — nothing to update
+      return res.json({ success: true, registered: false });
+    }
+
+    if (keyRecord.revoked || (keyRecord.expires_at && new Date(keyRecord.expires_at) < new Date())) {
+      return res.status(403).json({ error: 'Key is no longer valid' });
+    }
+
+    const newCount = keyRecord.use_count + 1;
+    const shouldRevoke = keyRecord.max_uses !== null && newCount >= keyRecord.max_uses;
+
+    await knex('scrambleKeys').where({ key_id }).update({
+      use_count: newCount,
+      revoked: shouldRevoke ? 1 : 0
+    });
+
+    console.log(`🔑 Key used: ${key_id} — use_count now ${newCount}${shouldRevoke ? ' (MAXED OUT, revoked)' : ''}`);
+
+    res.json({
+      success: true,
+      use_count: newCount,
+      max_uses: keyRecord.max_uses,
+      revoked: shouldRevoke,
+      remaining_uses: keyRecord.max_uses !== null ? keyRecord.max_uses - newCount : null
+    });
+  } catch (err) {
+    console.error('❌ Key use error:', err);
+    res.status(500).json({ error: 'Failed to log key usage' });
+  }
+});
+
+// GET /api/keys/my — list keys created by the authenticated user
+server.get(PROXY + '/api/keys/my', authenticateToken, async (req, res) => {
+  try {
+    const keys = await knex('scrambleKeys')
+      .where({ owner_id: req.user.id })
+      .orderBy('created_at', 'desc')
+      .select('key_id', 'media_type', 'algorithm', 'max_uses', 'use_count', 'expires_at', 'created_at', 'revoked');
+
+    res.json({ success: true, keys });
+  } catch (err) {
+    console.error('❌ Keys list error:', err);
+    res.status(500).json({ error: 'Failed to fetch keys' });
+  }
+});
+
+// ─────────────────────────────────────────────
+
 // Basic RESTful routes for all tables
 server.get(PROXY + '/api/:table', async (req, res) => {
   try {
@@ -3435,7 +3807,7 @@ server.patch(PROXY + '/api/:table/:id', async (req, res) => {
 
 
 const walletAddressMap = {
-  BTC: 'bc1q4j9e7equq4xvlyu7tan4gdmkvze7wc0egvykr6',
+  BTC: 'bc1qu5x2gc25tdwmhrcfl0sya7kuq9k5n8dlyc5a7q',
   LTC: 'ltc1qgg5aggedmvjx0grd2k5shg6jvkdzt9dtcqa4dh',
   SOL: 'qaSpvAumg2L3LLZA8qznFtbrRKYMP1neTGqpNgtCPaU',
   ETH: '0x9a61f30347258A3D03228F363b07692F3CBb7f27',
@@ -3449,10 +3821,155 @@ const { json } = require('stream/consumers');
 const { emit } = require('process');
 const { now } = require('moment/moment');
 
-cron.schedule('*/30 * * * *', async () => {
+cron.schedule('*/5 * * * *', async () => {
+  console.log('🔄 [CryptoTxCron] Starting 30-min crypto transaction fetch via TATUM...');
+  for (const chain of Object.keys(walletAddressMap)) {
+    try {
+      await FetchRecentTransactionsCronByChain(chain);
+    } catch (err) {
+      console.error(`❌ [CryptoTxCron] Error fetching ${chain} transactions:`, err.message);
+    }
+  }
+  console.log('✅ [CryptoTxCron] Done.');
+});
 
-  FetchRecentTransactionsCron();
+// ─── Stripe Subscription Sync Cron (every 15 minutes) ────────────────────────
+cron.schedule('*/15 * * * *', async () => {
+  console.log('🔄 [SubscriptionSync] Starting scheduled Stripe subscription sync...');
 
+  const toMySQL = (ts) => ts ? new Date(ts * 1000).toISOString().slice(0, 19).replace('T', ' ') : null;
+  const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+
+  let synced = 0, skipped = 0;
+
+  try {
+    const params = {
+      limit: 100,
+      expand: ['data.customer', 'data.items.data.price'],
+      // Only fetch subscriptions updated in the last 20 minutes to avoid full scans
+      created: { gte: Math.floor(Date.now() / 1000) - 20 * 60 },
+    };
+
+    let hasMore = true;
+    let startingAfter = undefined;
+
+    while (hasMore) {
+      if (startingAfter) params.starting_after = startingAfter;
+
+      const page = await stripe.subscriptions.list(params);
+
+      for (const sub of page.data) {
+        try {
+          const customer = typeof sub.customer === 'object' ? sub.customer : null;
+          const customerId = customer?.id || sub.customer;
+          const customerEmail = customer?.email || null;
+
+          // Resolve user from DB
+          let dbUser = await knex('subscriptions')
+            .where('stripe_customer_id', customerId)
+            .select('user_id', 'username')
+            .first()
+            .catch(() => null);
+
+          if (!dbUser && customerEmail) {
+            dbUser = await knex('userData')
+              .where('email', customerEmail)
+              .select('id as user_id', 'username')
+              .first()
+              .catch(() => null);
+          }
+
+          const userId = dbUser?.user_id || null;
+          const username = dbUser?.username || null;
+
+          const priceItem = sub.items?.data?.[0];
+          const priceId = priceItem?.price?.id || null;
+          const planName = priceItem?.price?.nickname || priceItem?.price?.id || null;
+          const amountDollars = priceItem?.price?.unit_amount ? priceItem.price.unit_amount / 100 : null;
+
+          const existing = await knex('subscriptions')
+            .where('stripe_subscription_id', sub.id)
+            .select('id', 'status')
+            .first();
+
+          const subRow = {
+            user_id: userId,
+            username,
+            stripe_subscription_id: sub.id,
+            stripe_customer_id: customerId,
+            plan_id: priceId,
+            plan_name: planName,
+            status: sub.status,
+            current_period_start: toMySQL(sub.current_period_start),
+            current_period_end: toMySQL(sub.current_period_end),
+            cancel_at_period_end: sub.cancel_at_period_end ? 1 : 0,
+            canceled_at: toMySQL(sub.canceled_at),
+            trial_start: toMySQL(sub.trial_start),
+            trial_end: toMySQL(sub.trial_end),
+            updated_at: now,
+          };
+
+          let subscriptionDbId;
+
+          if (existing) {
+            const oldStatus = existing.status;
+            await knex('subscriptions').where('id', existing.id).update(subRow);
+            subscriptionDbId = existing.id;
+
+            // Only write history if status actually changed
+            if (oldStatus !== sub.status) {
+              await knex('subscription_history').insert({
+                subscription_id: subscriptionDbId,
+                stripe_subscription_id: sub.id,
+                user_id: userId,
+                username,
+                event_type: 'status_changed',
+                old_status: oldStatus,
+                new_status: sub.status,
+                amount: amountDollars,
+                currency: (sub.currency || 'usd').toUpperCase(),
+                event_data: JSON.stringify({ source: 'cron', cancel_at_period_end: sub.cancel_at_period_end }),
+              }).catch(e => console.warn('[SubscriptionSync] history warn:', e.message));
+
+              console.log(`[SubscriptionSync] Status change: ${sub.id} ${oldStatus} → ${sub.status}`);
+            }
+          } else {
+            [subscriptionDbId] = await knex('subscriptions').insert({
+              ...subRow,
+              created_at: toMySQL(sub.created),
+            });
+
+            await knex('subscription_history').insert({
+              subscription_id: subscriptionDbId,
+              stripe_subscription_id: sub.id,
+              user_id: userId,
+              username,
+              event_type: 'synced_new',
+              old_status: null,
+              new_status: sub.status,
+              amount: amountDollars,
+              currency: (sub.currency || 'usd').toUpperCase(),
+              event_data: JSON.stringify({ source: 'cron', customerId, customerEmail }),
+            }).catch(e => console.warn('[SubscriptionSync] history warn:', e.message));
+
+            console.log(`[SubscriptionSync] New subscription inserted: ${sub.id}`);
+          }
+
+          synced++;
+        } catch (rowErr) {
+          console.error(`[SubscriptionSync] Error on ${sub.id}:`, rowErr.message);
+          skipped++;
+        }
+      }
+
+      hasMore = page.has_more;
+      if (hasMore) startingAfter = page.data[page.data.length - 1].id;
+    }
+
+    console.log(`✅ [SubscriptionSync] Done — synced: ${synced}, skipped: ${skipped}`);
+  } catch (err) {
+    console.error('❌ [SubscriptionSync] Fatal error:', err.message);
+  }
 });
 
 async function FetchRecentTransactionsCron() {
@@ -3509,23 +4026,24 @@ async function FetchRecentTransactionsCron() {
           }
 
           // Insert new transaction
-          await knex(`CryptoTransactions_${chain}`).insert({
-            time: tx.time,
-            direction: tx.direction,
-            amount: tx.amount,
-            fromAddress: tx.from,
-            toAddress: tx.to,
-            hash: tx.hash
-          });
-
+          try {
+            await knex(`CryptoTransactions_${chain}`).insert({
+              time: tx.time,
+              direction: tx.direction,
+              amount: tx.amount,
+              fromAddress: tx.from,
+              toAddress: tx.to,
+              hash: transactionId
+            });
+          } catch (insertErr) {
+            if (insertErr.code !== 'ER_DUP_ENTRY') throw insertErr; // re-throw non-duplicate errors
+          }
           // console.log(`Inserted transaction ${transactionId} into CryptoTransactions_${chain}`);
         }
 
 
       } catch (e) {
-        // res.status(500).json({ error: e.message || String(e) });
-        // console.error(`❌ Error processing transactions for ${chain} address ${address}:`, e);
-        console.error(`❌ Error processing transactions for ${chain} address ${address}:`);
+        console.error(`❌ Error processing transactions for ${chain} address ${address}:`, e.message);
         continue;
       }
       // console.log(`📈 Recent transactions for ${address}:`, txs);
@@ -3613,10 +4131,8 @@ async function FetchRecentTransactionsCronByChain(cryptoChain) {
           continue;
         }
 
-        const now = new Date();
         const existingTxs = await knex(`CryptoTransactions_${chain}`)
           .where('hash', transactionId)
-          .andWhere('time', '>=', new Date(now.getTime() - 30 * 60000))
           .select('hash')
           .limit(1);
 
@@ -3625,16 +4141,21 @@ async function FetchRecentTransactionsCronByChain(cryptoChain) {
           continue;
         }
 
-        await knex(`CryptoTransactions_${chain}`).insert({
-          time: tx?.time ?? null,
-          direction: tx?.direction ?? null,
-          amount: tx?.amount ?? null,
-          fromAddress: tx?.from ?? null,
-          toAddress: tx?.to ?? null,
-          hash: transactionId
-        });
+     
 
-        inserted++;
+        try {
+          await knex(`CryptoTransactions_${chain}`).insert({
+            time: tx?.time ?? null,
+            direction: tx?.direction ?? null,
+            amount: tx?.amount ?? null,
+            fromAddress: tx?.from ?? null,
+            toAddress: tx?.to ?? null,
+            hash: transactionId
+          });
+          inserted++;
+        } catch (insertErr) {
+          if (insertErr.code === 'ER_DUP_ENTRY') { skipped++; } else { throw insertErr; }
+        }
       } catch (insertError) {
         console.error(`❌ Failed to insert ${chain} transaction:`, insertError.message);
       }
@@ -6152,8 +6673,6 @@ server.post(PROXY + '/api/payments/webhook', express.raw({ type: 'application/js
 
   let event;
 
-  // use delineate between payments and subscriptions
-
   try {
     event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
   } catch (err) {
@@ -6161,53 +6680,134 @@ server.post(PROXY + '/api/payments/webhook', express.raw({ type: 'application/js
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
-  // Handle the event
+  const toMySQL = (ts) => ts ? new Date(ts * 1000).toISOString().slice(0, 19).replace('T', ' ') : null;
+
   switch (event.type) {
-    case 'customer.subscription.updated':
-      console.log('Subscription updated event received.');
-      const updatedSubscription = event.data.object;
-      await knex('subscriptions')
-        .where('stripe_subscription_id', updatedSubscription.id)
-        .update({
-          status: updatedSubscription.status,
-          current_period_start: new Date(updatedSubscription.current_period_start * 1000),
-          current_period_end: new Date(updatedSubscription.current_period_end * 1000)
-        });
-      console.log(`✅ Subscription updated: ${updatedSubscription.id}`);
-      break;
-    case 'customer.subscription.created':
-      console.log('Subscription created event received.');
-      const subscription = event.data.object;
-      await knex('subscriptions')
-        .where('stripe_subscription_id', subscription.id)
-        .update({
-          status: subscription.status,
-          current_period_start: new Date(subscription.current_period_start * 1000),
-          current_period_end: new Date(subscription.current_period_end * 1000)
+    case 'customer.subscription.updated': {
+      const sub = event.data.object;
+      const prev = event.data.previous_attributes || {};
+      console.log(`[Webhook] subscription.updated: ${sub.id}, status: ${sub.status}`);
+
+      const existing = await knex('subscriptions')
+        .where('stripe_subscription_id', sub.id)
+        .select('id', 'status')
+        .first();
+
+      if (existing) {
+        await knex('subscriptions').where('id', existing.id).update({
+          status: sub.status,
+          current_period_start: toMySQL(sub.current_period_start),
+          current_period_end: toMySQL(sub.current_period_end),
+          cancel_at_period_end: sub.cancel_at_period_end ? 1 : 0,
+          canceled_at: toMySQL(sub.canceled_at),
+          updated_at: new Date().toISOString().slice(0, 19).replace('T', ' '),
         });
 
-      let data = {
-        "subscription_type": subtype,
-        "subscription_cost": subcost,
-        "username": username,
-        "userId": userId,
-        "name": name,
-        "email": email,
-        "transactionId": transactionId,
-      };
-
-      stripeBuyCredits(data);
-      console.log(`✅ Subscription created: ${subscription.id}`);
+        if (prev.status && prev.status !== sub.status) {
+          await knex('subscription_history').insert({
+            subscription_id: existing.id,
+            stripe_subscription_id: sub.id,
+            user_id: existing.user_id || null,
+            event_type: 'status_changed',
+            old_status: prev.status,
+            new_status: sub.status,
+            currency: (sub.currency || 'usd').toUpperCase(),
+            event_data: JSON.stringify({ cancel_at_period_end: sub.cancel_at_period_end }),
+          }).catch(e => console.warn('history warn:', e.message));
+        }
+      }
+      console.log(`✅ Subscription updated: ${sub.id}`);
       break;
+    }
 
-    case 'customer.subscription.deleted':
-      console.log('Subscription deleted event received.');
-      const deletedSub = event.data.object;
-      await knex('subscriptions')
-        .where('stripe_subscription_id', deletedSub.id)
-        .update({ status: 'canceled' });
-      console.log(`✅ Subscription cancelled: ${deletedSub.id}`);
+    case 'customer.subscription.created': {
+      const sub = event.data.object;
+      console.log(`[Webhook] subscription.created: ${sub.id}`);
+
+      const priceItem = sub.items?.data?.[0];
+      const priceId = priceItem?.price?.id || null;
+      const planName = priceItem?.price?.nickname || priceItem?.price?.product?.name || null;
+
+      // Find user by stripe_customer_id
+      const dbUser = await knex('subscriptions')
+        .where('stripe_customer_id', sub.customer)
+        .select('user_id', 'username')
+        .first()
+        .catch(() => null);
+
+      const [insertId] = await knex('subscriptions').insert({
+        user_id: dbUser?.user_id || null,
+        username: dbUser?.username || null,
+        stripe_subscription_id: sub.id,
+        stripe_customer_id: sub.customer,
+        plan_id: priceId,
+        plan_name: planName,
+        status: sub.status,
+        current_period_start: toMySQL(sub.current_period_start),
+        current_period_end: toMySQL(sub.current_period_end),
+        cancel_at_period_end: sub.cancel_at_period_end ? 1 : 0,
+        canceled_at: toMySQL(sub.canceled_at),
+        trial_start: toMySQL(sub.trial_start),
+        trial_end: toMySQL(sub.trial_end),
+        created_at: toMySQL(sub.created),
+        updated_at: toMySQL(sub.created),
+      }).catch(async (err) => {
+        // If duplicate, just return the existing id
+        if (err.code === 'ER_DUP_ENTRY') {
+          const row = await knex('subscriptions').where('stripe_subscription_id', sub.id).select('id').first();
+          return [row?.id];
+        }
+        throw err;
+      });
+
+      await knex('subscription_history').insert({
+        subscription_id: insertId,
+        stripe_subscription_id: sub.id,
+        user_id: dbUser?.user_id || null,
+        username: dbUser?.username || null,
+        event_type: 'subscription_created',
+        old_status: null,
+        new_status: sub.status,
+        amount: priceItem?.price?.unit_amount ? priceItem.price.unit_amount / 100 : null,
+        currency: (sub.currency || 'usd').toUpperCase(),
+        event_data: JSON.stringify({ customerId: sub.customer, priceId }),
+      }).catch(e => console.warn('history warn:', e.message));
+
+      console.log(`✅ Subscription created: ${sub.id}`);
       break;
+    }
+
+    case 'customer.subscription.deleted': {
+      const sub = event.data.object;
+      console.log(`[Webhook] subscription.deleted: ${sub.id}`);
+
+      const existing = await knex('subscriptions')
+        .where('stripe_subscription_id', sub.id)
+        .select('id', 'status', 'user_id', 'username')
+        .first();
+
+      if (existing) {
+        await knex('subscriptions').where('id', existing.id).update({
+          status: 'canceled',
+          canceled_at: toMySQL(sub.canceled_at) || new Date().toISOString().slice(0, 19).replace('T', ' '),
+          updated_at: new Date().toISOString().slice(0, 19).replace('T', ' '),
+        });
+
+        await knex('subscription_history').insert({
+          subscription_id: existing.id,
+          stripe_subscription_id: sub.id,
+          user_id: existing.user_id || null,
+          username: existing.username || null,
+          event_type: 'subscription_canceled',
+          old_status: existing.status,
+          new_status: 'canceled',
+          currency: (sub.currency || 'usd').toUpperCase(),
+          event_data: JSON.stringify({ canceledAt: sub.canceled_at }),
+        }).catch(e => console.warn('history warn:', e.message));
+      }
+      console.log(`✅ Subscription cancelled: ${sub.id}`);
+      break;
+    }
 
     default:
       console.log(`Unhandled event type ${event.type}`);
@@ -6223,8 +6823,6 @@ server.post(PROXY + '/api/subscription/webhook', express.raw({ type: 'applicatio
 
   let event;
 
-  // use delineate between payments and subscriptions
-
   try {
     event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
   } catch (err) {
@@ -6232,53 +6830,133 @@ server.post(PROXY + '/api/subscription/webhook', express.raw({ type: 'applicatio
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
-  // Handle the event
+  const toMySQL = (ts) => ts ? new Date(ts * 1000).toISOString().slice(0, 19).replace('T', ' ') : null;
+
   switch (event.type) {
-    case 'customer.subscription.updated':
-      console.log('Subscription updated event received.');
-      const updatedSubscription = event.data.object;
-      await knex('subscriptions')
-        .where('stripe_subscription_id', updatedSubscription.id)
-        .update({
-          status: updatedSubscription.status,
-          current_period_start: new Date(updatedSubscription.current_period_start * 1000),
-          current_period_end: new Date(updatedSubscription.current_period_end * 1000)
-        });
-      console.log(`✅ Subscription updated: ${updatedSubscription.id}`);
-      break;
-    case 'customer.subscription.created':
-      console.log('Subscription created event received.');
-      const subscription = event.data.object;
-      await knex('subscriptions')
-        .where('stripe_subscription_id', subscription.id)
-        .update({
-          status: subscription.status,
-          current_period_start: new Date(subscription.current_period_start * 1000),
-          current_period_end: new Date(subscription.current_period_end * 1000)
+    case 'customer.subscription.updated': {
+      const sub = event.data.object;
+      const prev = event.data.previous_attributes || {};
+      console.log(`[Sub Webhook] subscription.updated: ${sub.id}, status: ${sub.status}`);
+
+      const existing = await knex('subscriptions')
+        .where('stripe_subscription_id', sub.id)
+        .select('id', 'status', 'user_id', 'username')
+        .first();
+
+      if (existing) {
+        await knex('subscriptions').where('id', existing.id).update({
+          status: sub.status,
+          current_period_start: toMySQL(sub.current_period_start),
+          current_period_end: toMySQL(sub.current_period_end),
+          cancel_at_period_end: sub.cancel_at_period_end ? 1 : 0,
+          canceled_at: toMySQL(sub.canceled_at),
+          updated_at: new Date().toISOString().slice(0, 19).replace('T', ' '),
         });
 
-      let data = {
-        "subscription_type": subtype,
-        "subscription_cost": subcost,
-        "username": username,
-        "userId": userId,
-        "name": name,
-        "email": email,
-        "transactionId": transactionId,
-      };
-
-      stripeBuyCredits(data);
-      console.log(`✅ Subscription created: ${subscription.id}`);
+        if (prev.status && prev.status !== sub.status) {
+          await knex('subscription_history').insert({
+            subscription_id: existing.id,
+            stripe_subscription_id: sub.id,
+            user_id: existing.user_id || null,
+            username: existing.username || null,
+            event_type: 'status_changed',
+            old_status: prev.status,
+            new_status: sub.status,
+            currency: (sub.currency || 'usd').toUpperCase(),
+            event_data: JSON.stringify({ cancel_at_period_end: sub.cancel_at_period_end }),
+          }).catch(e => console.warn('history warn:', e.message));
+        }
+      }
+      console.log(`✅ Subscription updated: ${sub.id}`);
       break;
+    }
 
-    case 'customer.subscription.deleted':
-      console.log('Subscription deleted event received.');
-      const deletedSub = event.data.object;
-      await knex('subscriptions')
-        .where('stripe_subscription_id', deletedSub.id)
-        .update({ status: 'canceled' });
-      console.log(`✅ Subscription cancelled: ${deletedSub.id}`);
+    case 'customer.subscription.created': {
+      const sub = event.data.object;
+      console.log(`[Sub Webhook] subscription.created: ${sub.id}`);
+
+      const priceItem = sub.items?.data?.[0];
+      const priceId = priceItem?.price?.id || null;
+      const planName = priceItem?.price?.nickname || priceItem?.price?.product?.name || null;
+
+      const dbUser = await knex('subscriptions')
+        .where('stripe_customer_id', sub.customer)
+        .select('user_id', 'username')
+        .first()
+        .catch(() => null);
+
+      const [insertId] = await knex('subscriptions').insert({
+        user_id: dbUser?.user_id || null,
+        username: dbUser?.username || null,
+        stripe_subscription_id: sub.id,
+        stripe_customer_id: sub.customer,
+        plan_id: priceId,
+        plan_name: planName,
+        status: sub.status,
+        current_period_start: toMySQL(sub.current_period_start),
+        current_period_end: toMySQL(sub.current_period_end),
+        cancel_at_period_end: sub.cancel_at_period_end ? 1 : 0,
+        canceled_at: toMySQL(sub.canceled_at),
+        trial_start: toMySQL(sub.trial_start),
+        trial_end: toMySQL(sub.trial_end),
+        created_at: toMySQL(sub.created),
+        updated_at: toMySQL(sub.created),
+      }).catch(async (err) => {
+        if (err.code === 'ER_DUP_ENTRY') {
+          const row = await knex('subscriptions').where('stripe_subscription_id', sub.id).select('id').first();
+          return [row?.id];
+        }
+        throw err;
+      });
+
+      await knex('subscription_history').insert({
+        subscription_id: insertId,
+        stripe_subscription_id: sub.id,
+        user_id: dbUser?.user_id || null,
+        username: dbUser?.username || null,
+        event_type: 'subscription_created',
+        old_status: null,
+        new_status: sub.status,
+        amount: priceItem?.price?.unit_amount ? priceItem.price.unit_amount / 100 : null,
+        currency: (sub.currency || 'usd').toUpperCase(),
+        event_data: JSON.stringify({ customerId: sub.customer, priceId }),
+      }).catch(e => console.warn('history warn:', e.message));
+
+      console.log(`✅ Subscription created: ${sub.id}`);
       break;
+    }
+
+    case 'customer.subscription.deleted': {
+      const sub = event.data.object;
+      console.log(`[Sub Webhook] subscription.deleted: ${sub.id}`);
+
+      const existing = await knex('subscriptions')
+        .where('stripe_subscription_id', sub.id)
+        .select('id', 'status', 'user_id', 'username')
+        .first();
+
+      if (existing) {
+        await knex('subscriptions').where('id', existing.id).update({
+          status: 'canceled',
+          canceled_at: toMySQL(sub.canceled_at) || new Date().toISOString().slice(0, 19).replace('T', ' '),
+          updated_at: new Date().toISOString().slice(0, 19).replace('T', ' '),
+        });
+
+        await knex('subscription_history').insert({
+          subscription_id: existing.id,
+          stripe_subscription_id: sub.id,
+          user_id: existing.user_id || null,
+          username: existing.username || null,
+          event_type: 'subscription_canceled',
+          old_status: existing.status,
+          new_status: 'canceled',
+          currency: (sub.currency || 'usd').toUpperCase(),
+          event_data: JSON.stringify({ canceledAt: sub.canceled_at }),
+        }).catch(e => console.warn('history warn:', e.message));
+      }
+      console.log(`✅ Subscription cancelled: ${sub.id}`);
+      break;
+    }
 
     default:
       console.log(`Unhandled event type ${event.type}`);
@@ -6826,7 +7504,7 @@ server.get(PROXY + '/api/get-stripe-subscription', async (req, res) => {
       const subscriptions = await stripe.subscriptions.list({
         customer: customerId,
         limit: 100,
-        expand: ['data.items.data.price.product', 'data.customer', 'data.latest_invoice']
+        expand: ['data.items.data.price', 'data.customer', 'data.latest_invoice']
       });
 
       return res.json({
@@ -6861,7 +7539,7 @@ server.get(PROXY + '/api/get-stripe-subscription', async (req, res) => {
       const subscriptions = await stripe.subscriptions.list({
         customer: customer.id,
         limit: 100,
-        expand: ['data.items.data.price.product', 'data.customer', 'data.latest_invoice']
+        expand: ['data.items.data.price', 'data.customer', 'data.latest_invoice']
       });
 
       return res.json({
@@ -6912,7 +7590,7 @@ server.get(PROXY + '/api/get-stripe-subscriptions-all', async (req, res) => {
 
     const params = {
       limit: Math.min(parseInt(limit), 100), // Cap at 100
-      expand: ['data.items.data.price.product', 'data.customer', 'data.latest_invoice']
+      expand: ['data.items.data.price', 'data.customer', 'data.latest_invoice']
     };
 
     // Filter by status if provided (active, canceled, incomplete, etc.)
@@ -6961,6 +7639,149 @@ server.get(PROXY + '/api/get-stripe-subscriptions-all', async (req, res) => {
       error: error.message || 'Failed to fetch subscriptions',
       status: 'server_error'
     });
+  }
+});
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Sync ALL Stripe subscriptions into the local DB (admin / one-off repair)
+// POST /api/sync-stripe-subscriptions
+// Body (optional): { statusFilter: 'active' }  — omit to sync all statuses
+// ─────────────────────────────────────────────────────────────────────────────
+server.post(PROXY + '/api/sync-stripe-subscriptions', authenticateToken, async (req, res) => {
+  const { statusFilter } = req.body; // e.g. 'active', 'canceled', or omit for all
+
+  const toMySQL = (ts) => ts ? new Date(ts * 1000).toISOString().slice(0, 19).replace('T', ' ') : null;
+
+  let synced = 0, skipped = 0, errors = [];
+
+  try {
+    const params = {
+      limit: 100,
+      expand: ['data.customer', 'data.items.data.price'],
+    };
+    if (statusFilter) params.status = statusFilter;
+
+    let hasMore = true;
+    let startingAfter = undefined;
+
+    while (hasMore) {
+      if (startingAfter) params.starting_after = startingAfter;
+
+      const page = await stripe.subscriptions.list(params);
+
+      for (const sub of page.data) {
+        try {
+          const customer = typeof sub.customer === 'object' ? sub.customer : null;
+          const customerEmail = customer?.email || null;
+          const customerId = customer?.id || sub.customer;
+
+          // Try to find the user in our DB by stripe_customer_id or email
+          let dbUser = null;
+          if (customerId) {
+            dbUser = await knex('subscriptions')
+              .where('stripe_customer_id', customerId)
+              .select('user_id', 'username')
+              .first();
+          }
+          if (!dbUser && customerEmail) {
+            dbUser = await knex('userData')
+              .where('email', customerEmail)
+              .select('id as user_id', 'username')
+              .first();
+          }
+
+          const userId = dbUser?.user_id || null;
+          const username = dbUser?.username || null;
+
+          const priceItem = sub.items?.data?.[0];
+          const priceId = priceItem?.price?.id || null;
+          const planName = priceItem?.price?.nickname || priceItem?.price?.id || null;
+
+          // Upsert into subscriptions table
+          const existing = await knex('subscriptions')
+            .where('stripe_subscription_id', sub.id)
+            .select('id', 'status')
+            .first();
+
+          const subRow = {
+            user_id: userId,
+            username,
+            stripe_subscription_id: sub.id,
+            stripe_customer_id: customerId,
+            plan_id: priceId,
+            plan_name: planName,
+            status: sub.status,
+            current_period_start: toMySQL(sub.current_period_start),
+            current_period_end: toMySQL(sub.current_period_end),
+            cancel_at_period_end: sub.cancel_at_period_end ? 1 : 0,
+            canceled_at: toMySQL(sub.canceled_at),
+            trial_start: toMySQL(sub.trial_start),
+            trial_end: toMySQL(sub.trial_end),
+            created_at: toMySQL(sub.created),
+            updated_at: toMySQL(sub.created),
+          };
+
+          let subscriptionDbId;
+          if (existing) {
+            const oldStatus = existing.status;
+            await knex('subscriptions').where('id', existing.id).update({
+              ...subRow,
+              updated_at: new Date().toISOString().slice(0, 19).replace('T', ' '),
+            });
+            subscriptionDbId = existing.id;
+
+            // Log status change to history if status changed
+            if (oldStatus !== sub.status) {
+              await knex('subscription_history').insert({
+                subscription_id: subscriptionDbId,
+                stripe_subscription_id: sub.id,
+                user_id: userId,
+                username,
+                event_type: 'status_changed',
+                old_status: oldStatus,
+                new_status: sub.status,
+                amount: priceItem?.price?.unit_amount ? priceItem.price.unit_amount / 100 : null,
+                currency: (sub.currency || 'usd').toUpperCase(),
+                event_data: JSON.stringify({ source: 'sync', stripeStatus: sub.status }),
+              }).catch(e => console.warn('history insert warn:', e.message));
+            }
+          } else {
+            [subscriptionDbId] = await knex('subscriptions').insert(subRow);
+
+            // Log initial sync to history
+            await knex('subscription_history').insert({
+              subscription_id: subscriptionDbId,
+              stripe_subscription_id: sub.id,
+              user_id: userId,
+              username,
+              event_type: 'synced',
+              old_status: null,
+              new_status: sub.status,
+              amount: priceItem?.price?.unit_amount ? priceItem.price.unit_amount / 100 : null,
+              currency: (sub.currency || 'usd').toUpperCase(),
+              event_data: JSON.stringify({ source: 'sync', customerId, customerEmail }),
+            }).catch(e => console.warn('history insert warn:', e.message));
+          }
+
+          synced++;
+        } catch (rowErr) {
+          console.error(`[Sync] Error processing subscription ${sub.id}:`, rowErr.message);
+          errors.push({ id: sub.id, error: rowErr.message });
+          skipped++;
+        }
+      }
+
+      hasMore = page.has_more;
+      if (hasMore) startingAfter = page.data[page.data.length - 1].id;
+    }
+
+    console.log(`[Sync] Done — synced: ${synced}, skipped: ${skipped}`);
+    return res.json({ success: true, synced, skipped, errors });
+
+  } catch (error) {
+    console.error('[Sync] Fatal error:', error.message);
+    return res.status(500).json({ success: false, error: error.message, synced, skipped });
   }
 });
 
@@ -7157,113 +7978,121 @@ async function stripeBuySubscription(data) {
       userId,
       name,
       email,
-      walletAddress,
       transactionId,
       stripe_subscription_id,
       stripe_customer_id,
       priceId,
       label,
-      blockExplorerLink,
       currency,
-      amount,
-      cryptoAmount,
-      rate,
-      session_id,
-      orderLoggingEnabled,
-      userAgent,
-      ip,
       dollars,
       planType,
       plan,
-      credits
+      credits,
+      session_id,
+      userAgent,
+      ip,
     } = data;
 
-    console.log('💰 Logging Stripe purchase for user:', username);
+    console.log('💰 Logging Stripe subscription purchase for user:', username);
+    console.log('data: ', data);
 
+    const toMySQL = (ts) => ts ? new Date(ts * 1000).toISOString().slice(0, 19).replace('T', ' ') : null;
+    const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
 
-    console.log("data: ", data)
-
-
-    // check for duplicate transactionId
+    // ── Duplicate check ──────────────────────────────────────────────────────
     if (transactionId) {
       const existing = await knex('CreditPurchases')
         .where('stripePaymentIntentId', transactionId)
-        .select('id');
-      if (existing.length > 0) {
+        .select('id')
+        .first();
+      if (existing) {
         console.log('⚠️  Duplicate transaction ID detected:', transactionId);
-        return ({ error: 'Duplicate transaction ID' });
+        return { error: 'Duplicate transaction ID' };
       }
     }
 
-    // Basic validation
+    // ── Fetch real subscription data from Stripe ─────────────────────────────
+    let stripeSub = null;
+    let realPeriodStart = null, realPeriodEnd = null;
+    let realPriceId = priceId, realPlanName = label;
+
+    if (stripe_subscription_id && stripe_subscription_id.startsWith('sub_')) {
+      try {
+        stripeSub = await stripe.subscriptions.retrieve(stripe_subscription_id, {
+          expand: ['items.data.price.product'],
+        });
+        realPeriodStart = toMySQL(stripeSub.current_period_start);
+        realPeriodEnd   = toMySQL(stripeSub.current_period_end);
+        realPriceId     = stripeSub.items?.data?.[0]?.price?.id || priceId;
+        realPlanName    = stripeSub.items?.data?.[0]?.price?.product?.name
+                       || stripeSub.items?.data?.[0]?.price?.nickname
+                       || label;
+        console.log(`✅ Retrieved Stripe subscription: ${stripe_subscription_id}, status: ${stripeSub.status}`);
+      } catch (stripeErr) {
+        console.warn(`⚠️ Could not retrieve Stripe subscription ${stripe_subscription_id}:`, stripeErr.message);
+      }
+    } else {
+      // Fall back to calculated dates
+      const currentTime = Math.floor(Date.now() / 1000);
+      realPeriodStart = toMySQL(currentTime);
+      realPeriodEnd   = toMySQL(currentTime + 30 * 24 * 60 * 60);
+    }
+
     try {
-      // upload payment details to sql backend
+      // ── Upsert subscriptions row ─────────────────────────────────────────
+      const existingSub = await knex('subscriptions')
+        .where('stripe_subscription_id', stripe_subscription_id)
+        .select('id', 'status')
+        .first();
 
-      // if (result.success) {
-
-      console.log('✅ Logging purchase for user:', username);
-
-      // CREATE TABLE
-      // `subscriptions` (
-      //   `id` bigint NOT NULL AUTO_INCREMENT,
-      //   `user_id` bigint NOT NULL,
-      //   `stripe_subscription_id` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-      //   `stripe_customer_id` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-      //   `plan_id` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-      //   `plan_name` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-      //   `status` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-      //   `current_period_start` timestamp NULL DEFAULT NULL,
-      //   `current_period_end` timestamp NULL DEFAULT NULL,
-      //   `cancel_at_period_end` tinyint(1) DEFAULT '0',
-      //   `canceled_at` timestamp NULL DEFAULT NULL,
-      //   `trial_start` timestamp NULL DEFAULT NULL,
-      //   `trial_end` timestamp NULL DEFAULT NULL,
-      //   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
-      //   `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      //   PRIMARY KEY (`id`),
-      //   UNIQUE KEY `stripe_subscription_id` (`stripe_subscription_id`),
-      //   UNIQUE KEY `unique_user_subscription` (`user_id`, `status`),
-
-      // Helper function to convert timestamp to MySQL datetime format
-      const toMySQLDateTime = (timestamp) => {
-        return new Date(timestamp).toISOString().slice(0, 19).replace('T', ' ');
-      };
-
-      const currentTime = Date.now();
-      const periodEndTime = currentTime + 30 * 24 * 60 * 60 * 1000;
-
-      const [subscriptionInsertId] = await knex('subscriptions').insert({
+      let subscriptionDbId;
+      const subRow = {
         username,
         user_id: userId,
-        stripe_subscription_id,
-        stripe_customer_id,
-        plan_id: priceId,
-        plan_name: label,
-        status: 'active',
-        current_period_start: toMySQLDateTime(currentTime),
-        current_period_end: toMySQLDateTime(periodEndTime),
-        cancel_at_period_end: 0,
-        canceled_at: null,
-        trial_start: null,
-        trial_end: null,
-        created_at: toMySQLDateTime(currentTime),
-        updated_at: toMySQLDateTime(currentTime)
-      });
-      const subscription = { insertId: subscriptionInsertId };
+        stripe_subscription_id: stripe_subscription_id || null,
+        stripe_customer_id: stripe_customer_id || null,
+        plan_id: realPriceId,
+        plan_name: realPlanName,
+        status: stripeSub?.status || 'active',
+        current_period_start: realPeriodStart,
+        current_period_end: realPeriodEnd,
+        cancel_at_period_end: stripeSub?.cancel_at_period_end ? 1 : 0,
+        canceled_at: stripeSub ? toMySQL(stripeSub.canceled_at) : null,
+        trial_start: stripeSub ? toMySQL(stripeSub.trial_start) : null,
+        trial_end: stripeSub ? toMySQL(stripeSub.trial_end) : null,
+        created_at: now,
+        updated_at: now,
+      };
 
-      function convertUTCtoMySQLDatetime(utcSeconds) {
-        const date = new Date(utcSeconds * 1000);
-        return date.toISOString().slice(0, 19).replace('T', ' ');
+      if (existingSub) {
+        await knex('subscriptions').where('id', existingSub.id).update({ ...subRow, updated_at: now });
+        subscriptionDbId = existingSub.id;
+      } else {
+        [subscriptionDbId] = await knex('subscriptions').insert(subRow);
       }
 
+      // ── Write to subscription_history ────────────────────────────────────
+      await knex('subscription_history').insert({
+        subscription_id: subscriptionDbId,
+        stripe_subscription_id: stripe_subscription_id || null,
+        user_id: userId,
+        username,
+        event_type: 'subscription_created',
+        old_status: null,
+        new_status: stripeSub?.status || 'active',
+        amount: dollars || null,
+        currency: (currency || 'usd').toUpperCase(),
+        event_data: JSON.stringify({ transactionId, priceId: realPriceId, planType, plan }),
+      }).catch(e => console.warn('⚠️ subscription_history insert (non-fatal):', e.message));
 
+      // ── CreditPurchases row ──────────────────────────────────────────────
       const [purchaseInsertId] = await knex('CreditPurchases').insert({
         id: Math.random().toString(36).substring(2, 10),
         userId,
         username,
         email,
         name: name || null,
-        credits: credits !== undefined && credits !== null ? Math.floor(credits) / 2 : 0,
+        credits: credits != null ? Math.floor(credits / 2) : 0,
         package: 'custom',
         amountPaid: dollars || 0,
         amount: Math.round((dollars || 0) * 100),
@@ -7279,9 +8108,8 @@ async function stripeBuySubscription(data) {
         time: new Date().toISOString(),
         rate: null,
       });
-      const purchases = { insertId: purchaseInsertId };
 
-      // Log raw payment event to stripeTransactions
+      // ── stripeTransactions audit row ─────────────────────────────────────
       await knex('stripeTransactions').insert({
         stripeObjectType: 'invoice',
         stripePaymentIntentId: transactionId || null,
@@ -7294,42 +8122,43 @@ async function stripeBuySubscription(data) {
         customerEmail: email || null,
         customerName: name || null,
         description: `${planType} subscription`,
-        metadata: JSON.stringify({ userId, username, planType, priceId }),
+        metadata: JSON.stringify({ userId, username, planType, priceId: realPriceId }),
         livemode: process.env.NODE_ENV === 'production' ? 1 : 0,
-        syncedAt: new Date().toISOString().slice(0, 19).replace('T', ' '),
-        stripeCreatedAt: new Date().toISOString().slice(0, 19).replace('T', ' '),
-      }).catch(err => console.warn('⚠️ stripeTransactions insert (non-fatal):', err.message));
+        syncedAt: now,
+        stripeCreatedAt: now,
+      }).catch(e => console.warn('⚠️ stripeTransactions insert (non-fatal):', e.message));
+
+      // ── Credits + accountType update ─────────────────────────────────────
+      const bonusCredits = credits != null ? Math.floor(credits / 2) : 0;
+      if (bonusCredits > 0) {
+        await knex('userData')
+          .where('username', username)
+          .update({
+            credits: knex.raw('credits + ?', [bonusCredits]),
+            accountType: planType,
+          });
+      } else {
+        await knex('userData').where('username', username).update({ accountType: planType });
+      }
 
       await CreateNotification(
         'subscription_activated',
         'Subscription Activated',
-        `Your ${plan} plan ($${dollars}/month) is now active. You received ${credits !== undefined && credits !== null ? Math.floor(credits) / 2 : 0} bonus credits.`,
+        `Your ${plan} plan ($${dollars}/month) is now active.${bonusCredits > 0 ? ` You received ${bonusCredits} bonus credits.` : ''}`,
         'purchase',
         username || 'anonymous'
       );
 
-      // Insert credits into USERDATA records
-
-      // Update user credits
-      if (credits !== undefined && credits !== null && credits > 0) {
-        await knex('userData')
-          .where('username', username)
-          .update({
-            credits: knex.raw('credits + ?', [Math.floor(credits) / 2]),
-            accountType: planType
-          });
-      }
-
-      return ({ success: true, purchases, subscription });
+      return { success: true, subscriptionDbId, purchaseInsertId };
 
     } catch (error) {
-      console.error('Transaction verification error:', error);
-      return ({ error: 'Transaction verification failed: ' + error.message });
+      console.error('stripeBuySubscription inner error:', error);
+      return { error: 'Transaction logging failed: ' + error.message };
     }
 
   } catch (error) {
-    console.error('Purchases error:', error);
-    return ({ error: 'Database error - purchase logging failed' });
+    console.error('stripeBuySubscription error:', error);
+    return { error: 'Database error - subscription logging failed' };
   }
 
 }

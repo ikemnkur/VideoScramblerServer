@@ -2840,7 +2840,7 @@ server.get(PROXY + '/api/CreditPurchases', authenticateToken, async (req, res) =
 
 // ── Receiving wallet addresses (one per supported chain) ─────────────────────
 const RECEIVING_WALLETS = {
-  BTC: process.env.WALLET_BTC || 'bc1q4j9e7equq4xvlyu7tan4gdmkvze7wc0egvykr6',
+  BTC: process.env.WALLET_BTC || 'bc1qu5x2gc25tdwmhrcfl0sya7kuq9k5n8dlyc5a7q',
   ETH: process.env.WALLET_ETH || '0x9a61f30347258A3D03228F363b07692F3CBb7f27',
   LTC: process.env.WALLET_LTC || 'ltc1qgg5aggedmvjx0grd2k5shg6jvkdzt9dtcqa4dh',
   SOL: process.env.WALLET_SOL || 'qaSpvAumg2L3LLZA8qznFtbrRKYMP1neTGqpNgtCPaU',
@@ -3131,7 +3131,7 @@ server.post(PROXY + '/api/purchases/:username', authenticateToken, async (req, r
 });
 
 const CURRENCIES = [
-  { symbol: 'BTC', name: 'Bitcoin',   coinId: 'bitcoin',  address: 'bc1q4j9e7equq4xvlyu7tan4gdmkvze7wc0egvykr6' },
+  { symbol: 'BTC', name: 'Bitcoin',   coinId: 'bitcoin',  address: 'bc1qu5x2gc25tdwmhrcfl0sya7kuq9k5n8dlyc5a7q' },
   { symbol: 'ETH', name: 'Ethereum',  coinId: 'ethereum', address: '0x9a61f30347258A3D03228F363b07692F3CBb7f27' },
   { symbol: 'LTC', name: 'Litecoin',  coinId: 'litecoin', address: 'ltc1qgg5aggedmvjx0grd2k5shg6jvkdzt9dtcqa4dh' },
   { symbol: 'SOL', name: 'Solana',    coinId: 'solana',   address: 'qaSpvAumg2L3LLZA8qznFtbrRKYMP1neTGqpNgtCPaU' },
@@ -4265,7 +4265,7 @@ server.post(PROXY + '/api/profile-picture/:username', authenticateToken, async (
 
 
 const walletAddressMap = {
-  BTC: 'bc1q4j9e7equq4xvlyu7tan4gdmkvze7wc0egvykr6',
+  BTC: 'bc1qu5x2gc25tdwmhrcfl0sya7kuq9k5n8dlyc5a7q',
   LTC: 'ltc1qgg5aggedmvjx0grd2k5shg6jvkdzt9dtcqa4dh',
   SOL: 'qaSpvAumg2L3LLZA8qznFtbrRKYMP1neTGqpNgtCPaU',
   ETH: '0x9a61f30347258A3D03228F363b07692F3CBb7f27',
@@ -4346,7 +4346,7 @@ async function FetchRecentTransactionsCronByChain(cryptoChain) {
 
   
 const walletAddressMap = {
-  BTC: 'bc1q4j9e7equq4xvlyu7tan4gdmkvze7wc0egvykr6',
+  BTC: 'bc1qu5x2gc25tdwmhrcfl0sya7kuq9k5n8dlyc5a7q',
   LTC: 'ltc1qgg5aggedmvjx0grd2k5shg6jvkdzt9dtcqa4dh',
   SOL: 'qaSpvAumg2L3LLZA8qznFtbrRKYMP1neTGqpNgtCPaU',
   ETH: '0x9a61f30347258A3D03228F363b07692F3CBb7f27',
