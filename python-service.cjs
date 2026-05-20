@@ -163,7 +163,24 @@ async function scramblePhoto(data) {
     '--noise_mode', String(noise_mode),
   ];
 
-  await runPython('scramble_photo.py', args);
+  // For unscramble: pass --params-path when the .params.json file is available
+  // alongside the scrambled image (in outputs/ or inputs/).  This lets the Python
+  // script load all scramble params directly instead of relying on the caller
+  // passing the correct rows/cols/percentage/noise values.
+  if (mode === 'unscramble') {
+    const paramsFilename = path.parse(input).name + '.params.json';
+    const paramsInOutputs = path.join(OUTPUTS_DIR, paramsFilename);
+    const paramsInInputs  = path.join(INPUTS_DIR,  paramsFilename);
+    if (fs.existsSync(paramsInOutputs)) {
+      args.push('--params-path', paramsInOutputs);
+      console.log(`📄 Using params file: ${paramsInOutputs}`);
+    } else if (fs.existsSync(paramsInInputs)) {
+      args.push('--params-path', paramsInInputs);
+      console.log(`📄 Using params file: ${paramsInInputs}`);
+    }
+  }
+
+  await runPython('scramble_photo_v2.py', args);
 
   if (!fs.existsSync(outputPath)) throw { status: 500, error: 'Output file was not created' };
 
@@ -195,8 +212,8 @@ async function unscramblePhoto(data) {
       mode: 'unscramble',
       algorithm: params.algorithm || 'position',
       percentage: params.percentage ?? 100,
-      rows: params.rows,
-      cols: params.cols,
+      rows: params.n ?? params.rows,      // params JSON uses 'n' for rows
+      cols: params.m ?? params.cols,      // params JSON uses 'm' for cols
       noise_seed: params.noise_seed,
       noise_intensity: params.noise_intensity,
       noise_mode: params.noise_mode,
@@ -239,12 +256,18 @@ async function scramblePhotoPro(data) {
     '--cols', String(cols),
     '--mode', mode,
     '--blur-ksize', String(percentage),
-    '--noise_seed', String(noise_seed),
-    '--noise_intensity', String(noise_intensity),
     '--watermark-rows', '2',
   ];
 
-  await runPython('scramble_photo2x_blur.py', args);
+  // Only pass noise args when they are valid numbers (avoids sending "undefined" to Python)
+  if (noise_intensity != null && !Number.isNaN(Number(noise_intensity))) {
+    args.push('--noise_intensity', String(noise_intensity));
+  }
+  if (noise_seed != null && !Number.isNaN(Number(noise_seed))) {
+    args.push('--noise_seed', String(noise_seed));
+  }
+
+  await runPython('scramble_photo_pro.py', args);
 
   if (!fs.existsSync(outputPath)) throw { status: 500, error: 'Output file was not created' };
 
@@ -269,13 +292,12 @@ async function unscramblePhotoPro(data) {
       output: outputName,
       seed: params.seed ?? 123456,
       mode: 'unscramble',
-      'blur-ksize': params.percentage ?? 100,
+      percentage: params.blur_ksize ?? params.percentage ?? 100,
       rows: params.rows,
       cols: params.cols,
       noise_seed: params.noise_seed,
       noise_intensity: params.noise_intensity,
       noise_prng: params.noise_prng,
-      percentage: params.percentage ?? 100,
     };
   } else {
     data.mode = 'unscramble';
@@ -407,7 +429,7 @@ async function scrambleVideoPro(data) {
     '--blur-ksize', String(blur_ksize),
   ];
 
-  await runPython('scramble_video2x_blur.py', args, 300_000);
+  await runPython('scramble_video_pro.py', args, 300_000);
 
   if (!fs.existsSync(outputPath)) throw { status: 500, error: 'Output file was not created' };
 

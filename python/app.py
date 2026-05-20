@@ -6,8 +6,8 @@ import subprocess
 from time import time
 from flask import Flask, send_from_directory, current_app, request, jsonify, redirect, url_for
 from flask_cors import CORS
-# from scramble_photo2x_blur
-# from scramble_video2x_blur
+# from scramble_photo_pro
+# from scramble_video_pro
 from werkzeug.utils import secure_filename
 from config import UPLOAD_FOLDER, OUTPUTS_FOLDER
 import secrets
@@ -1312,7 +1312,7 @@ def scramble_photo_pro():
         cols = data.get('cols', 6)
         print(f"  - Position algorithm: rows={rows}, cols={cols}")
         cmd = [
-            PYTHON_CMD, 'scramble_photo2x_blur.py',
+            PYTHON_CMD, 'scramble_photo_pro.py',
             '--input', input_path,
             '--output', output_path,
             '--seed', str(seed),
@@ -1554,7 +1554,7 @@ def scramble_video_pro():
         # if percentage < 100:
             # print("⚠️  FLASK WARNING: Partial percentage scrambling for videos may lead to unexpected results.")
         cmd = [
-            PYTHON_CMD, 'scramble_video2x_blur.py',
+            PYTHON_CMD, 'scramble_video_pro.py',
 
             # HPF with all options
             # -i video.mp4 

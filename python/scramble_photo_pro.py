@@ -421,16 +421,26 @@ def hpf_scramble_frame(frame: np.ndarray, n: int, m: int,
     else:
         out[center_y:center_y + lpf_h, center_x:center_x + lpf_w] = lpf[:lpf_h, :lpf_w]
 
-    # 5. Place HPF tiles on left/right border according to scramble permutation
+    # 5. Place HPF tiles on left/right border according to scramble permutation.
+    #    Each tile is also flipped based on src_idx % 4 for extra obfuscation:
+    #      0 = no flip, 1 = horizontal, 2 = vertical, 3 = both axes (180°)
     for dest_idx in range(min(N, len(border_positions))):
         src_idx = perm_dest_to_src_0[dest_idx]
+        tile = hpf_tiles[src_idx].copy()
+        flip_mode = src_idx % 4
+        if flip_mode == 1:
+            tile = cv2.flip(tile, 1)   # horizontal mirror
+        elif flip_mode == 2:
+            tile = cv2.flip(tile, 0)   # vertical mirror
+        elif flip_mode == 3:
+            tile = cv2.flip(tile, -1)  # both axes (rotate 180°)
         br, bc = border_positions[dest_idx]
         y0 = br * tile_h
         x0 = bc * tile_w
         if has_channels:
-            out[y0:y0 + tile_h, x0:x0 + tile_w, :] = hpf_tiles[src_idx]
+            out[y0:y0 + tile_h, x0:x0 + tile_w, :] = tile
         else:
-            out[y0:y0 + tile_h, x0:x0 + tile_w] = hpf_tiles[src_idx]
+            out[y0:y0 + tile_h, x0:x0 + tile_w] = tile
 
     return out
 
@@ -459,8 +469,8 @@ def hpf_unscramble_frame(frame: np.ndarray, n: int, m: int,
     lpf_w = m * tile_w
     lpf = frame[center_y:center_y + lpf_h, center_x:center_x + lpf_w].copy()
 
-    # 2. Extract HPF tiles from border and place back in original order
-    # perm[dest_idx] = src_idx means border position dest_idx holds original tile src_idx
+    # 2. Extract HPF tiles from border and place back in original order.
+    #    Undo the src_idx % 4 flip that was applied during scramble (flip is self-inverse).
     hpf_tiles = [None] * N
     for dest_idx in range(min(N, len(border_positions))):
         src_idx = perm_dest_to_src_0[dest_idx]
@@ -468,6 +478,14 @@ def hpf_unscramble_frame(frame: np.ndarray, n: int, m: int,
         y0 = br * tile_h
         x0 = bc * tile_w
         tile = frame[y0:y0 + tile_h, x0:x0 + tile_w].copy()
+        # Undo the flip (flip is self-inverse, same operation reverses it)
+        flip_mode = src_idx % 4
+        if flip_mode == 1:
+            tile = cv2.flip(tile, 1)
+        elif flip_mode == 2:
+            tile = cv2.flip(tile, 0)
+        elif flip_mode == 3:
+            tile = cv2.flip(tile, -1)
         hpf_tiles[src_idx] = tile  # place back in original position
 
     # 3. Reassemble HPF image from tiles in original order
@@ -797,20 +815,6 @@ def process_photo(input_path: str,
 
     if width <= 0 or height <= 0:
         raise RuntimeError("Invalid photo dimensions")
-    
-    # Generate noise offsets if noise is enabled
-    noise_offsets = None
-    if noise_intensity > 0:
-        # Auto-scale tile size from image dimensions: min(512, max(64, min(w, h) // 4))
-        # e.g. 720p -> 180, 1080p -> 270, 4K -> 512
-        if noise_tile_size is None:
-            noise_tile_size = min(512, max(64, min(width, height) // 4))
-        else:
-            noise_tile_size = noise_tile_size or 16
-        # Use a different seed for noise (seed + 999) to keep it separate from scrambling
-        _noise_seed = (seed if seed is not None else gen_random_seed()) + 999
-        noise_offsets = generate_noise_tile_offsets(noise_tile_size, _noise_seed, noise_intensity)
-        print(f"Noise enabled: intensity={noise_intensity}, tile_size={noise_tile_size}")
 
     # If rows/cols missing, choose them based on aspect ratio
     if rows is None or cols is None:
@@ -867,6 +871,21 @@ def process_photo(input_path: str,
         print(f"  Output (restored):  {out_width}x{out_height}")
     else:
         raise ValueError("mode must be 'scramble' or 'unscramble'")
+
+    # Generate noise offsets AFTER HPF setup so we always use the ORIGINAL (pre-scramble)
+    # image dimensions (hpf_orig_w / hpf_orig_h). This ensures noise_tile_size is identical
+    # for scramble and unscramble even though the scrambled image is physically larger.
+    noise_offsets = None
+    if noise_intensity > 0:
+        if noise_tile_size is None:
+            # Derive from original dims: min(512, max(64, min(orig_w, orig_h) // 4))
+            noise_tile_size = min(512, max(64, min(hpf_orig_w, hpf_orig_h) // 4))
+        else:
+            noise_tile_size = noise_tile_size or 16
+        # Use seed+999 for noise so it's separate from the scramble permutation seed
+        _noise_seed = seed + 999
+        noise_offsets = generate_noise_tile_offsets(noise_tile_size, _noise_seed, noise_intensity)
+        print(f"Noise enabled: intensity={noise_intensity}, tile_size={noise_tile_size}")
 
     # Process the single frame (HPF algorithm)
     if mode == "scramble":

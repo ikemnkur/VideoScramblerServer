@@ -4980,7 +4980,7 @@ server.post(PROXY + '/api/upload-drop-media', authenticateToken, async (req, res
 
 server.post('/api/analytics/unscramble-event', async (req, res) => {
   try {
-    const { username, userId, actionCost, unscrambleKey, mediaDetails, watermarkParams, scrambleType } = req.body;
+    const { username, userId, actionCost, unscrambleKey, mediaDetails, watermarkParams, scrambleType, fingerprint } = req.body;
 
     console.log('📊 Log unscramble event:', {
       "username": username,
@@ -4990,7 +4990,8 @@ server.post('/api/analytics/unscramble-event', async (req, res) => {
       "unscrambleKey": unscrambleKey,
       "mediaDetails": mediaDetails,
       "watermarkParams": watermarkParams,
-      "scrambleType": scrambleType
+      "scrambleType": scrambleType,
+      "fingerprint": fingerprint
     });
 
     let creator = JSON.parse(unscrambleKey)?.creator || 'unknown';
@@ -5017,7 +5018,8 @@ server.post('/api/analytics/unscramble-event', async (req, res) => {
         action_cost: actionCost || 'unknown',
         keyData: unscrambleKey ? JSON.stringify(unscrambleKey) : null,
         mediaDetails: mediaDetails ? JSON.stringify(mediaDetails) : null,
-        watermark_params: watermarkParams ? JSON.stringify(watermarkParams) : null
+        watermark_params: watermarkParams ? JSON.stringify(watermarkParams) : null,
+        fingerprint: fingerprint ? JSON.stringify(fingerprint) : null
       });
     } else if (scrambleType === 'video') {
 
@@ -5028,7 +5030,8 @@ server.post('/api/analytics/unscramble-event', async (req, res) => {
         action_cost: actionCost || 'unknown',
         keyData: unscrambleKey ? JSON.stringify(unscrambleKey) : null,
         mediaDetails: mediaDetails ? JSON.stringify(mediaDetails) : null,
-        watermark_params: watermarkParams ? JSON.stringify(watermarkParams) : null
+        watermark_params: watermarkParams ? JSON.stringify(watermarkParams) : null,
+        fingerprint: fingerprint ? JSON.stringify(fingerprint) : null
       });
 
     } else {
@@ -5040,7 +5043,8 @@ server.post('/api/analytics/unscramble-event', async (req, res) => {
         action_cost: actionCost || 'unknown',
         keyData: unscrambleKey ? JSON.stringify(unscrambleKey) : null,
         mediaDetails: mediaDetails ? JSON.stringify(mediaDetails) : null,
-        watermark_params: watermarkParams ? JSON.stringify(watermarkParams) : null
+        watermark_params: watermarkParams ? JSON.stringify(watermarkParams) : null,
+        fingerprint: fingerprint ? JSON.stringify(fingerprint) : null
       });
     }
     res.json({ success: true, message: 'Unscramble event logged successfully' });
@@ -5050,43 +5054,6 @@ server.post('/api/analytics/unscramble-event', async (req, res) => {
   }
 });
 
-// server.post('/api/analytics/audio-unscramble-event', async (req, res) => {
-//   try {
-//     const { username, userId, creator, actionCost, unscrambleKey, mediaDetails, watermarkParams } = req.body;
-
-//     // CREATE TABLE
-//     // `unscrambles` (
-//     //   `id` int unsigned NOT NULL AUTO_INCREMENT,
-//     //   `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-//     //   `userId` varchar(255) DEFAULT NULL,
-//     //   `username` varchar(255) DEFAULT NULL,
-//     //   `action_cost` int DEFAULT NULL,
-//     //   `creatorId` varchar(255) DEFAULT NULL,
-//     //   `keyData` json DEFAULT NULL,
-//     //   `mediaDetails` json DEFAULT NULL,
-//     //   `watermark_params` json DEFAULT NULL,
-//     //   PRIMARY KEY (`id`)
-//     // ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci
-
-//     await pool.execute(
-//       'INSERT INTO unscrambles (userId, username, creatorId, action_cost, keyData, mediaDetails, watermark_params) VALUES (?, ?, ?, ?, ?, ?, ?)',
-//       [
-//         userId || null,
-//         username || 'anonymous',
-//         creator || 'unknown',
-//         actionCost || 'unknown',
-//         unscrambleKey ? JSON.stringify(unscrambleKey) : null,
-//         mediaDetails ? JSON.stringify(mediaDetails) : null,
-//         watermarkParams ? JSON.stringify(watermarkParams) : null
-//       ]
-//     );
-
-//     res.json({ success: true, message: 'Unscramble event logged successfully' });
-//   } catch (error) {
-//     console.error('Log unscramble event error:', error);
-//     res.status(500).json({ success: false, message: 'Failed to log unscramble event' });
-//   }
-// });
 
 // create a rout that will allow the clients to download video files from the server via file name
 // server.get(PROXY+'/api/download/:filename', (req, res) => {

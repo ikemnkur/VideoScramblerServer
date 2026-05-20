@@ -1,53 +1,94 @@
 ### Photo Scrambler
 
-## Position scramble
+## ── Standard Position Scramble (scramble_photo.py) ──────────────────────────
 
 # scramble
-python scramble_photo.py  --input Lamborghini_Veneno.jpg  --output scrambled_Lamborghini_Veneno.jpg --seed 123456789  --rows 4  --cols 6  --mode scramble
+python3 scramble_photo.py --input Lamborghini_Veneno.jpg --output scrambled_Lamborghini_Veneno.jpg \
+  --seed 123456789 --rows 4 --cols 6 --mode scramble
 
-# unscramble
-python scramble_photo.py  --input Lamborghini_Veneno.jpg  --output scrambled_Lamborghini_Veneno.jpg --seed 123456789  --rows 4  --cols 6  --mode scramble
+# unscramble (must use same seed/rows/cols)
+python3 scramble_photo.py --input scrambled_Lamborghini_Veneno.jpg --output restored_Lamborghini_Veneno.jpg \
+  --seed 123456789 --rows 4 --cols 6 --mode unscramble
 
-## Color Scramble
+# scramble with noise overlay
+python3 scramble_photo.py --input input.jpg --output scrambled_noisy.jpg \
+  --seed 123456789 --rows 4 --cols 6 --mode scramble \
+  --noise_intensity 30
+
+# unscramble noisy image (same seed + noise_intensity)
+python3 scramble_photo.py --input scrambled_noisy.jpg --output restored.jpg \
+  --seed 123456789 --rows 4 --cols 6 --mode unscramble \
+  --noise_intensity 30
+
+# scramble – partial tiles (50%)
+python3 scramble_photo.py --input input.jpg --output scrambled_50pct.jpg \
+  --seed 123456789 --rows 4 --cols 6 --mode scramble --percentage 50
+
+# unscramble – partial tiles
+python3 scramble_photo.py --input scrambled_50pct.jpg --output restored_50pct.jpg \
+  --seed 123456789 --rows 4 --cols 6 --mode unscramble --percentage 50
+
+
+## ── Pro HPF / Blur Scramble (scramble_photo_pro.py) ──────────────────────
+# Uses LPF/HPF frequency decomposition + tile flip (src_idx % 4).
+# Output image is larger than input (HPF tiles placed on left/right borders).
+# --blur-ksize controls the Gaussian blur for the LPF/HPF split (default 15, must be odd).
+# --watermark-rows controls empty rows top/bottom for watermarks (default 1).
+
+# scramble (auto grid)
+python3 scramble_photo_pro.py --input Lamborghini_Veneno.jpg --output scrambled_pro.jpg \
+  --seed 123456789 --mode scramble --blur-ksize 15
+
+# scramble (explicit grid, with noise)
+python3 scramble_photo_pro.py --input Lamborghini_Veneno.jpg --output scrambled_pro.jpg \
+  --seed 123456789 --rows 4 --cols 6 --mode scramble \
+  --blur-ksize 15 --noise_intensity 30
+
+# scramble with watermark marker
+python3 scramble_photo_pro.py --input input.jpg --output scrambled_wm.jpg \
+  --seed 123456789 --rows 4 --cols 6 --mode scramble \
+  --blur-ksize 15 --wm-id 42 --wm-alpha 0.15 --wm-numbers 2
+
+# unscramble (must use same seed/rows/cols/blur-ksize/watermark-rows as scramble)
+python3 scramble_photo_pro.py --input scrambled_pro.jpg --output restored_pro.jpg \
+  --seed 123456789 --rows 4 --cols 6 --mode unscramble --blur-ksize 15
+
+# unscramble noisy (same seed + noise_intensity; noise_tile_size is auto-matched to original dims)
+python3 scramble_photo_pro.py --input scrambled_pro.jpg --output restored_pro.jpg \
+  --seed 123456789 --rows 4 --cols 6 --mode unscramble \
+  --blur-ksize 15 --noise_intensity 30
+
+# higher blur (more visible frequency split)
+python3 scramble_photo_pro.py --input input.jpg --output scrambled_heavy.jpg \
+  --seed 123456789 --rows 6 --cols 6 --mode scramble --blur-ksize 51
+
+python3 scramble_photo_pro.py --input scrambled_heavy.jpg --output restored_heavy.jpg \
+  --seed 123456789 --rows 6 --cols 6 --mode unscramble --blur-ksize 51
+
+
+## ── Standard Video Scramble (scramble_video.py) ─────────────────────────────
 
 # scramble
-python scramble_photo.py  --input input.jpg --output color_test.jpg --algorithm color --max-hue-shift 64 --seed 123456
+python3 scramble_video.py --input input.mp4 --output scrambled.mp4 \
+  --seed 123456789 --rows 4 --cols 6 --mode scramble
 
 # unscramble
-python scramble_video.py  --input color_test.jpg --output color_restored.jpg --algorithm color --mode unscramble --max-hue-shift 64 --seed 123456
+python3 scramble_video.py --input scrambled.mp4 --output restored.mp4 \
+  --seed 123456789 --rows 4 --cols 6 --mode unscramble
 
-## Rotation Scramble
+# scramble – partial (75% of tiles)
+python3 scramble_video.py --input input.mp4 --output scrambled_75pct.mp4 \
+  --seed 123456789 --rows 4 --cols 6 --mode scramble --percentage 75
+
+
+## ── Pro HPF Video Scramble (scramble_video_pro.py) ───────────────────────
 
 # scramble
-python3 scramble_photo_rotate.py --input Lamborghini_Veneno.jpg --output rotated_scrambled.jpg --seed 123456 --rows 4 --cols 6 --mode scramble --algorithm rotation
+python3 scramble_video_pro.py -i input.mp4 -o scrambled_pro.mp4 \
+  --algorithm hpf --seed 123456789 --rows 4 --cols 6 --mode scramble \
+  --blur-ksize 15 --watermark-rows 2
 
 # unscramble
-python3 scramble_photo_rotate.py --input rotated_scrambled.jpg --output rotated_restored.jpg --seed 123456 --rows 4 --cols 6 --mode unscramble --algorithm rotation
-
-## Mirror Scramble
-
-# scramble
-python3 scramble_photo_mirror.py --input Lamborghini_Veneno.jpg --output mirrored_scrambled.jpg --seed 123456 --rows 4 --cols 6 --mode scramble --algorithm mirror
-
-# unscramble
-python3 scramble_photo_mirror.py --input mirrored_scrambled.jpg --output mirrored_restored.jpg --seed 123456 --rows 4 --cols 6 --mode unscramble --algorithm mirror
-
-# Intensity Scramble
-
-# Scramble with intensity shifting (max shift 128)
-python3 scramble_photo_intensity.py --input image.jpg --output scrambled.jpg --algorithm intensity --max-intensity-shift 128 --seed 123456
-
-# Unscramble
-python3 scramble_photo_intensity.py --input scrambled.jpg --output unscrambled.jpg --algorithm intensity --max-intensity-shift 128 --seed 123456 --mode unscramble
-
-# Scramble 50% of tiles using rotation
-python3 scramble_photo_rotate.py --input image.jpg --output rotated.jpg --percentage 50 --seed 12345
-
-# Scramble 25% of tiles using color shifts
-python3 scramble_photo_color.py --input image.jpg --output colored.jpg --percentage 25 --seed 12345
-
-# Scramble 75% of tiles using mirror flips
-python3 scramble_photo_mirror.py --input image.jpg --output mirrored.jpg --percentage 75 --seed 12345
-
-# Scramble 60% of tiles using intensity shifts
-python3 scramble_photo_intensity.py --input image.jpg --output intensity.jpg --percentage 60 --seed 12345
+python3 scramble_video_pro.py -i scrambled_pro.mp4 -o restored_pro.mp4 \
+  --algorithm hpf --seed 123456789 --rows 4 --cols 6 --mode unscramble \
+  --blur-ksize 15 --watermark-rows 2

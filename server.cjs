@@ -325,8 +325,12 @@ server.use((req, res, next) => {
   const originalSend = res.send;
   res.send = function (data) {
     if (data) {
-      const size = Buffer.byteLength(typeof data === 'string' ? data : JSON.stringify(data));
-      analytics.dataTx += size;
+      try {
+        const size = Buffer.isBuffer(data)
+          ? data.length
+          : Buffer.byteLength(typeof data === 'string' ? data : JSON.stringify(data));
+        analytics.dataTx += size;
+      } catch (_) { /* ignore size tracking errors for non-serialisable bodies */ }
     }
     originalSend.call(this, data);
   };
@@ -4471,6 +4475,38 @@ const TTS_SERVER_LINK = process.env.TTS_SERVER_LINK || 'http://localhost:5001';
 // Start the background cleanup worker
 pythonService.startCleanupWorker();
 
+// Stream the current user's username as a mono MP3 from Google Translate TTS
+server.get(PROXY + '/api/tts/username-audio', authenticateToken, async (req, res) => {
+  try {
+    const username = req.user?.username;
+    if (!username) return res.status(400).json({ error: 'No username on token' });
+
+    const ttsUrl =
+      `https://translate.google.com/translate_tts?ie=UTF-8` +
+      `&q=${encodeURIComponent(username)}&tl=en&client=gtx&ttsspeed=1`;
+
+    const ttsResponse = await axios.get(ttsUrl, {
+      responseType: 'arraybuffer',
+      timeout: 15000,
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
+          '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Referer': 'https://translate.google.com/'
+      }
+    });
+
+    res.set('Content-Type', 'audio/mpeg');
+    res.set('Content-Disposition', `inline; filename="${encodeURIComponent(username)}-tag.mp3"`);
+    res.set('Cache-Control', 'private, max-age=604800'); // 7 days client-side cache
+    res.send(Buffer.from(ttsResponse.data));
+  } catch (error) {
+    const status = error.response?.status || 500;
+    console.error('❌ Error fetching username TTS:', error.message);
+    res.status(status).json({ error: 'TTS failed', details: error.message });
+  }
+});
+
 server.post(PROXY + '/api/tts/google', authenticateToken, async (req, res) => {
   try {
     const {
@@ -5948,7 +5984,7 @@ server.post(PROXY + '/api/check-video-leak', authenticateToken, async (req, res)
 
 server.post('/api/analytics/unscramble-event', async (req, res) => {
   try {
-    const { username, userId, actionCost, unscrambleKey, mediaDetails, watermarkParams, scrambleType } = req.body;
+    const { username, userId, actionCost, unscrambleKey, mediaDetails, watermarkParams, scrambleType, fingerprint } = req.body;
 
     console.log('📊 Log unscramble event:', {
       "username": username,
@@ -5958,7 +5994,8 @@ server.post('/api/analytics/unscramble-event', async (req, res) => {
       "unscrambleKey": unscrambleKey,
       "mediaDetails": mediaDetails,
       "watermarkParams": watermarkParams,
-      "scrambleType": scrambleType
+      "scrambleType": scrambleType,
+      "fingerprint": fingerprint
     });
 
     let creator = JSON.parse(unscrambleKey)?.creator || 'unknown';
@@ -5985,7 +6022,8 @@ server.post('/api/analytics/unscramble-event', async (req, res) => {
         action_cost: actionCost || 'unknown',
         keyData: unscrambleKey ? JSON.stringify(unscrambleKey) : null,
         mediaDetails: mediaDetails ? JSON.stringify(mediaDetails) : null,
-        watermark_params: watermarkParams ? JSON.stringify(watermarkParams) : null
+        watermark_params: watermarkParams ? JSON.stringify(watermarkParams) : null,
+        fingerprint: fingerprint ? JSON.stringify(fingerprint) : null
       });
     } else if (scrambleType === 'video') {
 
@@ -5996,7 +6034,8 @@ server.post('/api/analytics/unscramble-event', async (req, res) => {
         action_cost: actionCost || 'unknown',
         keyData: unscrambleKey ? JSON.stringify(unscrambleKey) : null,
         mediaDetails: mediaDetails ? JSON.stringify(mediaDetails) : null,
-        watermark_params: watermarkParams ? JSON.stringify(watermarkParams) : null
+        watermark_params: watermarkParams ? JSON.stringify(watermarkParams) : null,
+        fingerprint: fingerprint ? JSON.stringify(fingerprint) : null
       });
 
     } else {
@@ -6008,7 +6047,8 @@ server.post('/api/analytics/unscramble-event', async (req, res) => {
         action_cost: actionCost || 'unknown',
         keyData: unscrambleKey ? JSON.stringify(unscrambleKey) : null,
         mediaDetails: mediaDetails ? JSON.stringify(mediaDetails) : null,
-        watermark_params: watermarkParams ? JSON.stringify(watermarkParams) : null
+        watermark_params: watermarkParams ? JSON.stringify(watermarkParams) : null,
+        fingerprint: fingerprint ? JSON.stringify(fingerprint) : null
       });
     }
     res.json({ success: true, message: 'Unscramble event logged successfully' });
@@ -6060,8 +6100,6 @@ server.post('/api/analytics/unscramble-event', async (req, res) => {
 // server.get(PROXY+'/api/download/:filename', (req, res) => {
 server.get('/download/:filename', (req, res) => {
   const filename = req.params.filename;
-  // const videoDir = path.join(__dirname, 'videos');
-  // const videoDir = path.join(__dirname, 'inputs');
   const videoDir = path.join(__dirname, 'python/outputs');
   const filePath = path.join(videoDir, filename);
 
@@ -6070,9 +6108,27 @@ server.get('/download/:filename', (req, res) => {
   res.download(filePath, (err) => {
     if (err) {
       console.error('❌ Error downloading media:', err);
-      res.status(500).send('Error downloading media');
+      if (!res.headersSent) {
+        res.status(500).send('Error downloading media');
+      }
     } else {
       console.log('✅ Media downloaded successfully:', filename);
+    }
+  });
+});
+
+// Streaming route for in-browser video preview (supports range requests, no attachment header)
+server.get('/stream/:filename', (req, res) => {
+  const filename = req.params.filename;
+  const videoDir = path.join(__dirname, 'python/outputs');
+  const filePath = path.join(videoDir, filename);
+
+  console.log('▶️  Stream request for media:', filename);
+
+  res.sendFile(filePath, { root: '/' }, (err) => {
+    if (err && !res.headersSent) {
+      console.error('❌ Error streaming media:', err);
+      res.status(404).send('File not found');
     }
   });
 });
@@ -7119,6 +7175,7 @@ async function getRecentPayments(limit = 10, includeCustomerDetails = true) {
         description: pi.description,
         created: pi.created,
         customer_id: pi.customer,
+        invoice: pi.invoice,        // needed to resolve subscription ID
         metadata: pi.metadata  // Payment metadata (custom fields from checkout)
       };
 
@@ -7794,17 +7851,16 @@ server.post(PROXY + '/api/verify-stripe-subscription', async (req, res) => {
   // example
   // { "timeRange": { "start": null, "end": 1767385448125 }, "subscriptionData": { "amount": 1000, "dollars": 10, "plan": "Premium", "planType": "premium" }, "user": { "id": "LCBGL8EJ7L", "email": "testman@gmail.com", "username": "testman", "phone": "", "name": " ", "ip": "108.214.170.129", "userAgent": "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:146.0) Gecko/20100101 Firefox/146.0" } }
 
-  const paymentData = {
+  const parsedBody = {
     timeRange,
     package: subscriptionData,
-    // plan: subscriptionData,
     user
   };
 
   try {
 
 
-    const { package: pkg, timeRange, user } = paymentData;
+    const { package: pkg, timeRange, user } = parsedBody;
 
     if (!pkg || !timeRange || !user) {
       return res.status(400).json({
@@ -7818,64 +7874,71 @@ server.post(PROXY + '/api/verify-stripe-subscription', async (req, res) => {
     const timeRangeStart = timeRange.start;
     const timeRangeEnd = timeRange.end;
 
-    // Fetch recent payments to search through
+    // Fetch recent subscriptions to search through
     const details = await getRecentPayments(20, true);
 
-    // console.log("Recent payments fetched:", details.payments);
+    // console.log("Recent subscriptions fetched:", details.payments);
 
     if (details.error) {
-      console.error('[ERROR] Could not fetch recent payments:', details.error);
+      console.error('[ERROR] Could not fetch recent subscriptions:', details.error);
       const statusCode = details.status === 'server_error' ? 500 : 404;
       return res.status(statusCode).json(details);
     }
 
-    let possiblePaymentFound = false;
-    const possibleMatchingPayments = [];
+    let possibleSubscriptionFound = false;
+    const possibleMatchingSubscriptions = [];
 
-    console.log(`[INFO] Searching through ${details.payments.length} recent payments for matches.`);
+    console.log(`[INFO] Searching through ${details.payments.length} recent subscriptions for matches.`);
 
     // Verify creation time and amount
-    for (const payment of details.payments || []) {
-      const created = payment.created * 1000; // convert to ms
+    for (const subscription of details.payments || []) {
+      const created = subscription.created * 1000; // convert to ms
 
-      // console.log(`[DEBUG] Checking payment ${payment.id}: created=${created}, amount=${payment.amount}`);
+      // console.log(`[DEBUG] Checking subscription ${subscription.id}: created=${created}, amount=${subscription.amount}`);
 
       // Check time range
-      if (timeRangeStart && created < timeRangeStart) {
-        continue;
-      }
-      if (timeRangeEnd && created > timeRangeEnd) {
+      // if (timeRangeStart && created < timeRangeStart) {
+      //   continue;
+      // }
+      // if (timeRangeEnd && created > timeRangeEnd) {
+      //   continue;
+      // }
+
+      // check that the subscription falls within the last 10 minutes (safety guard)
+      const timeNow = Date.now();
+      if ((timeNow - created) > 10 * 60 * 1000) {
+        console.log(`[DEBUG] Subscription ${subscription.id} is too old (${Math.round((timeNow - created) / 1000)}s), skipping.`);
         continue;
       }
 
-      // Check payment amount
-      if (payment.amount !== pkg.amount) {
+      // Check subscription amount
+      if (subscription.amount !== pkg.amount) {
         continue;
       }
 
-      console.log(`[DEBUG] Possible matching payment found: ${payment.id}`);
+      console.log(`[DEBUG] Possible matching subscription found: ${subscription.id}`);
 
-      possiblePaymentFound = true;
-      possibleMatchingPayments.push(payment);
+      possibleSubscriptionFound = true;
+      possibleMatchingSubscriptions.push(subscription);
     }
 
 
-    console.log(' Is there a possibleMatchingPayment?: ', possiblePaymentFound);
+    console.log(' Is there a possibleMatchingSubscription?: ', possibleSubscriptionFound);
 
-    if (!possiblePaymentFound) {
-      console.log('[INFO] No possible matching payments found in the specified time range.');
+    if (!possibleSubscriptionFound) {
+      console.log('[INFO] No possible matching subscriptions found in the specified time range.');
       return res.status(404).json({
         error: 'No PaymentIntent found in the specified time range',
         status: 'not_found'
       });
     }
 
-    let potentialVerifiedPayment = null;
+    let potentialVerifiedSubscription = null;
 
-    // If multiple possible payments found, verify customer details
-    if (possibleMatchingPayments.length > 1) {
-      for (const payment of possibleMatchingPayments) {
-        const customerData = payment.customer || {};
+    // If multiple possible subscriptions found, verify customer details
+    if (possibleMatchingSubscriptions.length > 1) {
+      for (const subscription of possibleMatchingSubscriptions) {
+        const customerData = subscription.customer || {};
         const email = customerData.email || '';
         const name = customerData.name || '';
         const phone = customerData.phone || '';
@@ -7890,41 +7953,49 @@ server.post(PROXY + '/api/verify-stripe-subscription', async (req, res) => {
           continue;
         }
 
-        potentialVerifiedPayment = payment;
+        potentialVerifiedSubscription = subscription;
         break;
       }
     } else {
-      potentialVerifiedPayment = possibleMatchingPayments[0];
+      potentialVerifiedSubscription = possibleMatchingSubscriptions[0];
     }
 
-    if (!potentialVerifiedPayment) {
+    if (!potentialVerifiedSubscription) {
       return res.status(404).json({
         error: 'No matching PaymentIntent found after verification',
         status: 'not_found'
       });
     }
 
-    console.log(`[INFO] Verified PaymentIntent Subscription: ${JSON.stringify(potentialVerifiedPayment)}`);
+    console.log(`[INFO] Verified PaymentIntent Subscription: ${JSON.stringify(potentialVerifiedSubscription)}`);
 
     const PACKAGES = [
-      { credits: 2500, dollars: 2.50, label: "Basic", color: '#4caf50', priceId: 'price_1SR08eEViYxfJNd2ihaRH9Fk' },
-      { credits: 5250, dollars: 5, label: "Standard", color: '#2196f3', priceId: 'price_1SR09uEViYxfJNd2jL3JklFl' },
-      { credits: 11200, dollars: 10, label: "Premium", color: '#9c27b0', priceId: 'price_1SR0A9EViYxfJNd258I14txA' },
+      { credits: 2500, amount: 250, dollars: 2.50, label: "Basic", color: '#4caf50', priceId: 'price_1SR08eEViYxfJNd2ihaRH9Fk' },
+      { credits: 5250, amount: 500, dollars: 5, label: "Standard", color: '#2196f3', priceId: 'price_1SR09uEViYxfJNd2jL3JklFl' },
+      { credits: 11200, amount: 1000, dollars: 10, label: "Premium", color: '#9c27b0', priceId: 'price_1SR0A9EViYxfJNd258I14txA' },
 
     ];
 
-    const packageData = PACKAGES.find(pkg => pkg.dollars === potentialVerifiedPayment.amount / 100);
+    const packageData = PACKAGES.find(pkg => pkg.amount === potentialVerifiedSubscription.amount);
 
-    if (potentialVerifiedPayment.status == 'succeeded') {
+    if (!packageData) {
+      console.error(`[ERROR] No matching subscription package for amount ${potentialVerifiedSubscription.amount} cents`);
+      return res.status(400).json({
+        error: `Payment amount does not match any subscription package`,
+        status: 'amount_mismatch'
+      });
+    }
+
+    if (potentialVerifiedSubscription.status == 'succeeded') {
       // Resolve the real Stripe subscription ID from the invoice attached to this PaymentIntent
       let actualSubscriptionId = null;
-      if (potentialVerifiedPayment.invoice) {
+      if (potentialVerifiedSubscription.invoice) {
         try {
-          const invoice = await stripe.invoices.retrieve(potentialVerifiedPayment.invoice);
+          const invoice = await stripe.invoices.retrieve(potentialVerifiedSubscription.invoice);
           actualSubscriptionId = invoice.subscription || null;
-          console.log(`[INFO] Resolved subscription ID: ${actualSubscriptionId} from invoice ${potentialVerifiedPayment.invoice}`);
+          console.log(`[INFO] Resolved subscription ID: ${actualSubscriptionId} from invoice ${potentialVerifiedSubscription.invoice}`);
         } catch (invoiceErr) {
-          console.warn(`[WARN] Could not retrieve invoice ${potentialVerifiedPayment.invoice}:`, invoiceErr.message);
+          console.warn(`[WARN] Could not retrieve invoice ${potentialVerifiedSubscription.invoice}:`, invoiceErr.message);
         }
       }
 
@@ -7935,14 +8006,14 @@ server.post(PROXY + '/api/verify-stripe-subscription', async (req, res) => {
         name: user.name,
         email: user.email,
         walletAddress: "Stripe",
-        transactionId: potentialVerifiedPayment.id,
-        stripe_customer_id: potentialVerifiedPayment.customer,
+        transactionId: potentialVerifiedSubscription.id,
+        stripe_customer_id: potentialVerifiedSubscription.customer?.id || potentialVerifiedSubscription.customer_id || null,
         stripe_subscription_id: actualSubscriptionId,
         priceId: packageData.priceId,
         label: packageData.label,
         blockExplorerLink: 'Stripe Payment',
         currency: 'USD',
-        amount: potentialVerifiedPayment.amount,
+        amount: potentialVerifiedSubscription.amount || packageData.amount,
         cryptoAmount: packageData.dollars,
         rate: null,
         session_id: user.id, // this is a useless metric here but i am keep it for reference and to maintain similar data structure
@@ -7961,7 +8032,7 @@ server.post(PROXY + '/api/verify-stripe-subscription', async (req, res) => {
 
     console.log('Payment verification completed successfully.');
 
-    return res.json(potentialVerifiedPayment);
+    return res.json(potentialVerifiedSubscription);
 
   } catch (error) {
     console.error('Payment verification error:', error.message);
@@ -8050,7 +8121,9 @@ async function stripeBuySubscription(data) {
         username,
         user_id: userId,
         stripe_subscription_id: stripe_subscription_id || null,
-        stripe_customer_id: stripe_customer_id || null,
+        stripe_customer_id: stripe_customer_id
+          ? (typeof stripe_customer_id === 'object' ? JSON.stringify(stripe_customer_id) : stripe_customer_id)
+          : null,
         plan_id: realPriceId,
         plan_name: realPlanName,
         status: stripeSub?.status || 'active',
@@ -8114,7 +8187,9 @@ async function stripeBuySubscription(data) {
         stripeObjectType: 'invoice',
         stripePaymentIntentId: transactionId || null,
         stripeSubscriptionId: stripe_subscription_id || null,
-        stripeCustomerId: stripe_customer_id || null,
+        stripeCustomerId: stripe_customer_id
+          ? (typeof stripe_customer_id === 'object' ? JSON.stringify(stripe_customer_id) : stripe_customer_id)
+          : null,
         status: 'succeeded',
         amount: Math.round((dollars || 0) * 100),
         amountReceived: Math.round((dollars || 0) * 100),
