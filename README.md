@@ -80,8 +80,8 @@ JWT_SECRET=your_jwt_secret_key
 
 ### RESTful API (All Tables)
 - `GET /api/:table` - Get all records from table
-- `GET /api/:table/:id` - Get specific record by ID
-- `PATCH /api/:table/:id` - Update specific record
+- `GET /db/:table/:id` - Get specific record by ID
+- `PATCH /db/:table/:id` - Update specific record
 
 ### Health Check
 - `GET /health` - Server health status

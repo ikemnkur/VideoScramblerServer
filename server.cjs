@@ -3403,7 +3403,7 @@ server.post(PROXY + '/api/upload/transaction-screenshot/:username/:txHash', auth
 //     `email` varchar(100) DEFAULT NULL,
 //     `credits` int DEFAULT NULL,
 //     `passwordHash` varchar(255) DEFAULT NULL,
-//     `accountType` enum('buyer', 'seller') DEFAULT NULL,
+//     `accountType` enum('free', 'basic', 'standard', 'premium') DEFAULT NULL,
 //     `lastLogin` datetime DEFAULT NULL,
 //     `loginStatus` tinyint(1) DEFAULT NULL,
 //     `firstName` varchar(50) DEFAULT NULL,
@@ -3734,13 +3734,13 @@ server.get(PROXY + '/api/keys/my', authenticateToken, async (req, res) => {
 // ─────────────────────────────────────────────
 
 // Basic RESTful routes for all tables
-server.get(PROXY + '/api/:table', async (req, res) => {
+server.get(PROXY + '/api/:table', async (req, res, next) => {
   try {
     const table = req.params.table;
     const allowedTables = ['userData', 'CreditPurchases', 'redeemCredits', 'earnings', 'actions', 'createdKeys', 'notifications', 'wallet', 'reports', 'supportTickets'];
 
     if (!allowedTables.includes(table)) {
-      return res.status(400).json({ error: 'Invalid table name' });
+      return next(); // Not a generic table route — let specific routes handle it
     }
 
     const rows = await knex(table).select('*');
@@ -3751,13 +3751,13 @@ server.get(PROXY + '/api/:table', async (req, res) => {
   }
 });
 
-server.get(PROXY + '/api/:table/:id', async (req, res) => {
+server.get(PROXY + '/db/:table/:id', async (req, res, next) => {
   try {
     const { table, id } = req.params;
     const allowedTables = ['userData', 'CreditPurchases', 'redeemCredits', 'earnings', 'actions', 'notifications', 'wallet', 'reports', 'supportTickets'];
 
     if (!allowedTables.includes(table)) {
-      return res.status(400).json({ error: 'Invalid table name' });
+      return next(); // Not a generic table route — let specific routes handle it
     }
 
     const rows = await knex(table).where('id', id).select('*');
@@ -3773,13 +3773,13 @@ server.get(PROXY + '/api/:table/:id', async (req, res) => {
   }
 });
 
-server.patch(PROXY + '/api/:table/:id', async (req, res) => {
+server.patch(PROXY + '/db/:table/:id', async (req, res, next) => {
   try {
     const { table, id } = req.params;
     const allowedTables = ['userData', 'CreditPurchases', 'redeemCredits', 'earnings', 'actions', 'createdKeys', 'notifications', 'wallet', 'reports', 'supportTickets'];
 
     if (!allowedTables.includes(table)) {
-      return res.status(400).json({ error: 'Invalid table name' });
+      return next(); // Not a generic table route — let specific routes handle it
     }
 
     const updateData = req.body;
@@ -3888,7 +3888,16 @@ cron.schedule('*/15 * * * *', async () => {
 
           const priceItem = sub.items?.data?.[0];
           const priceId = priceItem?.price?.id || null;
-          const planName = priceItem?.price?.nickname || priceItem?.price?.id || null;
+          // Map price IDs to readable plan names; fall back to nickname then truncated ID
+          const PRICE_PLAN_NAMES = {
+            [process.env.VITE_BASIC_PRICE_ID]:    'Basic',
+            [process.env.VITE_STANDARD_PRICE_ID]: 'Standard',
+            [process.env.VITE_PREMIUM_PRICE_ID]:  'Premium',
+            // 'price_1SR08eEViYxfJNd2ihaRH9Fk': 'Basic',
+            // 'price_1SR09uEViYxfJNd2jL3JklFl': 'Standard',
+            // 'price_1SR0A9EViYxfJNd258I14txA': 'Enterprise',
+          };
+          const planName = PRICE_PLAN_NAMES[priceId] || priceItem?.price?.nickname || (priceId ? priceId.slice(0, 30) : null);
           const amountDollars = priceItem?.price?.unit_amount ? priceItem.price.unit_amount / 100 : null;
 
           const existing = await knex('subscriptions')
@@ -3904,8 +3913,9 @@ cron.schedule('*/15 * * * *', async () => {
             plan_id: priceId,
             plan_name: planName,
             status: sub.status,
-            current_period_start: toMySQL(sub.current_period_start),
-            current_period_end: toMySQL(sub.current_period_end),
+            // Stripe v19 (API 2025+) moved period dates to items.data[0]
+            current_period_start: toMySQL(priceItem?.current_period_start ?? sub.current_period_start),
+            current_period_end:   toMySQL(priceItem?.current_period_end   ?? sub.current_period_end),
             cancel_at_period_end: sub.cancel_at_period_end ? 1 : 0,
             canceled_at: toMySQL(sub.canceled_at),
             trial_start: toMySQL(sub.trial_start),
@@ -3957,6 +3967,21 @@ cron.schedule('*/15 * * * *', async () => {
             }).catch(e => console.warn('[SubscriptionSync] history warn:', e.message));
 
             console.log(`[SubscriptionSync] New subscription inserted: ${sub.id}`);
+          }
+
+          // Sync accountType in userData to match the subscription plan
+          if (userId) {
+            const PLAN_ACCOUNT_TYPES = {
+              'Basic':    'basic',
+              'Standard': 'standard',
+              'Premium':  'premium',
+              'Free':     'free',
+            };
+            const accountType = sub.status === 'active'
+              ? (PLAN_ACCOUNT_TYPES[planName] || 'free')
+              : 'free';
+            await knex('userData').where('id', userId).update({ accountType })
+              .catch(e => console.warn('[SubscriptionSync] accountType update warn:', e.message));
           }
 
           synced++;
@@ -6385,7 +6410,7 @@ server.post(PROXY + '/api/subscription/create-checkout', async (req, res) => {
 // Verify subscription session
 server.get(PROXY + '/api/subscription/verify-session', async (req, res) => {
   try {
-    const { session_id } = req.query;
+    const { session_id, username } = req.query;
 
     if (!session_id) {
       return res.status(400).json({
@@ -6403,6 +6428,11 @@ server.get(PROXY + '/api/subscription/verify-session', async (req, res) => {
       const subscription = session.subscription;
       const userId = session.metadata.userId || session.client_reference_id;
 
+      // Stripe v19 (API 2025+) moved period dates to items.data[0]
+      const periodItem = subscription.items?.data?.[0];
+      const periodStart = periodItem?.current_period_start ?? subscription.current_period_start;
+      const periodEnd   = periodItem?.current_period_end   ?? subscription.current_period_end;
+
       // Save subscription to database
       await knex.raw(
         `INSERT INTO subscriptions 
@@ -6417,17 +6447,41 @@ server.get(PROXY + '/api/subscription/verify-session', async (req, res) => {
         [
           userId,
           subscription.id,
-          session.customer.id || session.customer,
+          session.customer?.id || session.customer,
           session.metadata.planId,
           session.metadata.planName,
           subscription.status,
-          new Date(subscription.current_period_start * 1000),
-          new Date(subscription.current_period_end * 1000),
+          periodStart ? new Date(periodStart * 1000) : null,
+          periodEnd   ? new Date(periodEnd   * 1000) : null,
           new Date()
         ]
       );
 
       console.log(`✅ Subscription activated for user ${userId}`);
+
+      // Sync accountType in userData to match the newly activated plan
+      if (userId) {
+        const PLAN_ACCOUNT_TYPES = {
+          'Basic':    'basic',
+          'Standard': 'standard',
+          'Premium':  'premium',
+        };
+        const accountType = PLAN_ACCOUNT_TYPES[session.metadata.planName] || 'free';
+        await knex('userData').where('id', userId).update({ accountType })
+          .catch(e => console.error('accountType update error:', e.message));
+      }
+
+      // Notify the user of their new subscription
+      const planName = session.metadata.planName || 'Unknown';
+      const dollars  = session.amount_total ? (session.amount_total / 100).toFixed(2) : '?';
+      const username = session.metadata.username || 'anonymous';
+      await CreateNotification(
+        'new_subscription',
+        'Subscription Activated',
+        `You have successfully subscribed to the ${planName} plan for $${dollars}/month.`,
+        'subscription',
+        username
+      ).catch(e => console.warn('Subscription notification warn:', e.message));
 
       res.json({
         success: true,
@@ -6438,8 +6492,8 @@ server.get(PROXY + '/api/subscription/verify-session', async (req, res) => {
             id: subscription.id,
             planId: session.metadata.planId,
             planName: session.metadata.planName,
-            interval: subscription.items.data[0]?.plan.interval,
-            current_period_end: subscription.current_period_end,
+            interval: periodItem?.plan?.interval || subscription.items.data[0]?.plan?.interval,
+            current_period_end: periodEnd,
             status: subscription.status
           }
         }
@@ -7202,6 +7256,133 @@ async function getRecentPayments(limit = 10, includeCustomerDetails = true) {
     return { error: errorMessage, status: 'api_error' };
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Credit Purchase — Session-Based Flow (replaces time-window scan)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// POST /api/stripe-purchase/create-checkout
+// Creates a Stripe Checkout Session for a one-time credit purchase.
+// Returns { success, url, sessionId }
+server.post(PROXY + '/api/stripe-purchase/create-checkout', async (req, res) => {
+  try {
+    const { userId, username, email, priceId, credits, dollars, label } = req.body;
+
+    if (!userId || !email || !credits || !dollars) {
+      return res.status(400).json({ success: false, message: 'userId, email, credits and dollars are required' });
+    }
+
+    const FRONTEND = process.env.FRONTEND_URL || 'http://localhost:5174';
+    const amountCents = Math.round(Number(dollars) * 100);
+    const creditCount  = Number(credits);
+    const displayLabel = label || `$${Number(dollars).toFixed(2)} Credit Package`;
+
+    const session = await stripe.checkout.sessions.create({
+      mode: 'payment',
+      payment_method_types: ['card'],
+      line_items: [{
+        quantity: 1,
+        price_data: {
+          currency: 'usd',
+          unit_amount: amountCents,
+          product_data: {
+            name: `VideoScrambler Credits — ${creditCount.toLocaleString()} credits`,
+            description: displayLabel,
+          },
+        },
+      }],
+      customer_email: email,
+      client_reference_id: userId.toString(),
+      metadata: {
+        userId:   userId.toString(),
+        username: username || '',
+        credits:  String(credits || 0),
+        dollars:  String(dollars || 0),
+        label:    label    || '',
+        priceId:  priceId,
+      },
+      success_url: `${FRONTEND}/stripe/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url:  `${FRONTEND}/purchase-stripe`,
+    });
+
+    console.log(`✅ [CreditCheckout] session created for user ${userId}: ${session.id}`);
+    res.json({ success: true, url: session.url, sessionId: session.id });
+  } catch (error) {
+    console.error('[CreditCheckout] create error:', error.message);
+    res.status(500).json({ success: false, message: 'Failed to create checkout session' });
+  }
+});
+
+// GET /api/stripe-purchase/verify-session?session_id=...
+// Retrieves the Stripe session by ID, verifies payment_status === 'paid',
+// then grants credits via stripeBuyCredits(). Safe for concurrent traffic —
+// duplicate-transaction guard inside stripeBuyCredits prevents double-crediting.
+server.get(PROXY + '/api/stripe-purchase/verify-session', async (req, res) => {
+  try {
+    const { session_id } = req.query;
+
+    if (!session_id) {
+      return res.status(400).json({ success: false, message: 'session_id is required' });
+    }
+
+    const session = await stripe.checkout.sessions.retrieve(session_id, {
+      expand: ['payment_intent', 'customer'],
+    });
+
+    if (session.payment_status !== 'paid') {
+      return res.json({ success: false, message: 'Payment not completed' });
+    }
+
+    const { userId, username, credits, dollars, label } = session.metadata || {};
+
+    const data = {
+      userId:              userId || session.client_reference_id || null,
+      username:            username || null,
+      name:                session.customer_details?.name || null,
+      email:               session.customer_details?.email || session.customer_email || null,
+      walletAddress:       'Stripe',
+      transactionId:       session.payment_intent?.id || session.payment_intent,
+      blockExplorerLink:   'Stripe Payment',
+      currency:            'USD',
+      amount:              session.amount_total,          // cents
+      cryptoAmount:        parseFloat(dollars) || 0,
+      rate:                null,
+      session_id:          session.id,
+      orderLoggingEnabled: false,
+      userAgent:           null,
+      ip:                  null,
+      dollars:             parseFloat(dollars) || 0,
+      credits:             parseInt(credits)   || 0,
+    };
+
+    const result = await stripeBuyCredits(data);
+
+    if (result.error) {
+      // Duplicate transaction — already credited, treat as success
+      if (result.error === 'Duplicate transaction ID') {
+        return res.json({ success: true, message: 'Already credited', alreadyCredited: true, session: { credits: parseInt(credits), dollars: parseFloat(dollars), label } });
+      }
+      return res.status(500).json({ success: false, message: result.error });
+    }
+
+    console.log(`✅ [CreditVerify] Credits granted — user ${userId}, ${credits} credits`);
+    res.json({
+      success: true,
+      session: {
+        credits:  parseInt(credits)   || 0,
+        dollars:  parseFloat(dollars) || 0,
+        label:    label || '',
+        email:    data.email,
+        amount_total: session.amount_total,
+      },
+    });
+  } catch (error) {
+    console.error('[CreditVerify] error:', error.message);
+    res.status(500).json({ success: false, message: 'Failed to verify session' });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 // Sent from the client: timeRange, user, packageData from buy Credits page
 server.post(PROXY + '/api/verify-stripe-payment', async (req, res) => {
@@ -8286,8 +8467,8 @@ server.listen(PORT, async () => {
     console.log('   - GET /api/listings');
     console.log('   - POST /api/create-key');
     console.log('   - GET /api/:table');
-    console.log('   - GET /api/:table/:id');
-    console.log('   - PATCH /api/:table/:id');
+    console.log('   - GET /db/:table/:id');
+    console.log('   - PATCH /db/:table/:id');
   } catch (error) {
     console.error('❌ Failed to connect to MySQL database:', error.message);
     console.log('📝 Please ensure:');

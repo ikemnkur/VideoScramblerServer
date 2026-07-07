@@ -7337,8 +7337,8 @@ server.listen(PORT, async () => {
     console.log('   - GET /api/listings');
     console.log('   - POST /api/create-key');
     console.log('   - GET /api/:table');
-    console.log('   - GET /api/:table/:id');
-    console.log('   - PATCH /api/:table/:id');
+    console.log('   - GET /db/:table/:id');
+    console.log('   - PATCH /db/:table/:id');
 
     syncStripeTransactionsCron(100).catch((err) => {
       console.error('Initial Stripe transaction sync error:', err.message || err);
