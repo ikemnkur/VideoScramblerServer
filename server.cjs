@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const mysql = require('mysql2/promise');
 const knex = require('./config/knex');
+const buildInsert = require('./lib/db/build-insert.cjs');
 const cors = require('cors');
 const bcrypt = require('bcrypt');
 const { v4: uuidv4 } = require('uuid');
@@ -40,16 +41,6 @@ const dbConfig = {
 
 // Create connection pool
 const pool = mysql.createPool(dbConfig);
-
-// Helper function to build INSERT queries from objects
-function buildInsert(tableName, data) {
-  const columns = Object.keys(data);
-  const placeholders = columns.map(() => '?').join(', ');
-  const values = Object.values(data);
-
-  const sql = `INSERT INTO ${tableName} (${columns.join(', ')}) VALUES (${placeholders})`;
-  return { sql, values };
-}
 
 // Analytics tracking
 const analytics = {
@@ -8490,5 +8481,4 @@ process.on('SIGINT', async () => {
   await knex.destroy();
   process.exit(0);
 });
-
 

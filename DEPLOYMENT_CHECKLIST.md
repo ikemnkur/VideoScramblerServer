@@ -1,98 +1,65 @@
-# 🚀 KeyChing Server Deployment Checklist
+# VideoScramblerServer deployment checklist
 
-## ✅ Pre-Deployment Requirements
+This is a verification checklist, not a claim that the current deployment
+automation is ready for a fresh installation. Start with [README.md](README.md)
+for current configuration and known setup gaps.
 
-- [ ] Node.js 18+ installed
-- [ ] MySQL 8.0+ installed and running
-- [ ] Server has network access to MySQL database
-- [ ] Required ports are open (3001 or custom PORT)
+## Before deployment
 
-## ✅ Setup Steps
+- [ ] Run `npm test` and `node --check server.cjs`.
+- [ ] Verify the target revision and obtain a database backup using your existing
+  operational process.
+- [ ] Verify a compatible database schema and review incremental changes in
+  [DB/](DB/); there is no verified ordered migration sequence yet.
+- [ ] Confirm Node, MySQL, Python, and FFmpeg availability.
+- [ ] Confirm production credentials are supplied outside version control:
+  database, JWT/admin secrets, Stripe, and any enabled email/cloud integrations.
+- [ ] Confirm the desired `PORT`, CORS origins, frontend URL, and webhook URLs.
+- [ ] Confirm the database port works for every active connection configuration;
+  [config/db.js](config/db.js) does not currently read `DB_PORT`.
+- [ ] Prepare `python/venv/bin/python3` and the dependencies for the media features
+  being deployed. The Python requirements file is incomplete for all features.
+- [ ] Ensure `logs` is writable and runtime upload/output directories have
+  appropriate permissions and storage.
 
-1. **📁 File Structure**
-   - [ ] `server.cjs` - Main server file
-   - [ ] `package.json` - Dependencies and scripts
-   - [ ] `KeyChingDB.sql` - Database schema
-   - [ ] `.env.example` - Environment template
-   - [ ] `README.md` - Documentation
+## Review automation before running it
 
-2. **🗄️ Database Setup**
-   - [ ] MySQL service running: `sudo systemctl status mysql`
-   - [ ] Import database: `mysql -u root -p < KeyChingDB.sql`
-   - [ ] Verify tables: `mysql -u root -p -e "USE KeyChingDB; SHOW TABLES;"`
+- [ ] Check [.github/workflows/deploy.yml](.github/workflows/deploy.yml): it runs on
+  pushes to `main` and manual dispatch, and invokes
+  `/root/VideoScramblerServer/deploy.sh` on the remote host.
+- [ ] Confirm the remote script exists and matches the intended revision. The
+  tracked script is [deploy/deploy.sh](deploy/deploy.sh), not a root-level script.
+- [ ] Review [deploy/deploy.sh](deploy/deploy.sh) before execution: it pulls code,
+  installs dependencies, restarts PM2 processes, and copies/reloads Nginx config.
+  Do not run it as a local setup command.
+- [ ] Confirm PM2 process names and whether the separately managed Flask process
+  is still needed. Main media routes now use direct Python child processes.
+- [ ] If Google TTS is enabled, verify the separate `TTS_SERVER_LINK` service and
+  its dependencies independently.
+- [ ] Review [deploy/nginx-videoscrambler.conf](deploy/nginx-videoscrambler.conf)
+  for the correct domain, TLS, routing, and upload limits.
 
-3. **⚙️ Environment Configuration**
-   - [ ] Copy environment template: `cp .env.example .env`
-   - [ ] Update database credentials in `.env`
-   - [ ] Set correct HOST and PORT in `.env`
+## Verify the running application
 
-4. **📦 Dependencies**
-   - [ ] Install packages: `npm install`
-   - [ ] Verify installation: `npm list --depth=0`
+- [ ] Check process status and logs; confirm the startup database check succeeded.
+- [ ] Request `/` to check HTTP serving. The Node API does **not** implement
+  `/health`, and serving a static page is not proof of database readiness.
+- [ ] Test login with a dedicated test account.
+- [ ] Exercise a small media upload and download with known test fixtures.
+- [ ] Check an authenticated database-backed route.
+- [ ] Verify enabled payment/email/TTS features using the appropriate safe test
+  procedure; avoid unintended charges or customer emails.
+- [ ] Confirm firewall, HTTPS, access restrictions, monitoring, and rollback
+  procedures before exposing the deployment.
 
-## ✅ Testing & Validation
-
-5. **🧪 Syntax & Connection Tests**
-   - [ ] Syntax check: `node -c server.cjs`
-   - [ ] Database connectivity test (start server temporarily)
-
-6. **🌐 API Testing**
-   - [ ] Health check: `curl http://localhost:3001/health`
-   - [ ] Login test: `curl -X POST http://localhost:3001/api/auth/login -H "Content-Type: application/json" -d '{"username":"user_123","password":"demo123"}'`
-   - [ ] Data retrieval: `curl http://localhost:3001/api/userData`
-
-## ✅ Production Deployment
-
-7. **🚀 Start Server**
-   - [ ] Development: `npm run dev`
-   - [ ] Production: `npm start`
-   - [ ] Or use startup script: `./start.sh`
-
-8. **🔧 Process Management (Optional)**
-   - [ ] Install PM2: `npm install -g pm2`
-   - [ ] Start with PM2: `pm2 start server.cjs --name keyching-api`
-   - [ ] Setup auto-restart: `pm2 startup`
-
-9. **🛡️ Security & Performance**
-   - [ ] Configure firewall rules
-   - [ ] Setup reverse proxy (Nginx)
-   - [ ] Enable SSL/HTTPS
-   - [ ] Set up monitoring and logging
-
-## ✅ Verification Commands
+## Useful commands
 
 ```bash
-# Check server status
-curl http://localhost:3001/health
-
-# Test authentication
-curl -X POST http://localhost:3001/api/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"username":"user_123","password":"demo123"}'
-
-# Verify database tables
-mysql -u root -p -e "USE KeyChingDB; SELECT COUNT(*) FROM userData;"
-
-# Check server logs
-tail -f logs/server.log  # if using PM2
-# or check console output
+curl -i http://localhost:3001/
+# For the process name used by the tracked deployment script:
+pm2 status
+pm2 logs video-scrambler-node --lines 50 --nostream
 ```
 
-## 🚨 Common Issues & Solutions
-
-- **Database Connection Failed**: Check credentials in `.env`, MySQL service status
-- **Port Already in Use**: Change PORT in `.env` or kill existing process
-- **Permission Denied**: Check file permissions, MySQL user privileges
-- **Module Not Found**: Run `npm install` to install dependencies
-
-## 📞 Support
-
-If issues persist:
-1. Check the README.md for detailed troubleshooting
-2. Verify all environment variables are set correctly
-3. Test database connection independently
-4. Check server logs for specific error messages
-
----
-**📅 Last Updated**: $(date)
-**🏗️ Ready for Deployment!**
+Application file logs use `logs/universal_<ISO timestamp>.log`, not
+`logs/server.log`. Use the actual current file when inspecting logs.
